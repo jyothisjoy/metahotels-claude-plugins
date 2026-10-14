@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Secrets and machine state (live in ~/.metahotels-seo, never here)
+adc.json
+token.json
+mirai.json
+*.env
+.env
+
+# OS
+.DS_Store
+Thumbs.db

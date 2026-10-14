@@ -1,0 +1,13 @@
+{
+  "name": "metahotels",
+  "owner": { "name": "MetaHotels" },
+  "metadata": { "description": "MetaHotels Claude Code plugins (private)" },
+  "plugins": [
+    {
+      "name": "hotel-seo",
+      "source": "./plugins/hotel-seo",
+      "description": "Hotel SEO lists for MetaHotels: crawl, audit, Search Console, GA4 and Mirai analysis, Priority / Nice-to-Have / Web Team PDFs and agency re-checks",
+      "version": "0.2.0"
+    }
+  ]
+}
