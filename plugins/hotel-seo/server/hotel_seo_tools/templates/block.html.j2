@@ -1,0 +1,13 @@
+{% if b.p is defined %}<p>{{ b.p | rich }}</p>
+{% elif b.ol is defined %}<ol>{% for li in b.ol %}<li>{{ li | rich }}</li>{% endfor %}</ol>
+{% elif b.ul is defined %}<ul>{% for li in b.ul %}<li>{{ li | rich }}</li>{% endfor %}</ul>
+{% elif b.table is defined %}<table class="grid">
+  <thead><tr>{% for c in b.table.columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+  <tbody>{% for row in b.table.rows %}<tr>{% for cell in row %}<td class="{{ cell | status_class }}">{{ cell | rich }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+</table>
+{% elif b.code is defined %}<pre class="code">{{ b.code }}</pre>
+{% elif b.warning is defined %}<div class="warning">{{ b.warning | rich }}</div>
+{% elif b.paste is defined %}<div class="paste">{{ b.paste | rich }}</div>
+{% elif b.note is defined %}<div class="note">{{ b.note | rich }}</div>
+{% elif b.h3 is defined %}<h3>{{ b.h3 | rich }}</h3>
+{% endif %}

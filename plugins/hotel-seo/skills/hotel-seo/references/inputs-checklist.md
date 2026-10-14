@@ -1,0 +1,80 @@
+# SEO List Inputs Checklist
+
+What a full run uses, who gets it, and what to call it when it's missing. In the run summary, list anything missing under **Missing inputs** using the names below in bold.
+
+Anyone on the MetaHotels team can do every "From you" item except the hotel facts. Drop the files into the hotel's folder (`<domain>/`) before the run, or attach them in desktop chat. If they arrive later, re-run `/hotel-seo <domain>`: it builds on the last run.
+
+---
+
+## Once per machine
+
+- [ ] `/hotel-seo init` from Claude Code (CLI or the desktop app's Code tab): installs LibreCrawl and Chromium, sets up the desktop app, and signs Google in as metahotels.m@gmail.com.
+- [ ] Desktop chat users: upload `~/.metahotels-seo/hotel-seo-skill.zip` (Settings → Capabilities → Skills) and restart the app.
+- [ ] `/hotel-seo init --check` shows all OK.
+
+## A. New hotel: Priority, Nice-to-Have and Web Team lists
+
+### 1. Basics. Claude finds these
+- **Website URL**: from the command.
+- **Mirai hotel ID**: from [team.md](team.md) or the site's booking links.
+- **History** (previous management company, recent rebuild, sister hotels on the same domain): from the site, Search Console and the crawl. Tell Claude if you already know it.
+
+### 2. Search Console
+**Claude pulls through the MCP:** performance for the last 3 months and the previous 3 (queries, pages, countries, devices, search appearance, dates), sitemaps (status and discovered pages), URL Inspection where the crawl and the live page disagree.
+
+**From you** (the API doesn't expose these reports; 5 min):
+- [ ] **Indexing → Pages**: screenshot of the top chart and the reasons table
+- [ ] **Not found (404)** drilldown: click the reason → Export CSV
+- [ ] **Crawled – currently not indexed** drilldown: Export CSV
+- [ ] **Soft 404** drilldown, only if it's listed
+- [ ] **Links export**: Links → External links → Top target pages → Export CSV
+- [ ] **Manual actions / Security issues**: screenshot only if there's an issue
+
+If the hotel's property isn't visible to metahotels.m@gmail.com, that is **Search Console access**: add the account as a user on the property.
+
+### 3. GA4
+**Claude pulls through the MCP, last 90 days:** events (`purchase` count and revenue, refunds), traffic acquisition by session source / medium with revenue, users and sessions by country, hostname × sessions when the numbers look off.
+
+If the property isn't visible to metahotels.m@gmail.com, that is **GA4 access**: add the account as a Viewer.
+
+### 4. Mirai
+**Claude pulls through the Mirai API** (`mirai_reservations`) when the machine has Mirai XML API credentials (set once with `hotel-seo-mirai-login`; see init step 4): bookings, revenue, ADR, seasonality, channel source, promo codes and offers sold.
+
+**From you, only if the API isn't set up** (2 min):
+- [ ] **Mirai reservations export**: switch the property view to the hotel → Reservations → booking date **1 Mar 2026 → today** → Export Excel. Name it anything; put it in `<domain>/`.
+
+Claude checks the live booking engine itself (offers, member rate, cancellation terms).
+
+### 5. Crawl. Claude runs it
+`crawl_site` with LibreCrawl, which starts by itself. Nothing to export. See [librecrawl.md](librecrawl.md).
+
+### 6. Live site
+Claude checks desktop and mobile with Claude in Chrome when it's connected (approve the site when asked), otherwise by fetching pages.
+
+---
+
+## B. Hotel facts (from the hotel contact)
+
+Needed before anything marked **[CONFIRM]** goes live. The run ends with the exact questions as a message to the hotel contact.
+- Current offers: name, discount, booking and stay dates, conditions, whether they stack with the member rate
+- Loyalty / member benefits
+- Room count, max occupancy per room type (adults + children)
+- Distances (airport, metro, landmarks), check-in and check-out, cancellation policy
+- Services the site contradicts itself on (room service, breakfast, transfers, parking)
+
+---
+
+## C. Re-check (after the agency says "done")
+
+**Claude does:** the re-crawl and audit, every item's checks against the live site (`recheck_list`: titles, metas, H1s, redirects, removed text and links, schema, alt text), Search Console sitemaps, and the re-issued report.
+
+**From you:**
+- [ ] **Agency change list**: their WhatsApp messages, pasted or screenshotted
+- [ ] **Bing sitemap screenshot**: Bing Webmaster Tools → Sitemaps
+
+---
+
+## D. Standing access
+
+- [ ] metahotels.m@gmail.com has Search Console and GA4 access for every hotel on the rollout list (`init --check` shows how many properties it sees).
+- [ ] Mirai XML API credentials (from integrations@mirai.com) on each machine, or the Mirai masterkey (individual hotel views) for the reservations export.

@@ -1,0 +1,59 @@
+/* Matches the manual Al Bahar and Atana lists of 14 Oct 2026 (Playbook section 8). */
+@page { size: A4; margin: 14mm 13mm 16mm 13mm; }
+:root {
+  --navy: #12355b;
+  --bar: #1f3a5a;
+  --green: #2e7d32;
+  --green-bg: #eef7ef;
+  --ink: #1f2328;
+  --muted: #5b6470;
+  --rule: #d6dbe1;
+  --row: #f5f7fa;
+  --gold: #a46a00;
+  --red: #b42318;
+  --red-bg: #fdf1f0;
+  --code-bg: #eef1f5;
+}
+* { box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; font-size: 9.6pt; line-height: 1.45; color: var(--ink); margin: 0; }
+h1 { color: var(--navy); font-size: 19pt; margin: 0 0 2pt; line-height: 1.2; }
+.sub { color: var(--muted); margin: 0 0 9pt; }
+h2 { color: #fff; background: var(--bar); font-size: 12pt; margin: 13pt 0 5pt; padding: 5pt 9pt; border-radius: 3pt;
+     display: flex; justify-content: space-between; align-items: baseline; break-after: avoid; }
+h2 .time { color: #fff; font-size: 8.5pt; font-weight: 400; white-space: nowrap; margin-left: 10pt; }
+h2 .hold { color: #f0a640; }
+h3 { color: var(--navy); font-size: 10.5pt; margin: 9pt 0 3pt; break-after: avoid; }
+p { margin: 4pt 0; }
+.why { font-style: italic; color: #3d4652; margin: 3pt 0 6pt; }
+.lead { border-left: 3.5px solid var(--green); background: var(--green-bg); padding: 6pt 9pt; margin: 6pt 0 8pt; }
+.paste { border: 1px solid #b9dcbf; background: var(--green-bg); padding: 6pt 9pt; margin: 6pt 0; break-inside: avoid; }
+.linkto { color: var(--muted); font-size: 8.4pt; }
+.hold { color: var(--gold); font-weight: 700; }
+ol, ul { margin: 4pt 0 6pt; padding-left: 17pt; }
+li { margin: 2pt 0; }
+code { font-family: Consolas, "SFMono-Regular", Menlo, monospace; font-size: 8.6pt; background: var(--code-bg);
+       padding: 0.5pt 3pt; border-radius: 2pt; }
+pre.code { font-family: Consolas, "SFMono-Regular", Menlo, monospace; font-size: 7.8pt; background: var(--code-bg);
+           border: 1px solid var(--rule); padding: 6pt 8pt; white-space: pre-wrap; word-break: break-all; margin: 5pt 0; }
+table.grid { width: 100%; border-collapse: collapse; margin: 5pt 0 8pt; font-size: 8.8pt; }
+table.grid th { background: var(--navy); color: #fff; text-align: left; font-weight: 600; padding: 4pt 6pt; }
+table.grid td { border: 1px solid var(--rule); padding: 4pt 6pt; vertical-align: top; }
+table.grid tbody tr:nth-child(even) td { background: var(--row); }
+table.grid tr { break-inside: avoid; }
+table.summary td:first-child { width: 22pt; }
+table.summary td:last-child { width: 70pt; white-space: nowrap; }
+table.summary tr.finish td { background: #fff; }
+table.summary.boxed { border: 1px solid var(--rule); border-radius: 4pt; border-collapse: separate; border-spacing: 0;
+                      padding: 4pt 6pt; background: #f8f9fb; }
+table.summary.boxed td { border: none; padding: 2.5pt 5pt; background: transparent !important; }
+table.summary.boxed td:first-child { font-weight: 700; }
+table.working td:nth-child(2) { width: 42pt; }
+td.st-done { color: #1a7f37; font-weight: 600; }
+td.st-partly { color: var(--gold); font-weight: 600; }
+td.st-open { color: var(--red); font-weight: 600; }
+.warning { border: 1.2px solid #e8a39c; background: var(--red-bg); padding: 7pt 9pt; margin: 8pt 0; break-inside: avoid; }
+.note { border-left: 3px solid var(--navy); background: var(--row); padding: 5pt 8pt; margin: 6pt 0; break-inside: avoid; }
+.confirm { color: var(--red); font-weight: 700; }
+.footer-line { margin-top: 14pt; padding-top: 6pt; border-top: 1px solid var(--rule); color: var(--muted); }
+section { break-inside: auto; }

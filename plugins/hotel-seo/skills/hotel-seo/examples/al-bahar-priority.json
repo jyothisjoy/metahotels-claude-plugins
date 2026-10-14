@@ -1,0 +1,351 @@
+{
+ "hotel": "Al Bahar Hotel & Resort",
+ "short_name": "Al Bahar",
+ "site": "https://albaharhotelandresort.com",
+ "title": "Priority SEO List",
+ "date": "13 Oct",
+ "file_number": 21,
+ "subtitle": "From MetaHotels · albaharhotelandresort.com · from Search Console, GA4, a full crawl and live checks of the site and booking engine on 13 Oct · about 4 hours 10 minutes · Priority — do the full list; then Nice-to-Have items once all Priority lists are done",
+ "lead": "**The single biggest issue: the site has no SEO plugin running.** Almost every title is a WordPress default, meta descriptions are gone and the sitemap Google has returns 404. The money searches (\"hotels in fujairah\", \"resorts in fujairah\") sit at positions 9–15, close to page one. **Timing matters:** November and December are the biggest months for direct bookings, so these fixes need to be live before the season starts.",
+ "summary": {
+  "columns": [
+   "#",
+   "Task",
+   "Time"
+  ],
+  "rows": [
+   [
+    "A",
+    "Switch an SEO plugin back on (Rank Math) and recover the old titles and metas",
+    "30 min"
+   ],
+   [
+    "B",
+    "Site identity + one clean Hotel schema (remove the 5 sitewide blocks)",
+    "25 min"
+   ],
+   [
+    "C",
+    "Credibility fixes (wrong city, wrong room text, junk posts, dead links)",
+    "30 min"
+   ],
+   [
+    "D",
+    "Titles, meta descriptions and H1s",
+    "60 min"
+   ],
+   [
+    "E",
+    "Internal links (39 links hit redirects, 3 are dead, Rewards page is not linked)",
+    "25 min"
+   ],
+   [
+    "F",
+    "Noindex and merge list pages",
+    "20 min"
+   ],
+   [
+    "G",
+    "Redirects for old URLs",
+    "15 min"
+   ],
+   [
+    "H",
+    "Alt text (30 images)",
+    "30 min"
+   ],
+   [
+    "I",
+    "Sitemap + Search Console + Bing",
+    "15 min"
+   ]
+  ],
+  "finish": "LiteSpeed → Purge All → send MetaHotels the change list (mark items done only once live)"
+ },
+ "working": [
+  [
+   "http / www → https",
+   "OK",
+   "`http://www.albaharhotelandresort.com/` now 301s to `https://albaharhotelandresort.com/`."
+  ],
+  [
+   "Booking tracking",
+   "OK",
+   "GA4 records `purchase` with revenue: 140 bookings, AED 131,925 in 90 days."
+  ],
+  [
+   "Booking engine",
+   "OK",
+   "Rates, Non-refundable vs Free cancellation and the member discount display correctly."
+  ]
+ ],
+ "warnings_top": [
+  "**Do not change offers or prices.** Leave the pop-up, the offer pages and the FAQ price and discount answers exactly as they are until we send confirmed copy. Anything marked [CONFIRM] waits for the hotel. Do item A first: items D, F and I need it."
+ ],
+ "sections": [
+  {
+   "number": "A",
+   "title": "Switch an SEO plugin back on",
+   "time": "30 min",
+   "why": "No SEO plugin is active on the live site. All 157 crawled pages have no meta description, no share-preview tags, and titles fall back to \"Page – Al Bahar Hotel & Resort\". The sitemap Google has on file (sitemap_index.xml) returns 404. The site earned AED 36,541 from Google organic in the last 90 days (35 bookings), so this is the first fix.",
+   "blocks": [
+    {
+     "ol": [
+      "Plugins → Installed Plugins. If **Yoast SEO** is listed but inactive, tell MetaHotels before deleting anything (its data is what we import in step 3).",
+      "Plugins → Add New → install and activate **Rank Math SEO**. Run the Setup Wizard in **Advanced** mode. Site type: **Hotel / Local business**.",
+      "In the wizard, when it offers **Import from Yoast SEO**, tick everything and import. If it does not offer it: Rank Math → Status & Tools → Import & Export → Other Plugins → Yoast SEO → Import. This brings back the old titles and metas where they still exist in the database.",
+      "Rank Math → Dashboard → Modules: turn **on** Sitemap, Schema, Local SEO, Image SEO. Leave **Redirections off** (the site already uses the *Redirection* plugin under Tools → Redirection; keep all redirects in one place).",
+      "Rank Math → Titles & Meta → Global Meta: Separator `|`. Posts → Single Post Title: `%title%` (blog titles are already long). Pages → Single Page Title: `%title% | %sitename%`.",
+      "After Rank Math is active, delete the old file `/llms.txt` from the site root (File Manager) or ask MetaHotels to. It was written by Yoast and points to pages we are about to noindex."
+     ]
+    },
+    {
+     "p": "If you cannot install plugins with your login, message MetaHotels straight away and continue with items C, E, G and H."
+    }
+   ],
+   "checks": [
+    {
+     "type": "status",
+     "url": "/sitemap_index.xml",
+     "expected": 200
+    },
+    {
+     "type": "status",
+     "url": "/llms.txt",
+     "expected": 404
+    },
+    {
+     "type": "manual",
+     "description": "Rank Math active with Sitemap, Schema, Local SEO and Image SEO modules on; Redirections module off"
+    }
+   ]
+  },
+  {
+   "number": "B",
+   "title": "Site identity + one clean Hotel schema",
+   "time": "25 min",
+   "why": "Five schema blocks are printed on **every** page (Organization, LocalBusiness, Product, FAQPage, Hotel). The Product block gives the hotel a 5-star rating from 2 reviews \"written by Al Bahar\", which is self-serving review markup.",
+   "blocks": [
+    {
+     "ol": [
+      "Rank Math → Titles & Meta → Local SEO: Person or Company = **Organization**; Name = `Al Bahar Hotel & Resort`; URL = `https://albaharhotelandresort.com/`.",
+      "Add one new WPCode snippet (HTML, Site Wide Header, Conditional Logic: Page = Homepage) and paste this exactly (shortened in this test fixture):"
+     ]
+    },
+    {
+     "code": "<script type=\"application/ld+json\">\n{\"@context\":\"https://schema.org\",\"@type\":\"Hotel\",\"@id\":\"https://albaharhotelandresort.com/#hotel\",\"name\":\"Al Bahar Hotel & Resort\",\"alternateName\":[\"Al Bahar Hotel and Resort Fujairah\",\"فندق ومنتجع البحر\"],\"url\":\"https://albaharhotelandresort.com/\",\"telephone\":\"+971 9 202 7000\",\"checkinTime\":\"15:00\",\"checkoutTime\":\"12:00\"}\n</script>"
+    },
+    {
+     "p": "Check with Google’s Rich Results Test on the homepage and on one room page. Check-in 15:00 and check-out 12:00 are copied from the schema already live [CONFIRM]."
+    }
+   ],
+   "checks": [
+    {
+     "type": "schema_count",
+     "url": "/",
+     "schema_type": "Hotel",
+     "expected": 1
+    },
+    {
+     "type": "schema_count",
+     "url": "/room/deluxe-king-room-sea-view/",
+     "schema_type": "Product",
+     "expected": 0
+    },
+    {
+     "type": "schema_count",
+     "url": "/room/deluxe-king-room-sea-view/",
+     "schema_type": "LocalBusiness",
+     "expected": 0
+    },
+    {
+     "type": "manual",
+     "description": "Rich Results Test on the homepage shows one Hotel item"
+    }
+   ]
+  },
+  {
+   "number": "C",
+   "title": "Credibility fixes",
+   "time": "30 min",
+   "why": "The site tells guests and Google the hotel offers \"Fine Dining in Dubai\" (it is in Fujairah, 21,911 dining impressions at stake), describes rooms with the wrong beds and views, and carries two junk blog posts.",
+   "blocks": [
+    {
+     "table": {
+      "columns": [
+       "Where",
+       "Now",
+       "Change to"
+      ],
+      "rows": [
+       [
+        "Homepage, \"delectable dining journey\" text and link",
+        "Experience the elegance of Fine Dining in Dubai right here in Fujairah, where every meal is a true culinary masterpiece.",
+        "Experience fine dining in Fujairah, where every meal is a true culinary masterpiece. (link text: fine dining in Fujairah, still to /dining/)"
+       ],
+       [
+        "/dining/ small heading above the H1",
+        "Fine Dining in Dubai",
+        "Fine Dining in Fujairah"
+       ],
+       [
+        "/room/deluxe-twin-room-sea-view/ description",
+        "spacious 50 sqm Executive Twin Room",
+        "spacious 50 sqm Deluxe Twin Room Sea View"
+       ],
+       [
+        "/room/deluxe-king-room-marina-view/ first paragraph",
+        "featuring a king-size bed **and two single beds** and an ensuite marble bathroom",
+        "featuring a king-size bed and an ensuite marble bathroom"
+       ],
+       [
+        "/contact-us/ address heading",
+        "**Bahar** Hotel & Resort Al Ghurfa, Corniche Road…",
+        "**Al Bahar** Hotel & Resort, Al Ghurfa, Corniche Road, P.O. Box 8282, Fujairah, UAE (also change it from H2 to normal text)"
+       ],
+       [
+        "Blog posts titled **x** and **cache** (Posts → search \"x\", \"cache\"; both dated 1 Jan 2020)",
+        "Published, empty, indexed at /blog/x/ and /blog/cache/",
+        "Set both to **Draft**. Do not delete: tell MetaHotels who the author is and the last-modified date shown."
+       ],
+       [
+        "Footer → Quick Links → **Festive Offers**",
+        "Links to a page that says \"No Content Available\"",
+        "Remove the link from the footer and set the page /festive-offers/ to noindex (item F). [CONFIRM] whether the hotel wants the page kept for December."
+       ],
+       [
+        "Footer and /contact-us/ X (Twitter) icon",
+        "https://twitter.com/hashtag/albaharresort?src=hashtag_click (a hashtag search)",
+        "https://x.com/albaharresort/"
+       ]
+      ]
+     }
+    },
+    {
+     "p": "**Hold, do not edit yet [CONFIRM]**: room amenity lists (every room, including Sea View rooms and both suites, shows \"View - Marina View\", \"Apartment\", \"Large Terrace\" and \"43 inch Flat screen TV\"); TV size (49\" on the homepage, 43\" on room pages); \"377 rooms\"; the pop-up \"special winter offers\"; FAQ \"up to 25% off\" and \"AED 400 to AED 600\"."
+    }
+   ],
+   "checks": [
+    {
+     "type": "text_absent",
+     "url": "sitewide",
+     "text": "Fine Dining in Dubai"
+    },
+    {
+     "type": "text_absent",
+     "url": "/room/deluxe-twin-room-sea-view/",
+     "text": "Executive Twin Room"
+    },
+    {
+     "type": "text_absent",
+     "url": "/room/deluxe-king-room-marina-view/",
+     "text": "and two single beds"
+    },
+    {
+     "type": "link_absent",
+     "url": "sitewide",
+     "href": "twitter.com/hashtag/albaharresort"
+    },
+    {
+     "type": "status",
+     "url": "/blog/cache/",
+     "expected": 404
+    },
+    {
+     "type": "status",
+     "url": "/blog/x/",
+     "expected": 404
+    }
+   ]
+  },
+  {
+   "number": "D",
+   "title": "Titles, meta descriptions and H1s",
+   "time": "60 min",
+   "why": "About 9 in 10 identified Google clicks are searches for the hotel’s own name. The non-brand money searches sit on page 1–2 without a matching title: \"hotels in fujairah\" (1,857 impressions, position 15.6), \"resorts in fujairah\" (1,230, 12.7), \"fujairah hotels\" (1,753, 9.4), \"hotel in fujairah near beach\" (674, 5.5).",
+   "blocks": [
+    {
+     "p": "Edit page → Rank Math box → Edit Snippet. Paste Title and Description exactly. H1: change the main heading widget in Elementor. One H1 per page; where a second heading repeats the H1 (room pages, blog posts), set the repeat to H2."
+    },
+    {
+     "table": {
+      "columns": [
+       "Page",
+       "Title",
+       "Meta description",
+       "H1"
+      ],
+      "rows": [
+       [
+        "`/`",
+        "Beach Hotel & Resort in Fujairah | Al Bahar – Official Site",
+        "5-star beachfront resort on the Fujairah Corniche with a private beach, pool and rooms, suites and apartments from 50 m². Book direct for member rates.",
+        "Luxury Beach Hotel & Resort in Fujairah"
+       ],
+       [
+        "`/accommodation/`",
+        "Rooms, Suites & Apartments in Fujairah | Al Bahar Hotel",
+        "Sea-view and marina-view rooms of 50 m², 1 and 2 bedroom apartments with kitchen, and suites up to 241 m² at Al Bahar Hotel & Resort. Book direct.",
+        "Rooms, Suites & Hotel Apartments in Fujairah"
+       ],
+       [
+        "`/dining/`",
+        "Restaurants in Fujairah | Dining at Al Bahar Hotel & Resort",
+        "All-day dining with sea views, Diwan Restaurant with shisha seating, La Perla café and Amwaj Pool & Beach Bar at Al Bahar Hotel & Resort, Fujairah.",
+        "Restaurants & Dining at Al Bahar Hotel & Resort, Fujairah"
+       ],
+       [
+        "`/offers/`",
+        "Hotel Offers & Staycation Deals in Fujairah | Al Bahar",
+        "Stay, staycation and dining offers at Al Bahar Hotel & Resort, Fujairah. Book on the official website for member-only rates.",
+        "Hotel Offers & Staycation Deals in Fujairah"
+       ],
+       [
+        "`/facilities/`",
+        "Private Beach, Pool, Spa & Gym | Al Bahar Hotel Fujairah",
+        "Private beach, outdoor pool and jacuzzi, spa, sauna, steam room, gym, salon and kids’ play area at Al Bahar Hotel & Resort, Fujairah.",
+        "Hotel Facilities: Private Beach, Pool, Spa & Gym"
+       ],
+       [
+        "`/meetings-events/`",
+        "Meetings, Events & Wedding Venue in Fujairah | Al Bahar",
+        "830 m² Emirates Ballroom for up to 750 guests, meeting rooms, a boardroom and in-house catering at Al Bahar Hotel & Resort, Fujairah.",
+        "Meetings, Events & Weddings in Fujairah"
+       ]
+      ]
+     }
+    },
+    {
+     "p": "The ballroom capacity of 750 guests comes from the /meetings-events/ page; [CONFIRM] it with the hotel before publishing this meta description."
+    }
+   ],
+   "checks": [
+    {
+     "type": "title",
+     "url": "/",
+     "expected": "Beach Hotel & Resort in Fujairah | Al Bahar – Official Site"
+    },
+    {
+     "type": "meta",
+     "url": "/",
+     "expected": "5-star beachfront resort on the Fujairah Corniche with a private beach, pool and rooms, suites and apartments from 50 m². Book direct for member rates."
+    },
+    {
+     "type": "h1",
+     "url": "/",
+     "expected": "Luxury Beach Hotel & Resort in Fujairah"
+    },
+    {
+     "type": "title",
+     "url": "/dining/",
+     "expected": "Restaurants in Fujairah | Dining at Al Bahar Hotel & Resort"
+    },
+    {
+     "type": "h1",
+     "url": "/dining/",
+     "expected": "Restaurants & Dining at Al Bahar Hotel & Resort, Fujairah"
+    }
+   ]
+  }
+ ]
+}

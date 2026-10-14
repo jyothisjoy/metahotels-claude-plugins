@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "hotel-seo-tools": {
+      "command": "uv",
+      "args": ["run", "--quiet", "--project", "${CLAUDE_PLUGIN_ROOT}/server", "hotel-seo-tools"],
+      "env": { "PYTHONUTF8": "1" }
+    },
+    "hotel-seo-gsc": {
+      "command": "uv",
+      "args": ["run", "--quiet", "--project", "${CLAUDE_PLUGIN_ROOT}/server", "hotel-seo-launch", "gsc"],
+      "env": { "PYTHONUTF8": "1" }
+    },
+    "hotel-seo-ga4": {
+      "command": "uv",
+      "args": ["run", "--quiet", "--project", "${CLAUDE_PLUGIN_ROOT}/server", "hotel-seo-launch", "ga4"],
+      "env": { "PYTHONUTF8": "1" }
+    }
+  }
+}

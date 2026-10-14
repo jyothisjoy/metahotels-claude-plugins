@@ -1,0 +1,27 @@
+[project]
+name = "hotel-seo-tools"
+version = "0.1.0"
+description = "MCP tools for the MetaHotels hotel-seo skill: LibreCrawl crawls, Custom Search, redirect tests and PDF lists"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.2,<2",
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "jinja2>=3.1",
+    "playwright>=1.44",
+    "google-auth-oauthlib>=1.2",
+    "defusedxml>=0.7",
+]
+
+[project.scripts]
+hotel-seo-tools = "hotel_seo_tools.server:main"
+hotel-seo-launch = "hotel_seo_tools.launch:main"
+hotel-seo-auth = "hotel_seo_tools.google_auth:main"
+hotel-seo-mirai-login = "hotel_seo_tools.mirai:login"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["hotel_seo_tools"]
