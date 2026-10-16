@@ -7,7 +7,7 @@
       "name": "hotel-seo",
       "source": "./plugins/hotel-seo",
       "description": "Hotel SEO lists for MetaHotels: crawl, audit, Search Console, GA4 and Mirai analysis, Priority / Nice-to-Have / Web Team PDFs and agency re-checks",
-      "version": "0.2.0"
+      "version": "0.4.0"
     }
   ]
 }

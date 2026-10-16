@@ -7,6 +7,9 @@ __pycache__/
 adc.json
 token.json
 mirai.json
+ads.json
+parity.json
+bing.json
 *.env
 .env
 

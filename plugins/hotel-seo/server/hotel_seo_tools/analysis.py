@@ -28,7 +28,9 @@ BUSINESS_TYPES = {'Hotel', 'Resort', 'LodgingBusiness', 'LocalBusiness', 'BedAnd
 OTA_DOMAINS = ('booking.com', 'agoda.', 'expedia.', 'hotels.com', 'trip.com', 'makemytrip.', 'goibibo.',
                'trivago.', 'kayak.', 'hotelscombined.', 'priceline.', 'travelocity.', 'orbitz.')
 CITIES = ['Dubai', 'Abu Dhabi', 'Sharjah', 'Ajman', 'Fujairah', 'Ras Al Khaimah', 'Umm Al Quwain', 'Al Ain',
-          'Doha', 'Riyadh', 'Jeddah', 'Muscat', 'Manama', 'Kuwait', 'Cairo', 'Beirut']
+          'Doha', 'Riyadh', 'Jeddah', 'Muscat', 'Manama', 'Kuwait', 'Beirut',
+          'Cairo', 'Giza', 'Alexandria', 'New Alamein', 'El Alamein', 'Hurghada', 'Sharm El Sheikh', 'El Gouna',
+          'Marsa Matrouh', 'Luxor', 'Aswan', 'Sahl Hasheesh', 'Ain Sokhna']
 SEASON = re.compile(r'\b(summer|winter|spring|autumn|ramadan|eid|iftar|christmas|xmas|festive|new year|nye|'
                     r'valentine|diwali|easter|national day)\b', re.I)
 SEASON_MONTHS = {'summer': {6, 7, 8, 9}, 'winter': {11, 12, 1, 2, 3}, 'spring': {3, 4, 5}, 'autumn': {9, 10, 11},

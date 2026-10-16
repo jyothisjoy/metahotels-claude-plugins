@@ -37,6 +37,7 @@ Two hotels a day. Who does what and when is in [team.md](team.md).
 - **Searches that land on the wrong page.** A brand search landing on a blog post, or a dining search landing on the homepage.
 - **Versions of the same page.** http/https, www/non-www and trailing slashes all getting impressions. *Al Bahar: the old http://www homepage still gets 1,748 clicks.* This is a red flag and becomes a Priority redirect and canonical fix.
 - **Junk pages indexed.** /search/, ?facility= and other parameter pages, tag, author, feed and archive pages, booking-engine step URLs, "X Archive" titles.
+- **Page indexing:** `index_status` gives every crawled and sitemap URL's state (Google limits it to 2,000 URLs a day per site; rerun to continue). Old URLs only Google remembers need the 404 export or the server's access logs.
 - **Page indexing drilldowns:**
   - **404s:** old-site URLs become redirect rules. Use **Regex** where there's a pattern. Leave URLs that belong to other hotels as 404.
   - **Crawled – not indexed:** usually feeds, tags and thin pages, so noindex or remove them.
@@ -44,7 +45,7 @@ Two hotels a day. Who does what and when is in [team.md](team.md).
   - **robots.txt patterns crawled as URLs** (`/*`, `/wp-content/*`): something prints them as links, usually llms.txt or a plugin. Find it and remove the links.
 - **Sitemaps.** Is it submitted? Remove dead or "Couldn't fetch" sitemaps. Is the discovered page count sensible?
 - **Countries.** Growing feeder markets, such as Russia, the UK and Germany, can justify a later language or content angle.
-- **Links.** The top linked pages and the sites linking to the hotel. Look for links from sister hotels or the old group site.
+- **Links.** `bing_report`: the top linked pages and the sites linking to the hotel. Look for links from sister hotels or the old group site.
 - **Manual actions / Security.** Only matters if there's an issue.
 
 ### GA4 (standard reports, last 90 days)
@@ -94,7 +95,7 @@ The crawl files are for detail:
 - **Speed:** goes on the Web Team list only. LibreCrawl's PageSpeed is off for hotel crawls; `response_time_ms` shows slow server responses.
 
 ### Live booking engine (always)
-Open the hotel's search URL (team.md) for a date in the next weeks. Note offers and their percentages, the member discount and what it includes, cancellation options, and packages on sale. Compare with the site:
+`booking_engine_snapshot` opens the hotel's search page in a browser for 3 sample stays and reads the engine's own data: offers and their discounts, the member discount, cancellation options, rooms with size and occupancy, and the price calendar. It also renders the site's room, offer and loyalty pages and compares them. Use `booking_engine.md`:
 - An offer on the site that the engine no longer sells (an expired "Summer Offer") → Priority expired pages.
 - A package the engine sells with no page on the site → Nice-to-Have new page, held **[waiting for hotel details]**.
 - A loyalty page that disagrees with the engine's member benefits → Nice-to-Have, held **[waiting for hotel confirmation]**.
@@ -124,6 +125,7 @@ Order by risk to credibility and rankings first, then by the money-search gain. 
 **Severity rule:** a problem on the **homepage, room pages, offers, contact or the booking path** (booking links, booking engine, pop-ups that lead to it) always goes on the Priority list, however small. So do canonicals that block indexing and sitewide broken links. `audit_site` tags these as Priority in `findings.json`.
 
 **Top of the list, before the items:**
+- **Rate parity first.** When `rate_parity` shows the hotel's site losing on 20%+ of priced checks, that is the lead box and the first line of the hotel-contact message (OTAs, devices, markets, worst gaps with screenshots). It is a revenue action, never a page edit; the SEO list still goes ahead.
 - **Lead box** (`lead`): the single biggest issue in two or three sentences with real numbers, plus why timing matters. *Al Bahar, from Mirai: "last year November and December were the hotel's two biggest months for direct bookings (AED 216k and 258k)".*
 - **"What's already working (no action)"** (`working`): 4–6 rows of things checked and fine, such as redirects, canonicals, booking tracking with GA4 numbers, alt text, and the booking engine's rates and member discount. It stops the agency redoing them and shows the hotel what's right.
 
@@ -278,5 +280,6 @@ In [team.md](team.md).
 - Old booking-engine links survive in blog posts and old content: `bookingstep1.en.html` with a 2023 date in Indian rupees, now 404. `audit_site` lists them as `booking_link_outdated`. Replace them with the standard booking link and add a Regex redirect for the ones Google still has.
 - LibreCrawl's link `placement` (navigation / footer / body) is unreliable on Elementor sites. "Sitewide" in `findings.md` means linked from at least 80% of pages, counted.
 - The booking engine sells things the site doesn't show. *Al Bahar: "Stay & Splash" water-sports packages had 6 bookings since July and no page, while the old water-sports offer pages 404.* Check Mirai rate plans against the offer pages on every run.
+- A Book Now button can open a sister hotel's booking engine. *Gewan Hotel Cairo (Oct 2026): the Rooms & Suites button opened Gewan Palace, New Alamein.* `audit_site` with `mirai_id` flags every link whose Mirai ID isn't the hotel's and names the hotel it opens.
 - Prices written into FAQs go out of date and contradict the booking engine. Replace them with "Rates change by date and room type; you'll see live prices when you check availability."
 - WordPress MCP / abilities plugins expose site control under `/wp-json/` (`mcp`, `wp-abilities`, `elementor-mcp-composer`). Check they require authentication before using them across hotels.

@@ -79,7 +79,7 @@ def is_booking_href(href):
                 or re.search(r'/search/?$', p.path) and p.query or re.search(r'reserv|booking-engine', p.netloc))
 
 
-def booking_link_problems(href, today=None):
+def booking_link_problems(href, today=None, main_currency='AED'):
     """Old booking-engine addresses and stale parameters (a 2023 check-in date, a foreign currency)."""
     probs = []
     q = parse_qs(urlparse(href).query)
@@ -97,8 +97,8 @@ def booking_link_problems(href, today=None):
                 if d < (today or date.today()):
                     probs.append(f'check-in date in the past ({v})')
     cur = (q.get('currency') or [''])[0]
-    if cur and cur.upper() not in ('AED',):
-        probs.append(f'currency {cur}')
+    if cur and main_currency and cur.upper() != main_currency.upper():
+        probs.append(f'currency {cur} (the site mostly uses {main_currency})')
     return probs
 
 
@@ -185,6 +185,33 @@ def scan_pages(urls, home_host, delay=0.3, progress=None):
     return pages, texts, links
 
 
+def booking_link_hotels(links, mirai_id=''):
+    """Which hotel each booking link opens: its Mirai ID (idtokenprovider) against the hotel's own.
+    Names come from the parity feed's hotel roster when it is set up. A link to another hotel's
+    booking engine sends the guest to the wrong hotel (e.g. a Cairo "Rooms & Suites" button that
+    opened Gewan Palace, New Alamein)."""
+    ids = Counter()
+    by_id = defaultdict(list)
+    for l in links:
+        q = parse_qs(urlparse(l['href']).query)
+        for v in q.get('idtokenprovider', []) + q.get('idTokenProvider', []):
+            ids[v] += 1
+            by_id[v].append(l)
+    own = str(mirai_id) if mirai_id else (ids.most_common(1)[0][0] if ids else '')
+    try:
+        from . import parity
+        roster = parity.hotel_roster()
+    except Exception:
+        roster = {}
+    other = []
+    for v, ls in by_id.items():
+        if v != own:
+            for l in ls:
+                other.append(dict(l, mirai_id=v, opens=roster.get(v, 'unknown hotel (not in the roster)')))
+    return {'own_mirai_id': own, 'own_name': roster.get(own, ''), 'ids_seen': dict(ids),
+            'roster_used': bool(roster), 'links_to_other_hotels': other}
+
+
 def check_booking_links(links, delay=0.3):
     s = requests.Session()
     s.headers['User-Agent'] = UA
@@ -195,8 +222,10 @@ def check_booking_links(links, delay=0.3):
         time.sleep(delay)
     dead = [dict(l, status=status[l['href']]) for l in links
             if status.get(l['href'], 0) == 0 or status[l['href']] >= 400]
-    outdated = [dict(l, status=status[l['href']], problems=booking_link_problems(l['href'])) for l in links
-                if booking_link_problems(l['href'])]
+    curs = Counter(c.upper() for l in links for c in parse_qs(urlparse(l['href']).query).get('currency', []))
+    main = curs.most_common(1)[0][0] if curs else ''
+    outdated = [dict(l, status=status[l['href']], problems=booking_link_problems(l['href'], main_currency=main))
+                for l in links if booking_link_problems(l['href'], main_currency=main)]
     return {'unique_links_checked': len(status), 'dead': dead,
             'dead_unique': sorted({d['href'] for d in dead}),
             'outdated': outdated,
@@ -319,7 +348,7 @@ def gsc_spam_queries(site_property, days=90):
 
 # ---------------------------------------------------------------- main
 
-def audit(crawl_dir, site_property='', progress=None, hotel_city=''):
+def audit(crawl_dir, site_property='', progress=None, hotel_city='', mirai_id=''):
     crawl_dir = paths.resolve(crawl_dir)
     data = json.loads((crawl_dir / 'crawl.json').read_text(encoding='utf-8'))
     start = (data.get('stats') or {}).get('baseUrl') or data['urls'][0]['url']
@@ -336,6 +365,7 @@ def audit(crawl_dir, site_property='', progress=None, hotel_city=''):
     pages, texts, links = scan_pages(urls, home_host, progress=progress)
     step('checking booking links')
     booking = check_booking_links(links)
+    booking['hotels'] = booking_link_hotels(links, mirai_id)
     step('WordPress REST API')
     wp = wordpress(site)
     spam = gsc_spam_queries(site_property)
@@ -403,6 +433,9 @@ def audit(crawl_dir, site_property='', progress=None, hotel_city=''):
     for d in booking['outdated']:
         add('booking_link_outdated', d['source'], f"{d['text'] or 'link'} -> {d['href']}: "
             + '; '.join(d['problems']), 'Priority')
+    for d in booking['hotels']['links_to_other_hotels']:
+        add('booking_link_other_hotel', d['source'], f"{d['text'] or 'link'} opens {d['opens']} (Mirai "
+            f"{d['mirai_id']}), not this hotel ({booking['hotels']['own_mirai_id']})", 'Priority')
     for a in report['account_pages']:
         if not a['noindex']:
             add('booking_page_indexable', a['url'], 'booking-engine or account page without noindex', 'Priority')
@@ -550,6 +583,10 @@ def findings_md(f):
         if x['sitewide']:
             L.append(f"- Sitewide link through a redirect: {x['target']} → {x.get('final')} ({x['pages_linking']} pages)")
     L.append('- Old → final address pairs for a bulk search-and-replace: replace_pairs.csv')
+    bh = b.get('hotels', {})
+    L.append(f"- Booking links by hotel (Mirai ID): {bh.get('ids_seen')}; own {bh.get('own_mirai_id')} "
+             f"{bh.get('own_name', '')}; links opening another hotel: {len(bh.get('links_to_other_hotels', []))}"
+             + ('' if bh.get('roster_used') else ' (names need the parity feed: hotel-seo-parity-login)'))
     L.append(f"- Booking links: {b['unique_links_checked']} checked, {len(b['dead_unique'])} dead, "
              f"{len(b['outdated'])} outdated (old booking-step address, past dates, other currency); formats: {b['formats']}")
     L.append('')

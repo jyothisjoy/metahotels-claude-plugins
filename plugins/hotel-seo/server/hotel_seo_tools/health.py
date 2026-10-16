@@ -54,6 +54,14 @@ def check_google():
                              'Signed in with an account that has no Search Console access. ' + signin))
         except Exception as e:  # noqa: BLE001
             rows.append(_row('Search Console sign-in', False, f'token refresh or API call failed: {e}', signin))
+    from . import keywords
+    ok, why = keywords.configured()
+    # optional: Keyword Planner only; never fails the check
+    rows.append(_row('Google Ads (Keyword Planner)', True, 'set up' if ok else f'optional, not set up: {why}'))
+    from . import bing, parity
+    for name, mod in (('Rate parity feed (Azure)', parity), ('Bing Webmaster API', bing)):
+        ok, why = mod.configured()
+        rows.append(_row(name, True, 'set up' if ok else f'optional, not set up: {why}'))
     return rows
 
 

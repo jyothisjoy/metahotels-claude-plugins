@@ -11,11 +11,16 @@ dependencies = [
     "playwright>=1.44",
     "google-auth-oauthlib>=1.2",
     "defusedxml>=0.7",
+    "google-ads>=25.0",
+    "azure-storage-blob>=12.19",
 ]
 
 [project.scripts]
 hotel-seo-tools = "hotel_seo_tools.server:main"
 hotel-seo-launch = "hotel_seo_tools.launch:main"
+hotel-seo-ads-login = "hotel_seo_tools.keywords:login"
+hotel-seo-parity-login = "hotel_seo_tools.parity:login"
+hotel-seo-bing-login = "hotel_seo_tools.bing:login"
 hotel-seo-auth = "hotel_seo_tools.google_auth:main"
 hotel-seo-mirai-login = "hotel_seo_tools.mirai:login"
 

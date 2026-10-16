@@ -15,7 +15,7 @@ import uuid
 
 from mcp.server.fastmcp import FastMCP
 
-from . import __version__, audit, checks, facts, health, librecrawl, librecrawl_proc, mirai, pagecheck, paths, pdf
+from . import __version__, audit, bing, booking_engine, checks, indexing, keywords, parity, facts, health, librecrawl, librecrawl_proc, mirai, pagecheck, paths, pdf
 
 mcp = FastMCP('hotel-seo-tools')
 
@@ -197,7 +197,8 @@ def render_lists_pdf(out_dir: str, json_path: str = '', data: dict | None = None
 
 
 @mcp.tool()
-def audit_site(crawl_dir: str, gsc_property: str = '', hotel_city: str = '', wait_seconds: int = 45) -> dict:
+def audit_site(crawl_dir: str, gsc_property: str = '', hotel_city: str = '', mirai_id: str = '',
+               wait_seconds: int = 45) -> dict:
     """Compute every count and finding in code from a finished crawl. Fetches each 200 page once and
     reports, with full counts and URLs:
     - per page: H1s, titles, metas, canonicals, robots, JSON-LD (invalid blocks, every business /
@@ -210,7 +211,8 @@ def audit_site(crawl_dir: str, gsc_property: str = '', hotel_city: str = '', wai
       thin page groups (/facility/, /nearby/...), near-empty pages, odd slugs
     - links: broken and redirected targets grouped by target with page counts and a sitewide flag;
       replace_pairs.csv (old -> final address) for a bulk search-and-replace
-    - booking links: dead, old booking-step addresses, past check-in dates, other currencies
+    - booking links: dead, old booking-step addresses, past check-in dates, other currencies, and links
+      that open ANOTHER hotel's booking engine (mirai_id = this hotel's Mirai ID; names from the parity roster)
     - copy: phone numbers and odd country codes, different distances for one landmark, prices in the
       text, out-of-season wording, old years in titles, another city in headings (hotel_city, else
       read from the schema), blog post author names, blog posts with no link to rooms or booking
@@ -221,7 +223,8 @@ def audit_site(crawl_dir: str, gsc_property: str = '', hotel_city: str = '', wai
       versions still getting clicks, booking pages in search, Arabic searches
     Writes findings.json, findings.md, site_text.json and replace_pairs.csv in crawl_dir. Use these
     numbers in the lists; never count by hand. Background job: poll job_status."""
-    job = _start_job('audit', audit.audit, crawl_dir, site_property=gsc_property, hotel_city=hotel_city)
+    job = _start_job('audit', audit.audit, crawl_dir, site_property=gsc_property, hotel_city=hotel_city,
+                     mirai_id=mirai_id)
     return _wait(job, wait_seconds)
 
 
@@ -258,6 +261,79 @@ def mirai_reservations(hotel_id: str, date_from: str = '', date_to: str = '', wa
         return mirai.reservations(hotel_id)
     job = _start_job('mirai', mirai.reservations, hotel_id, date_from, date_to)
     return _wait(job, wait_seconds)
+
+
+@mcp.tool()
+def booking_engine_snapshot(site: str, hotel_id: str, out_dir: str, crawl_dir: str = '', facts_file: str = '',
+                            peak_month: int = 12, stays: list[dict] | None = None, wait_seconds: int = 45) -> dict:
+    """Read what the hotel actually sells from its live Mirai booking engine, in a browser session.
+    Opens <site>/search/?idtokenprovider=<hotel_id> for 3 sample stays (next weekend, ~30 days out, mid
+    peak_month; 1 night, 2 adults) and keeps the engine's own data: rooms (size, max occupancy, beds,
+    amenities, availability), rates and offers with their discount, the member (club) discount, boards,
+    cancellation terms, prices and taxes, and the lowest price per night for each month shown.
+    Then renders the site's room, offer and loyalty pages (from crawl_dir) and compares: room sizes,
+    offers sold with no page, offer pages with no rate on sale, member discount claimed on the site.
+    facts_file (<domain>/hotel-facts.json): adds the engine's facts with source "booking engine, <date>"
+    so the [CONFIRM] guard accepts them. stays: optional [{"label", "checkin": "yyyy-mm-dd", "nights",
+    "adults"}]. Writes booking_engine.json / booking_engine.md and screenshots in out_dir. Read-only:
+    never selects a room or starts a booking. Background job."""
+    job = _start_job('booking_engine', booking_engine.snapshot, site, hotel_id, out_dir, stays=stays,
+                     crawl_dir=crawl_dir, facts_file=facts_file, peak_month=peak_month)
+    return _wait(job, wait_seconds)
+
+
+@mcp.tool()
+def keyword_ideas(out_dir: str, seeds: list[str] | None = None, url: str = '', countries: list[str] | None = None,
+                  language: str = 'en', limit: int = 300) -> dict:
+    """Google Ads Keyword Planner: new keyword ideas with average monthly searches, competition, top-of-page
+    bid range and monthly volumes. Seeds: up to 20 words (area + "hotel", room types, the non-brand
+    Search Console queries); url: the hotel's site. countries: ISO codes (default ["AE"]; feeder markets
+    such as GB, SA, IN, RU, DE); language: en, ar, ru... Run once per language you need. Writes
+    keywords-ideas-<date>.csv/.json in out_dir. Says so if Google Ads isn't set up on this machine."""
+    return _off_loop(keywords.ideas, seeds, url, out_dir, tuple(countries or ['AE']), language, limit)
+
+
+@mcp.tool()
+def keyword_volumes(keywords_list: list[str], out_dir: str, countries: list[str] | None = None,
+                    language: str = 'en') -> dict:
+    """Google Ads Keyword Planner numbers for keywords we already have (e.g. the money searches from
+    Search Console, the titles we plan to write): average monthly searches, competition, bid range,
+    monthly volumes, close variants. Writes keywords-volumes-<date>.csv/.json in out_dir."""
+    return _off_loop(keywords.volumes, keywords_list, out_dir, tuple(countries or ['AE']), language)
+
+
+@mcp.tool()
+def rate_parity(mirai_id: str = '', hotel: str = '', days: int = 7, source: str = 'web', out_dir: str = '') -> dict:
+    """Rate parity from the daily Magic Parity feed (the files behind the 6am leak report): share of
+    checks where the hotel's own site Beats / Meets / Loses against each OTA, by OTA, device, guest
+    country and lead time, the average gap, unsolved losses and the worst losing checks with
+    screenshots. source: "web" (website vs OTAs) or "gha" (Google Hotel Ads). Prefer mirai_id; hotel
+    name matching must hit exactly one hotel. Losing on 20%+ of priced checks goes at the top of the
+    Priority list: page fixes won't win a booking the OTA sells cheaper."""
+    return _off_loop(parity.report, hotel, mirai_id, days, source, out_dir)
+
+
+@mcp.tool()
+def index_status(gsc_property: str, site: str, out_dir: str, crawl_dir: str = '', extra_urls: list[str] | None = None,
+                 daily_budget: int = 1900, wait_seconds: int = 45) -> dict:
+    """Search Console page indexing for every crawled and sitemap URL, through the URL Inspection API:
+    groups URLs the way the Page indexing report does (Submitted and indexed, Crawled - currently not
+    indexed, Discovered - currently not indexed, Soft 404, Page with redirect, Alternate page with
+    proper canonical, Google chose different canonical, ...) and lists where Google's canonical
+    differs from the declared one. Google allows 2,000 inspections a day per property: results are
+    cached, URLs inspected in the last 7 days are skipped, and a run stops at daily_budget, so run it
+    again on later days for big sites. extra_urls: e.g. old URLs from a 404 export. Background job."""
+    job = _start_job('index_status', indexing.inspect_all, gsc_property, site, out_dir, crawl_dir=crawl_dir,
+                     extra_urls=extra_urls, daily_budget=daily_budget)
+    return _wait(job, wait_seconds)
+
+
+@mcp.tool()
+def bing_report(site: str, out_dir: str = '') -> dict:
+    """Bing Webmaster Tools: pages with incoming links and their link counts, who links to the top
+    pages (with anchor text), and Bing's sitemap status (replaces the Search Console Links export and
+    the Bing sitemap screenshot). Says so if the Bing API key isn't set up on this machine."""
+    return _off_loop(bing.report, site, out_dir)
 
 
 @mcp.tool()

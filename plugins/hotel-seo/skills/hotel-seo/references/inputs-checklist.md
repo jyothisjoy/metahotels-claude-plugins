@@ -22,13 +22,13 @@ Anyone on the MetaHotels team can do every "From you" item except the hotel fact
 ### 2. Search Console
 **Claude pulls through the MCP:** performance for the last 3 months and the previous 3 (queries, pages, countries, devices, search appearance, dates), sitemaps (status and discovered pages), URL Inspection where the crawl and the live page disagree.
 
-**From you** (the API doesn't expose these reports; 5 min):
-- [ ] **Indexing → Pages**: screenshot of the top chart and the reasons table
-- [ ] **Not found (404)** drilldown: click the reason → Export CSV
-- [ ] **Crawled – currently not indexed** drilldown: Export CSV
-- [ ] **Soft 404** drilldown, only if it's listed
-- [ ] **Links export**: Links → External links → Top target pages → Export CSV
-- [ ] **Manual actions / Security issues**: screenshot only if there's an issue
+**Claude also pulls** (no exports needed any more):
+- Page indexing states for every crawled and sitemap URL (`index_status`, URL Inspection API, 2,000 URLs a day per site).
+- Incoming links and Bing sitemaps from Bing Webmaster Tools (`bing_report`, when the Bing key is set up).
+
+**From you, only when relevant:**
+- [ ] **Old-URL 404 list**: Indexing → Pages → Not found (404) → Export, only for sites with many old or spam URLs Google still remembers (they're not in any crawl or sitemap). Claude passes them to `index_status`.
+- [ ] **Manual actions / Security issues**: screenshot only if Search Console emailed an alert.
 
 If the hotel's property isn't visible to metahotels.m@gmail.com, that is **Search Console access**: add the account as a user on the property.
 
@@ -37,13 +37,19 @@ If the hotel's property isn't visible to metahotels.m@gmail.com, that is **Searc
 
 If the property isn't visible to metahotels.m@gmail.com, that is **GA4 access**: add the account as a Viewer.
 
+### 3b. Rate parity
+**Claude pulls** the daily Magic Parity feed (`rate_parity`) when the machine has the parity connection (`hotel-seo-parity-login`). Otherwise list **Rate parity** under Missing inputs.
+
+### 3a. Keyword Planner
+**Claude pulls through the Google Ads API** (`keyword_volumes`, `keyword_ideas`) when the machine has it set up (`hotel-seo-ads-login`, see init). Otherwise the run goes on without search volumes and says so.
+
 ### 4. Mirai
 **Claude pulls through the Mirai API** (`mirai_reservations`) when the machine has Mirai XML API credentials (set once with `hotel-seo-mirai-login`; see init step 4): bookings, revenue, ADR, seasonality, channel source, promo codes and offers sold.
 
 **From you, only if the API isn't set up** (2 min):
 - [ ] **Mirai reservations export**: switch the property view to the hotel → Reservations → booking date **1 Mar 2026 → today** → Export Excel. Name it anything; put it in `<domain>/`.
 
-Claude checks the live booking engine itself (offers, member rate, cancellation terms).
+Claude reads the live booking engine itself with `booking_engine_snapshot`: rooms, offers, member rate, cancellation terms and prices for 3 sample stays.
 
 ### 5. Crawl. Claude runs it
 `crawl_site` with LibreCrawl, which starts by itself. Nothing to export. See [librecrawl.md](librecrawl.md).
@@ -54,6 +60,8 @@ Claude checks desktop and mobile with Claude in Chrome when it's connected (appr
 ---
 
 ## B. Hotel facts (from the hotel contact)
+
+**Hotel information sheet:** the run asks for it right after the crawl starts. Attach the hotel's filled-in sheet or give its path; Claude reads it into `hotel-facts.json`. Say *none* and the run carries on with [CONFIRM] for those facts.
 
 Needed before anything marked **[CONFIRM]** goes live. The run ends with the exact questions as a message to the hotel contact.
 - Current offers: name, discount, booking and stay dates, conditions, whether they stack with the member rate
@@ -70,7 +78,7 @@ Needed before anything marked **[CONFIRM]** goes live. The run ends with the exa
 
 **From you:**
 - [ ] **Agency change list**: their WhatsApp messages, pasted or screenshotted
-- [ ] **Bing sitemap screenshot**: Bing Webmaster Tools → Sitemaps
+- [ ] **Bing sitemap screenshot**: only if the Bing key isn't set up (`bing_report` reads it otherwise)
 
 ---
 
