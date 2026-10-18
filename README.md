@@ -1,6 +1,6 @@
 # MetaHotels Claude plugins
 
-Private. Contains the **hotel-seo** plugin: give Claude a hotel website and get the SEO agency's Priority, Nice-to-Have and Web Team lists as PDFs and Google Docs, then re-check the agency's work against them.
+Private. Contains the **hotel-seo** plugin: give Claude a hotel website and get the SEO agency's Priority, Nice-to-Have and Web Team lists as PDF, Word and Google Docs, then re-check the agency's work against them.
 
 ## Before you start (once per person)
 
@@ -33,14 +33,14 @@ Private. Contains the **hotel-seo** plugin: give Claude a hotel website and get 
 
 ```
 /hotel-seo atanahotel.com            full run: crawl, audit, Search Console, GA4, keywords, booking engine,
-                                     Mirai, three PDFs (asks once for the hotel information sheet)
+                                     Mirai, three lists as PDF + Word + Google Doc (asks once for the hotel information sheet)
 /hotel-seo recheck atanahotel.com    after the agency says "done": every item checked on the live site
 /hotel-seo monitor atanahotel.com    what changed since the last run (posts, spam searches, booking links, tags)
 /hotel-seo monitor add atanahotel.com   add it to the daily monitor run
 /hotel-seo init --check              health check
 ```
 
-Work is saved in a folder per hotel (`<domain>/`) wherever Claude is started (desktop chat: `~/Documents/MetaHotels SEO`). PDFs are named like `25 - Atana Priority SEO List (14 Oct).pdf`, with running file numbers across hotels.
+Work is saved in a folder per hotel (`<domain>/`) wherever Claude is started (desktop chat: `~/Documents/MetaHotels SEO`). Files are named like `25 - Atana Priority SEO List (14 Oct).pdf` (and `.docx`), with running file numbers across hotels; re-rendering a list keeps its number. Re-checks carry their round: `27 - Atana Priority Re-check 2 (21 Oct)` and the re-issued list `28 - Atana Priority Open Items after Re-check 2 (21 Oct)`.
 
 ### What a re-check adds
 
@@ -76,7 +76,7 @@ Automatic background updates of a private plugin need a `GITHUB_TOKEN` (or `GH_T
 | `git` or `uv` not found in the desktop app | Fully quit and reopen the app after installing them. |
 | `/hotel-seo` tools missing | Start a new session; then `/hotel-seo init --check`. |
 | Google says "This app isn't verified" | Click **Advanced → Go to Google Analytics MCP**, then Continue. |
-| Lists come as PDF only, with a `.docs.html` file | The Google sign-in has no Docs permission yet: run `/hotel-seo init` again and approve the consent screen. |
+| Lists come as PDF and Word only, no Google Doc link | The Google sign-in has no Docs permission yet: run `/hotel-seo init` again and approve the consent screen. Meanwhile, upload the `.docx` to Drive and open it with Google Docs. |
 | Start over on a machine | Delete `~/.metahotels-seo/` and run `/hotel-seo init` again. |
 
 ## What's inside

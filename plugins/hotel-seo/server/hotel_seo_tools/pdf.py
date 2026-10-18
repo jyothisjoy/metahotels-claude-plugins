@@ -88,6 +88,7 @@ def validate(doc):
     doc.setdefault('warnings_end', [])
     if doc['title'] != 'Re-check':
         doc.setdefault('footer', DEFAULT_FOOTER)
+    doc['name'] = list_name(doc)
     return doc
 
 
@@ -99,6 +100,22 @@ def build_html(doc):
     return env.get_template('list.html.j2').render(doc=doc, css=Markup(css))
 
 
+def short_list(title):
+    """"Priority SEO List" -> "Priority", "Web Team List" -> "Web Team"."""
+    return re.sub(r'\s*(SEO )?List$', '', title or '').strip()
+
+
+def list_name(doc):
+    """The list's name in headers and file names: "Priority SEO List", "Priority Re-check 2",
+    "Priority Open Items after Re-check 2"."""
+    if doc['title'] == 'Re-check':
+        n = doc.get('recheck_round')
+        return ' '.join(x for x in (short_list(doc.get('against')), 'Re-check', str(n) if n else '') if x)
+    if doc.get('open_items_after'):
+        return f"{short_list(doc['title'])} Open Items after Re-check {doc['open_items_after']}"
+    return doc['title']
+
+
 def next_file_number():
     """Running file number across all hotels in the work folder: highest "NN - ..." PDF + 1."""
     nums = [int(m.group(1)) for f in paths.work_dir().glob('*/Reports/*.pdf')
@@ -106,16 +123,18 @@ def next_file_number():
     return max(nums, default=0) + 1
 
 
-def file_name(doc):
-    """"25 - Al Bahar Priority SEO List (14 Oct).pdf", the way the team numbers its files."""
+def file_name(doc, out_dir=None):
+    """"25 - Al Bahar Priority SEO List (14 Oct).pdf", "27 - Al Bahar Priority Re-check 2 (21 Oct).pdf":
+    the way the team numbers its files. "auto" re-uses the number of the same file already in out_dir
+    (re-rendering after a fix keeps its number), else takes the next one."""
     short = doc.get('short_name') or doc['hotel']
+    name = re.sub(r'[<>:"/\\|?*]', '-',f"{short} {list_name(doc)} ({doc['date']}).pdf")
     num = doc.get('file_number')
     if num == 'auto':
-        num = doc['file_number'] = next_file_number()
-    name = f"{short} {doc['title']} ({doc['date']}).pdf"
-    if num not in (None, ''):
-        name = f'{num} - {name}'
-    return re.sub(r'[<>:"/\\|?*]', '-', name)
+        same = [m.group(1) for f in (Path(out_dir).glob(f'* - {name}') if out_dir else [])
+                for m in [re.match(r'(\d+) - ', f.name)] if m]
+        num = doc['file_number'] = int(same[0]) if same else next_file_number()
+    return f'{num} - {name}' if num not in (None, '') else name
 
 
 def render(doc_or_path, out_dir, keep_html=False):
@@ -123,12 +142,12 @@ def render(doc_or_path, out_dir, keep_html=False):
     page_html = build_html(doc)
     out_dir = paths.resolve(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / file_name(doc)
+    out = out_dir / file_name(doc, out_dir)
 
     from playwright.sync_api import sync_playwright
     footer = (f'<div style="font-size:7pt;color:#5b6470;width:100%;padding:0 13mm;display:flex;'
               f'justify-content:space-between;font-family:Segoe UI,Arial,sans-serif">'
-              f'<span>{html.escape(doc["hotel"])} · {html.escape(doc["title"])} · {html.escape(doc["date"])}</span>'
+              f'<span>{html.escape(doc["hotel"])} · {html.escape(list_name(doc))} · {html.escape(doc["date"])}</span>'
               f'<span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span></div>')
     with sync_playwright() as p:
         browser = p.chromium.launch()

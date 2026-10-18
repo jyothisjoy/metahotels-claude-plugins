@@ -235,9 +235,9 @@ Also re-issue the list with only the unfinished items (the open-items list), so 
 
 ## 8. PDF format
 
-Claude writes each list as JSON ([../templates/lists.schema.json](../templates/lists.schema.json)) and `render_lists_pdf` produces the PDF **and a Google Doc** with the same content (the agency copies from the Doc; PDFs break their formatting). Docs live in Drive under "MetaHotels SEO Lists / <hotel>"; re-rendering a list updates the same Doc, so send its link once. The layout below is built in.
+Claude writes each list as JSON ([../templates/lists.schema.json](../templates/lists.schema.json)) and `render_lists_pdf` produces the PDF, a **Word file** (.docx, next to the PDF) **and a Google Doc** with the same content (the agency copies from the Doc; PDFs break their formatting). Docs live in Drive under "MetaHotels SEO Lists / <hotel>"; re-rendering a list updates the same Doc, so send its link once. The layout below is built in.
 
-- **File name:** "25 - Al Bahar Priority SEO List (14 Oct).pdf". That is a running file number across hotels (`file_number`; "auto" takes the next free one), then hotel, list, day and month.
+- **File name:** "25 - Al Bahar Priority SEO List (14 Oct).pdf" (and .docx). That is a running file number across hotels (`file_number`; "auto" takes the next free one, and re-rendering the same list keeps its number), then hotel, list, day and month. Re-checks carry their round: "27 - Al Bahar Priority Re-check 2 (21 Oct)" and the re-issued list "28 - Al Bahar Priority Open Items after Re-check 2 (21 Oct)".
 - **Header:** "[Hotel]: Priority SEO List — 14 Oct". Sub-line: "From MetaHotels · [site] · from [sources, with the crawl's page count] and live checks on [date] · about [total time] · [the order across hotels]".
 - **Lead box** (green): the biggest issue and its timing (Priority only).
 - **Item box:** letter or number, task, time, then a "Finish" row.

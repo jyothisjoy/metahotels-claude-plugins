@@ -7,8 +7,8 @@ agency once). Re-rendering the same list replaces the Doc's content, so its link
 (mapping in <Reports>/google-docs.json).
 
 Needs the Drive "files created by this app" permission (drive.file) in the Google sign-in, which
-hotel-seo-auth asks for. Without it, a .docs.html file is written next to the PDF instead: open it
-in Word or upload it to Drive and open with Google Docs.
+hotel-seo-auth asks for. Without it, upload the .docx written next to the PDF to Drive and open it
+with Google Docs (a .docs.html file is written instead when there is no .docx).
 """
 import html
 import json
@@ -91,7 +91,7 @@ def _block(b):
 def build_html(doc):
     doc = pdf.validate(doc)
     H = [f'<html><head><meta charset="utf-8"><title>{html.escape(doc["hotel"])}</title></head><body>',
-         f'<h1 style="color:{NAVY};font-family:Arial,sans-serif">{html.escape(doc["hotel"])}: {html.escape(doc["title"])} — {html.escape(doc["date"])}</h1>']
+         f'<h1 style="color:{NAVY};font-family:Arial,sans-serif">{html.escape(doc["hotel"])}: {html.escape(doc["name"])} — {html.escape(doc["date"])}</h1>']
     if doc.get('subtitle'):
         H.append(f'<p style="{FONT};color:{MUTED}">{_rich(doc["subtitle"])}</p>')
     if doc.get('lead'):
@@ -167,16 +167,24 @@ def _upload(s, method, url, meta, body):
     return r.json()
 
 
-def publish(doc, out_dir, pdf_file, folder_id=''):
+def _fallback(body, pdf_file, docx_file, why):
+    """No Doc: point at the Word file (Drive opens it in Google Docs), else write a .docs.html."""
+    if docx_file:
+        local = docx_file
+    else:
+        local = Path(pdf_file).with_suffix('.docs.html')
+        local.write_text(body, encoding='utf-8')
+    return {'published': False, 'reason': why, 'file': str(local),
+            'next': 'Upload this file to Google Drive and open it with Google Docs, or fix the sign-in and '
+                    'render again.'}
+
+
+def publish(doc, out_dir, pdf_file, folder_id='', docx_file=''):
     body = build_html(doc)
     name = Path(pdf_file).stem
     s, why = _session()
     if s is None:
-        local = Path(pdf_file).with_suffix('.docs.html')
-        local.write_text(body, encoding='utf-8')
-        return {'published': False, 'reason': why, 'file': str(local),
-                'next': 'Upload this file to Google Drive and open it with Google Docs, or fix the sign-in and '
-                        'render again.'}
+        return _fallback(body, pdf_file, docx_file, why)
     out = paths.resolve(out_dir)
     mapping_file = out / 'google-docs.json'
     mapping = json.loads(mapping_file.read_text(encoding='utf-8')) if mapping_file.exists() else {}
@@ -199,9 +207,7 @@ def publish(doc, out_dir, pdf_file, folder_id=''):
         mapping[key] = res['id']
         mapping_file.write_text(json.dumps(mapping, indent=1), encoding='utf-8')
     except Exception as e:  # noqa: BLE001 - the PDF is done; report and leave a file to import
-        local = Path(pdf_file).with_suffix('.docs.html')
-        local.write_text(body, encoding='utf-8')
-        return {'published': False, 'reason': f'{type(e).__name__}: {str(e)[:300]}', 'file': str(local)}
+        return _fallback(body, pdf_file, docx_file, f'{type(e).__name__}: {str(e)[:300]}')
     return {'published': True, 'updated': updated, 'url': res.get('webViewLink')
             or f"https://docs.google.com/document/d/{res['id']}/edit",
             'folder': f'https://drive.google.com/drive/folders/{folder_id}',

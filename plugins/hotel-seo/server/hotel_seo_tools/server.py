@@ -16,7 +16,7 @@ import uuid
 from mcp.server.fastmcp import FastMCP
 
 from . import (__version__, audit, bing, booking_engine, checks, docs, facts, health, imports, indexing, keywords,
-               librecrawl, librecrawl_proc, mirai, monitor, pagecheck, parity, paths, pdf)
+               librecrawl, librecrawl_proc, mirai, monitor, pagecheck, parity, paths, pdf, word)
 
 mcp = FastMCP('hotel-seo-tools')
 
@@ -174,10 +174,13 @@ def test_redirects(out_dir: str, pairs: list[dict] | None = None, file: str = ''
 @mcp.tool()
 def render_lists_pdf(out_dir: str, json_path: str = '', data: dict | None = None, crawl_dir: str = '',
                      facts_file: str = '', allow_unverified: bool = False, keep_html: bool = False,
-                     google_doc: bool = True, folder_id: str = '') -> dict:
+                     google_doc: bool = True, folder_id: str = '', docx: bool = True) -> dict:
     """Render one list (Priority, Nice-to-Have, Web Team or Re-check) to PDF in the standard format,
-    and the same content as a Google Doc (google_doc=true; the agency copies from Docs, PDFs break
-    their formatting). Re-rendering the same list updates the same Doc, so its link stays the same.
+    the same content as a Word file next to it (docx=true) and as a Google Doc (google_doc=true; the
+    agency copies from Docs, PDFs break their formatting). Re-rendering the same list updates the same
+    Doc, so its link stays the same, and keeps the same file number.
+    File names: "<NN> - <hotel> <list> (<date>)", where a re-check list is "Priority Re-check 2" and
+    the re-issued list "Priority Open Items after Re-check 2" (recheck_list sets the round).
     folder_id: a Google Drive folder for the Doc (default: the folder set with hotel-seo-docs-folder,
     else My Drive). Without Google sign-in for Docs it says so and writes a .docs.html file to import.
     Give json_path (a file following lists.schema.json) or the same object as data. file_number
@@ -201,6 +204,11 @@ def render_lists_pdf(out_dir: str, json_path: str = '', data: dict | None = None
                         'to hotel-facts.json with its source; then render again.'}
     result = _off_loop(pdf.render, doc, out_dir, keep_html=keep_html)
     out = {'rendered': True, **result, 'confirm_guard': {k: v for k, v in guard.items() if k != 'unverified'}}
+    if docx:
+        try:
+            out['docx'] = _off_loop(word.render, doc, result['file'])
+        except Exception as e:  # noqa: BLE001 - the PDF is done; say what failed
+            out['docx_error'] = f'{type(e).__name__}: {str(e)[:300]}'
     sev = facts.severity_check(doc)
     if sev:
         out['severity_warning'] = {
@@ -208,7 +216,8 @@ def render_lists_pdf(out_dir: str, json_path: str = '', data: dict | None = None
             'next': 'These touch the homepage, rooms, offers, contact or the booking path, which belong on the '
                     'Priority list. Move them, or add "not_priority_because" to the section if it is deliberate.'}
     if google_doc:
-        out['google_doc'] = _off_loop(docs.publish, doc, out_dir, result['file'], folder_id=folder_id)
+        out['google_doc'] = _off_loop(docs.publish, doc, out_dir, result['file'], folder_id=folder_id,
+                                      docx_file=out.get('docx', ''))
     return out
 
 

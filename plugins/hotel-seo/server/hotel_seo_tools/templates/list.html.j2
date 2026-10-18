@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>{{ doc.hotel }}: {{ doc.title }} ({{ doc.date }})</title>
+<title>{{ doc.hotel }}: {{ doc.name }} ({{ doc.date }})</title>
 <style>{{ css }}</style>
 </head>
 <body>
 <header class="doc-head">
-  <h1>{{ doc.hotel }}: {{ doc.title }} — {{ doc.date }}</h1>
+  <h1>{{ doc.hotel }}: {{ doc.name }} — {{ doc.date }}</h1>
   {% if doc.subtitle %}<p class="sub">{{ doc.subtitle | rich }}</p>{% endif %}
 </header>
 

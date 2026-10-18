@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "hotel-seo list",
-  "description": "One Priority, Secondary, Web Team or Re-check list. Rendered to PDF by the render_lists_pdf tool. Text fields accept **bold**, *italic*, `exact text to paste`, and [CONFIRM] (shown in red); \\n is a line break.",
+  "description": "One Priority, Secondary, Web Team or Re-check list. Rendered to PDF, Word and a Google Doc by the render_lists_pdf tool. Text fields accept **bold**, *italic*, `exact text to paste`, and [CONFIRM] (shown in red); \\n is a line break.",
   "type": "object",
   "required": [
     "hotel",
@@ -43,6 +43,24 @@
         "string"
       ],
       "description": "Running file number across all hotels (25, 26, 27...). \"auto\" = the highest number already in <work folder>/*/Reports + 1. Omit for no number."
+    },
+    "against": {
+      "type": "string",
+      "description": "Re-check lists only: the list re-checked, e.g. \"Priority SEO List\". Set by recheck_list; names the file \"Priority Re-check 2\"."
+    },
+    "recheck_round": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Re-check lists only: which re-check of that list this is. Set by recheck_list."
+    },
+    "open_items_after": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Re-issued open-items lists only: the re-check round they follow; names the file \"Priority Open Items after Re-check 2\". Set by recheck_list."
+    },
+    "original_date": {
+      "type": "string",
+      "description": "Re-issued open-items lists only: the date of the list as first sent. Set by recheck_list."
     },
     "subtitle": {
       "type": "string",

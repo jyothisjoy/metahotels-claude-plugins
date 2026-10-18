@@ -3,11 +3,12 @@
 Every section of a Priority / Secondary / Web Team list can carry checks, written when the list is
 generated (see lists.schema.json). /hotel-seo recheck runs them all and marks each section
 Done (every automatic check passes), Partly (some pass), Open (none pass) or Manual (only checks
-that need a person). It then writes:
+that need a person). Re-checks of the same list are numbered (round 1, 2, ...), counted from the
+earlier recheck-*/ folders next to out_dir. It then writes, e.g. for the second Priority re-check:
 
-  recheck-results-<date>.json   every check with expected vs actual
-  recheck-<date>.json           a Re-check list (status table + a lettered section per unfinished item)
-  open-items-<date>.json        the original list re-issued with only the unfinished items
+  priority-recheck-2-results.json         every check with expected vs actual
+  priority-recheck-2.json                 a Re-check list (status table + a lettered section per unfinished item)
+  priority-open-items-after-recheck-2.json  the original list re-issued with only the unfinished items
 
 Pages are fetched fresh (Cache-Control: no-cache) as raw HTML.
 """
@@ -222,7 +223,7 @@ def presend(list_json, crawl_dir='', progress=None):
             continue
         if r['status'] == 'Partly':
             live = [c['check'] for c in r['checks'] if c['result'] == 'pass']
-            sec['title'] = f"{sec['title']} (partly done)"
+            sec['title'] = f"{STATUS_SUFFIX.sub('', sec['title'])} (partly done)"
             sec.setdefault('blocks', []).insert(0, {'note': 'Already live: ' + '; '.join(live) + '. Only the rest below.'})
             partly.append(f"{r['number']} {r['title']}")
         out['sections'].append(sec)
@@ -238,6 +239,34 @@ def presend(list_json, crawl_dir='', progress=None):
                      'Nothing is fixed yet: render the draft (or this identical copy).')
             + (' Items were dropped: re-letter the sections and check the summary and lead still read right.'
                if dropped else '')}
+
+
+STATUS_SUFFIX = re.compile(r'(\s\((Done|Partly|Open|Manual|Waiting|partly done)\))+$')
+
+
+def _slug(text):
+    return re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
+
+
+def recheck_round(doc, out):
+    """Which re-check of this list this is: 1 + the rounds already done (earlier recheck-*/ folders
+    next to out_dir, and the round an open-items list was issued after)."""
+    from .pdf import short_list
+    base = doc.get('against') if doc.get('title') == 'Re-check' else doc.get('title')
+    rounds, files = [int(doc.get('open_items_after') or 0)], 0
+    for f in out.parent.glob('recheck-*/*.json'):
+        if f.parent.resolve() == out.resolve():
+            continue                     # re-running the same re-check keeps its number
+        try:
+            d = json.loads(f.read_text(encoding='utf-8'))
+        except (ValueError, OSError):
+            continue
+        if not isinstance(d, dict) or d.get('title') != 'Re-check':
+            continue
+        if d.get('against') == base or (not d.get('against') and str(d.get('subtitle', '')).startswith(f'Against the {base} ')):
+            files += 1
+            rounds.append(int(d.get('recheck_round') or 0))
+    return max(max(rounds), files) + 1, base, short_list(base)
 
 
 def recheck(list_json, out_dir, crawl_dir='', progress=None):
@@ -273,16 +302,19 @@ def recheck(list_json, out_dir, crawl_dir='', progress=None):
             status = 'Open'
         if s.get('hold') and status != 'Done':
             status = 'Waiting'           # waiting for the hotel: not the agency's to finish yet
-        results.append({'index': i, 'number': s.get('number', i + 1), 'title': s['title'], 'status': status,
-                        'passed': passed, 'automatic': len(auto), 'checks': rows})
+        results.append({'index': i, 'number': s.get('number', i + 1), 'title': STATUS_SUFFIX.sub('', s['title']),
+                        'status': status, 'passed': passed, 'automatic': len(auto), 'checks': rows})
         if progress:
             progress(f"checked {i + 1}/{len(doc['sections'])} items")
 
     out = paths.resolve(out_dir)
+    first_date = doc.get('original_date') or doc['date']      # the date of the list as first sent
     out.mkdir(parents=True, exist_ok=True)
-    stamp = today.isoformat()
-    (out / f'recheck-results-{stamp}.json').write_text(json.dumps(results, indent=1, ensure_ascii=False),
-                                                       encoding='utf-8')
+    n, base, short = recheck_round(doc, out)
+    stem = f'{_slug(short)}-recheck-{n}'
+    files = {'results': out / f'{stem}-results.json', 'recheck_list': out / f'{stem}.json',
+             'open_items_list': out / f'{_slug(short)}-open-items-after-recheck-{n}.json'}
+    files['results'].write_text(json.dumps(results, indent=1, ensure_ascii=False), encoding='utf-8')
 
     # Re-check list: status table + one lettered section per unfinished item.
     letters = iter(string.ascii_uppercase)
@@ -299,8 +331,8 @@ def recheck(list_json, out_dir, crawl_dir='', progress=None):
     done = sum(r['status'] == 'Done' for r in results)
     recheck_doc = {
         'hotel': doc['hotel'], 'short_name': doc.get('short_name', doc['hotel']), 'site': site,
-        'title': 'Re-check', 'date': today.strftime('%d %b').lstrip('0'),
-        'subtitle': f"Against the {doc['title']} of {doc['date']} · {done} of {len(results)} items done",
+        'title': 'Re-check', 'against': base, 'recheck_round': n, 'file_number': 'auto', 'date': today.strftime('%d %b').lstrip('0'),
+        'subtitle': f"Re-check {n} against the {base} of {first_date} · {done} of {len(results)} items done",
         'summary': {'columns': ['#', 'Item', 'Status', 'Note'],
                     'rows': [[r['number'], r['title'], r['status'],
                               f"{r['passed']}/{r['automatic']} checks pass" if r['automatic'] else 'check by hand']
@@ -310,8 +342,7 @@ def recheck(list_json, out_dir, crawl_dir='', progress=None):
         'sections': sections,
         'footer': '**When done:** LiteSpeed → Purge All → send MetaHotels the change list. We will re-check again.',
     }
-    (out / f'recheck-{stamp}.json').write_text(json.dumps(recheck_doc, indent=1, ensure_ascii=False),
-                                               encoding='utf-8')
+    files['recheck_list'].write_text(json.dumps(recheck_doc, indent=1, ensure_ascii=False), encoding='utf-8')
 
     # The original list with only unfinished items, status in each title.
     open_doc = copy.deepcopy(doc)
@@ -320,15 +351,18 @@ def recheck(list_json, out_dir, crawl_dir='', progress=None):
         if r['status'] == 'Done':
             continue
         sec = copy.deepcopy(doc['sections'][r['index']])
-        sec['title'] = f"{sec['title']} ({r['status']})"
+        sec['title'] = f"{r['title']} ({r['status']})"
         open_doc['sections'].append(sec)
     if open_doc.get('summary'):
         keep = {str(r['number']) for r in results if r['status'] != 'Done'}
         open_doc['summary']['rows'] = [row for row in doc['summary']['rows'] if str(row[0]) in keep]
     open_doc['date'] = recheck_doc['date']
-    open_doc['subtitle'] = f"Still open from the {doc['title']} of {doc['date']} · {len(open_doc['sections'])} items"
-    (out / f'open-items-{stamp}.json').write_text(json.dumps(open_doc, indent=1, ensure_ascii=False),
-                                                  encoding='utf-8')
+    open_doc['open_items_after'] = n
+    open_doc['original_date'] = first_date
+    open_doc['file_number'] = 'auto'     # a new file: next running number when rendered
+    open_doc['subtitle'] = (f"Still open after re-check {n} of the {base} of {first_date} · "
+                            f"{len(open_doc['sections'])} items")
+    files['open_items_list'].write_text(json.dumps(open_doc, indent=1, ensure_ascii=False), encoding='utf-8')
 
     return {'items': len(results), 'done': done,
             'partly': sum(r['status'] == 'Partly' for r in results),
@@ -336,6 +370,5 @@ def recheck(list_json, out_dir, crawl_dir='', progress=None):
             'manual': sum(r['status'] == 'Manual' for r in results),
             'waiting': sum(r['status'] == 'Waiting' for r in results),
             'by_item': [{k: r[k] for k in ('number', 'title', 'status', 'passed', 'automatic')} for r in results],
-            'files': {'results': str(out / f'recheck-results-{stamp}.json'),
-                      'recheck_list': str(out / f'recheck-{stamp}.json'),
-                      'open_items_list': str(out / f'open-items-{stamp}.json')}}
+            'recheck_round': n,
+            'files': {k: str(v) for k, v in files.items()}}

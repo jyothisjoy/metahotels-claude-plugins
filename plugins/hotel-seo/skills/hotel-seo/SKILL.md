@@ -1,6 +1,6 @@
 ---
 name: hotel-seo
-description: MetaHotels hotel SEO lists. Use when the user gives a hotel website and wants the SEO Priority / Nice-to-Have (Secondary) / Web Team lists, a re-check of the SEO agency's work against those lists, site monitoring, or runs /hotel-seo (init, init --check, <domain>, recheck <domain>, monitor <domain>). Crawls with LibreCrawl, audits in code, pulls Search Console, GA4 and Mirai, and renders copy-paste-ready lists for the agency as PDF and Google Docs.
+description: MetaHotels hotel SEO lists. Use when the user gives a hotel website and wants the SEO Priority / Nice-to-Have (Secondary) / Web Team lists, a re-check of the SEO agency's work against those lists, site monitoring, or runs /hotel-seo (init, init --check, <domain>, recheck <domain>, monitor <domain>). Crawls with LibreCrawl, audits in code, pulls Search Console, GA4 and Mirai, and renders copy-paste-ready lists for the agency as PDF, Word and Google Docs.
 ---
 
 # hotel-seo
@@ -13,7 +13,7 @@ Turns one hotel website into three copy-paste-ready fix lists (Priority, Nice-to
 |---|---|
 | `/hotel-seo init` | One-time setup on this machine (CLI or desktop Code tab only). Safe to re-run. |
 | `/hotel-seo init --check` | Health check only. Works everywhere, including desktop chat. |
-| `/hotel-seo <domain>` | Full run, start to finish without stopping: crawl + audit + Search Console + GA4 + Mirai → analysis → three PDFs. |
+| `/hotel-seo <domain>` | Full run, start to finish without stopping: crawl + audit + Search Console + GA4 + Mirai → analysis → three lists (PDF, Word and Google Doc each). |
 | `/hotel-seo recheck <domain>` | After the agency says "done": every item of the last lists is checked against the live site and the report is re-issued (Done / Partly / Open). |
 | `/hotel-seo monitor <domain>` | What changed since the last run: suspicious posts, spam searches, dead booking links, tags, homepage, open MCP routes. `monitor add <domain>` puts it on the daily schedule; `monitor` alone runs every scheduled site. |
 
@@ -40,7 +40,7 @@ Three MCP servers come with this skill. Short names below; in Claude Code they a
   - `index_status(gsc_property, site, out_dir, crawl_dir)`: URL Inspection for every crawled and sitemap URL, grouped like Search Console's Page indexing report (2,000 a day per property; cached, rerun to continue).
   - `bing_report(site, out_dir)`: Bing Webmaster incoming links (pages, counts, linking sites, anchors) and Bing sitemap status.
   - `mirai_reservations(hotel_id)`: bookings from the Mirai API (says so if credentials aren't set up; then use the Excel export).
-  - `render_lists_pdf`: JSON list → PDF **and Google Doc** (same link on every re-render), with the [CONFIRM] guard and a severity warning for Priority-type pages on the other lists.
+  - `render_lists_pdf`: JSON list → PDF, **Word (.docx) and Google Doc** (same link and file number on every re-render), with the [CONFIRM] guard and a severity warning for Priority-type pages on the other lists.
   - `presend_check(list_json, crawl_dir)`: live diff before sending; drops items already fixed, marks partly done ones.
   - `recheck_list`: runs each item's `checks` against the live site.
   - `monitor_site(site, gsc_property, add_to_schedule)`: changes since the last run, with alerts.
@@ -60,7 +60,7 @@ Long jobs return `state: running` and a `job_id`: keep calling `job_status(job_i
                               may go in with source "booking engine, <date>")
   crawl-<YYYY-MM-DD>/         crawl files + findings.json / findings.md / site_text.json + inspect/
   lists/<list>-<date>.json    the lists you write (they carry the checks recheck runs)
-  Reports/                    the PDFs
+  Reports/                    the PDFs and Word files ("25 - Al Bahar Priority SEO List (14 Oct)", "27 - Al Bahar Priority Re-check 2 (21 Oct)")
   recheck-<YYYY-MM-DD>/       recheck crawl, results and re-issued lists
   run-notes-<date>.md         key numbers, decisions, missing inputs
 ```
@@ -103,9 +103,9 @@ Fully automatic except for one question: the **hotel information sheet** (step 2
 5. **Analyse** with the playbook. Apply its severity rule: anything on the homepage, room pages, offers, contact or the booking path goes on the Priority list, and so do canonicals that block indexing and sitewide broken links. Security findings from the audit go at the top of the Web Team list with full counts and trend, and a homepage `noindex` or defacement text is raised in the finish message as urgent. Check every finding on the live site before listing it. Compare the booking engine with the site (offers sold with no page, expired offers, loyalty benefits).
 6. **Write the lists** as JSON following [templates/lists.schema.json](templates/lists.schema.json) (see [examples/al-bahar-priority.json](examples/al-bahar-priority.json)): Priority (playbook section 4: lettered items, a `lead` box, a `working` table), Nice-to-Have (section 5: numbered, `hold` for items waiting on the hotel), Web Team (section 6). Use `file_number: "auto"` and the subtitle line with the order across hotels (team.md). Exact copy-paste text for every title, meta, H1, alt text, redirect rule and schema block; prose to paste goes in `paste` blocks. Each item ends with a "Check:" line for the agency. **Every section gets `checks`** that are true once the work is done (expected titles/metas/H1s, H1 count, redirects, status codes, text or links that must be gone or present, schema counts, alt text); use `manual` only for what can't be fetched. Save to `<domain>/lists/`.
 6b. **Pre-send diff:** `presend_check(list_json, crawl_dir)` on each list. It writes `<list>-presend.json` without the items already fixed on the live site and with partly done ones marked; render that file. If items were dropped, re-letter and re-read the summary and lead.
-7. **Render** each with `render_lists_pdf(out_dir="<domain>/Reports", json_path=<presend file>, crawl_dir=<crawl>, facts_file="<domain>/hotel-facts.json")`. It makes the PDF and the Google Doc. If the guard returns unverified phrases, fix them (mark [CONFIRM], correct to what the site says, or remove) and render again. If it returns a `severity_warning`, move those items to the Priority list or give the section a `not_priority_because`. If `google_doc.published` is false, say why in the finish message (usually: sign in again for Docs) and give the `.docs.html` path. Priority list target: 3–4 A4 pages; tighten wording before cutting items. If the result has a `warning` about a nearly empty last page, tighten and render again.
+7. **Render** each with `render_lists_pdf(out_dir="<domain>/Reports", json_path=<presend file>, crawl_dir=<crawl>, facts_file="<domain>/hotel-facts.json")`. It makes the PDF, the Word file and the Google Doc. If the guard returns unverified phrases, fix them (mark [CONFIRM], correct to what the site says, or remove) and render again. If it returns a `severity_warning`, move those items to the Priority list or give the section a `not_priority_because`. If `google_doc.published` is false, say why in the finish message (usually: sign in again for Docs) and give the `.docx` path (upload it to Drive and open with Google Docs). Priority list target: 3–4 A4 pages; tighten wording before cutting items. If the result has a `warning` about a nearly empty last page, tighten and render again.
 8. **Save** `hotel.json` and `run-notes-<date>.md` (key numbers with their source tool, decisions, missing inputs, [CONFIRM] questions).
-9. **Finish** with a short message: the Google Doc links (the agency copies from these) and the PDF paths; the top 3 Priority items with their booking reason; **Missing inputs** by their checklist names; the hotel-contact message (fact and offer questions) and the SEO agency message from `team.md`, ready to paste.
+9. **Finish** with a short message: the Google Doc links (the agency copies from these) and the PDF and Word paths; the top 3 Priority items with their booking reason; **Missing inputs** by their checklist names; the hotel-contact message (fact and offer questions) and the SEO agency message from `team.md`, ready to paste.
 
 ## /hotel-seo recheck <domain>
 
@@ -114,9 +114,9 @@ Re-checks the agency's work against the points raised, then re-issues the report
 1. Find the latest lists in `<domain>/lists/` (Priority first; Nice-to-Have too if it was sent). Lists made before checks existed: add `checks` to each section from its exact text first.
 2. If the user has the agency's change list (WhatsApp) or the hotel's answers to [CONFIRM] questions, take them; add confirmed facts to `hotel-facts.json` with the source. Don't wait for them otherwise.
 3. Re-crawl: `crawl_site` into `<domain>/recheck-<date>/crawl`, then `audit_site` on it (new issues, security trend).
-4. `recheck_list(list_json, out_dir="<domain>/recheck-<date>", crawl_dir=<recheck crawl>)` for each list. It marks every item Done / Partly / Open / Manual from the live site and writes a Re-check list JSON and an open-items list JSON.
+4. `recheck_list(list_json, out_dir="<domain>/recheck-<date>", crawl_dir=<recheck crawl>)` for each list. It marks every item Done / Partly / Open / Manual from the live site, numbers the round (the second re-check of a list is round 2) and writes e.g. `priority-recheck-2.json` and `priority-open-items-after-recheck-2.json`. Re-check the latest open-items list if there is one, else the list as sent; either way the round counts on.
 5. Edit the Re-check JSON: a short thank-you that says what's now live, a one-line note per item, the agency's WhatsApp context, and lettered sections with the exact fix still needed. Resolve Manual items with Search Console (sitemaps), `bing_report` (Bing sitemaps), `index_status` (indexing), `inspect_pages` or the agency's messages where you can. Add the hotel's confirmed corrections as their own lettered sections. Add any new Priority-type problems from the re-crawl audit as new lettered sections.
-6. Render the Re-check list (`allow_unverified=true`: it quotes the live site) and the open-items list (with the guard) into `<domain>/Reports/`.
+6. Render the Re-check list (`allow_unverified=true`: it quotes the live site) and the open-items list (with the guard) into `<domain>/Reports/`. They are named "<NN> - <hotel> Priority Re-check 2 (<date>)" and "<NN> - <hotel> Priority Open Items after Re-check 2 (<date>)".
 7. Finish with: Done / Partly / Open / Waiting counts, what's still open in one line each, anything the agency's changes broke (a key page now `noindex`, a title pasted onto the wrong page) at the very top, and the agency message ready to paste (fixes go at the top of tomorrow's send).
 
 ## /hotel-seo monitor
