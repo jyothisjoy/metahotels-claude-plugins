@@ -41,7 +41,10 @@ If the property isn't visible to metahotels.m@gmail.com, that is **GA4 access**:
 **Claude pulls** the daily Magic Parity feed (`rate_parity`) when the machine has the parity connection (`hotel-seo-parity-login`). Otherwise list **Rate parity** under Missing inputs.
 
 ### 3a. Keyword Planner
-**Claude pulls through the Google Ads API** (`keyword_volumes`, `keyword_ideas`) when the machine has it set up (`hotel-seo-ads-login`, see init). Otherwise the run goes on without search volumes and says so.
+**The Keyword Planner API is deferred for now.** Until it's set up:
+- [ ] **Keyword Planner CSVs**: Keyword Planner → Discover new keywords (hotel URL + 5–10 area phrases) → Download keyword ideas → CSV. One file per language and location: English and Arabic, the hotel's country and worldwide. Put them in `<domain>/keywords/` as downloaded; don't open and re-save them. Claude reads them with `import_keyword_csv`, which keeps Arabic in order.
+
+Once the API is set up (`hotel-seo-ads-login`, see init), Claude pulls the same with `keyword_volumes` / `keyword_ideas`.
 
 ### 4. Mirai
 **Claude pulls through the Mirai API** (`mirai_reservations`) when the machine has Mirai XML API credentials (set once with `hotel-seo-mirai-login`; see init step 4): bookings, revenue, ADR, seasonality, channel source, promo codes and offers sold.
@@ -61,7 +64,7 @@ Claude checks desktop and mobile with Claude in Chrome when it's connected (appr
 
 ## B. Hotel facts (from the hotel contact)
 
-**Hotel information sheet:** the run asks for it right after the crawl starts. Attach the hotel's filled-in sheet or give its path; Claude reads it into `hotel-facts.json`. Say *none* and the run carries on with [CONFIRM] for those facts.
+**Hotel information sheet:** the run asks for it right after the crawl starts. Attach the hotel's filled-in sheet or give its path (or a Google Sheets link shared "anyone with the link"); Claude reads .xlsx / .csv / Sheets in code with `import_facts_sheet` into `hotel-facts.json`, and other formats by hand. Say *none* and the run carries on with [CONFIRM] for those facts.
 
 Needed before anything marked **[CONFIRM]** goes live. The run ends with the exact questions as a message to the hotel contact.
 - Current offers: name, discount, booking and stay dates, conditions, whether they stack with the member rate
@@ -82,7 +85,14 @@ Needed before anything marked **[CONFIRM]** goes live. The run ends with the exa
 
 ---
 
-## D. Standing access
+## D. Monitors
 
+`/hotel-seo monitor <domain>` compares the site with the last run: new or backdated posts, new spam search terms, newly dead booking links, tags that stopped firing, homepage noindex or canonical changes, defacement, new WordPress users, MCP routes open without login. `/hotel-seo monitor add <domain>` puts it on the daily schedule.
+
+---
+
+## E. Standing access
+
+- [ ] The Google sign-in includes Docs (`init --check` → Google Docs output OK); otherwise lists come as PDF plus a `.docs.html` file.
 - [ ] metahotels.m@gmail.com has Search Console and GA4 access for every hotel on the rollout list (`init --check` shows how many properties it sees).
 - [ ] Mirai XML API credentials (from integrations@mirai.com) on each machine, or the Mirai masterkey (individual hotel views) for the reservations export.

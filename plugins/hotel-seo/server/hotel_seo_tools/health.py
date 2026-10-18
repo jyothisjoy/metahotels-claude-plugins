@@ -54,6 +54,12 @@ def check_google():
                              'Signed in with an account that has no Search Console access. ' + signin))
         except Exception as e:  # noqa: BLE001
             rows.append(_row('Search Console sign-in', False, f'token refresh or API call failed: {e}', signin))
+    if paths.GSC_TOKEN.exists():
+        from .docs import DRIVE_SCOPE
+        has = DRIVE_SCOPE in (json.loads(paths.GSC_TOKEN.read_text()).get('scopes') or [])
+        rows.append(_row('Google Docs output', has, 'allowed' if has else 'the sign-in has no Docs permission',
+                         'Run hotel-seo-auth again (one consent screen) to allow "files created by this app"; '
+                         'until then lists come as PDF plus a .docs.html file.'))
     from . import keywords
     ok, why = keywords.configured()
     # optional: Keyword Planner only; never fails the check

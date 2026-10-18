@@ -1,7 +1,7 @@
 [project]
 name = "hotel-seo-tools"
-version = "0.1.0"
-description = "MCP tools for the MetaHotels hotel-seo skill: LibreCrawl crawls, Custom Search, redirect tests and PDF lists"
+version = "0.5.0"
+description = "MCP tools for the MetaHotels hotel-seo skill: crawls, site audit, booking engine, parity, indexing, monitors, PDF and Google Docs lists"
 requires-python = ">=3.10"
 dependencies = [
     "mcp>=1.2,<2",
@@ -13,6 +13,7 @@ dependencies = [
     "defusedxml>=0.7",
     "google-ads>=25.0",
     "azure-storage-blob>=12.19",
+    "openpyxl>=3.1",
 ]
 
 [project.scripts]
@@ -23,6 +24,7 @@ hotel-seo-parity-login = "hotel_seo_tools.parity:login"
 hotel-seo-bing-login = "hotel_seo_tools.bing:login"
 hotel-seo-auth = "hotel_seo_tools.google_auth:main"
 hotel-seo-mirai-login = "hotel_seo_tools.mirai:login"
+hotel-seo-monitor = "hotel_seo_tools.monitor:main"
 
 [build-system]
 requires = ["hatchling"]

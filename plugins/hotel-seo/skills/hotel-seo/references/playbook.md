@@ -206,7 +206,7 @@ End with: Purge cache → add to your change list.
 3. **Template-level fixes** the SEO team can't do: canonical in the theme, sitewide redirects, header and footer templates.
 4. **Speed:** LCP, page weight, Elementor bloat, image formats, caching and CDN.
 5. **Hidden broken assets** (old logos, dead scripts).
-6. **Security, always first when present:** suspicious or backdated posts (full count, by month, latest date), spam search terms in Search Console, exposed REST namespaces (`mcp`, `wp-abilities`, `elementor-mcp-composer`: confirm they require authentication), public user lists. Name the immediate steps: find what creates the posts, check admin users, malware scan, rotate passwords.
+6. **Security, always first when present:** suspicious or backdated posts (full count, by month, latest date), spam search terms in Search Console, REST routes that answer without logging in (`audit_site` probes `mcp`, `wp-abilities`, `elementor-mcp-composer` read-only and says OPEN or requires login; OPEN goes first), a leftover `llms.txt` from an SEO plugin that is no longer active, public user lists. Name the immediate steps: find what creates the posts, check admin users, malware scan, rotate passwords.
 
 ---
 
@@ -229,11 +229,13 @@ End with: Purge cache → add to your change list.
 
 Also re-issue the list with only the unfinished items (the open-items list), so the agency works from one current document.
 
+**Before sending any new list** (morning send included), run `presend_check` on it: items the agency already fixed since the crawl are dropped and partly-done ones are marked, so the list never asks for work that's live.
+
 ---
 
 ## 8. PDF format
 
-Claude writes each list as JSON ([../templates/lists.schema.json](../templates/lists.schema.json)) and `render_lists_pdf` produces the PDF, so the layout below is built in.
+Claude writes each list as JSON ([../templates/lists.schema.json](../templates/lists.schema.json)) and `render_lists_pdf` produces the PDF **and a Google Doc** with the same content (the agency copies from the Doc; PDFs break their formatting). Docs live in Drive under "MetaHotels SEO Lists / <hotel>"; re-rendering a list updates the same Doc, so send its link once. The layout below is built in.
 
 - **File name:** "25 - Al Bahar Priority SEO List (14 Oct).pdf". That is a running file number across hotels (`file_number`; "auto" takes the next free one), then hotel, list, day and month.
 - **Header:** "[Hotel]: Priority SEO List — 14 Oct". Sub-line: "From MetaHotels · [site] · from [sources, with the crawl's page count] and live checks on [date] · about [total time] · [the order across hotels]".
@@ -282,4 +284,7 @@ In [team.md](team.md).
 - The booking engine sells things the site doesn't show. *Al Bahar: "Stay & Splash" water-sports packages had 6 bookings since July and no page, while the old water-sports offer pages 404.* Check Mirai rate plans against the offer pages on every run.
 - A Book Now button can open a sister hotel's booking engine. *Gewan Hotel Cairo (Oct 2026): the Rooms & Suites button opened Gewan Palace, New Alamein.* `audit_site` with `mirai_id` flags every link whose Mirai ID isn't the hotel's and names the hotel it opens.
 - Prices written into FAQs go out of date and contradict the booking engine. Replace them with "Rates change by date and room type; you'll see live prices when you check availability."
+- Real posts can look backdated: the agency edits old blog posts, so "published 2023, changed this week" alone means nothing. *Al Bahar (18 Oct 2026): 44 genuine posts were edited on 14–15 Oct.* `audit_site` needs a second signal (post ID newer than posts dated long after it, look-alike slugs, empty body) before calling a post suspicious.
+- Steps tied to a plugin go stale fast. *Al Bahar: "import the Yoast data into Rank Math" was already done by the time the list went out.* Check the active SEO plugin on the day the list is written (`findings.md`, SEO plugin section) and run `presend_check` before sending.
+- A leftover `llms.txt` from a removed SEO plugin keeps describing the site to AI crawlers with stale pages. *Al Bahar: Yoast's llms.txt still served after the switch to Rank Math.* `audit_site` flags it.
 - WordPress MCP / abilities plugins expose site control under `/wp-json/` (`mcp`, `wp-abilities`, `elementor-mcp-composer`). Check they require authentication before using them across hotels.

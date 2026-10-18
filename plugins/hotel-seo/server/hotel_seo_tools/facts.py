@@ -2,6 +2,8 @@
 
 Two kinds of fact (playbook ground rules 5 and 6):
   site-checkable   sizes, star rating, beds, floors, restaurants, pools...: OK if the live site says it
+  site-checkable   services and inclusions (in-room dining, airport transfer, private beach, free
+                   breakfast / parking / Wi-Fi...): OK if the live site or the facts file says it
   hotel-confirmed  room service / 24-hour, loyalty tiers and benefits, room count, occupancy, distances
                    and travel times, check-in/out times, prices, discounts: OK only if it is in
                    hotel-facts.json, because hotel sites contradict themselves on exactly these
@@ -37,8 +39,14 @@ FACT_PATTERNS = {
     'percent': rf'{NUM}\s?%',
     'time': r'\b\d{1,2}:\d{2}\b',
     'stars': rf'\b{NUM}[- ]?stars?\b',
+    # services and inclusions guests hold the hotel to (schema amenityFeature, FAQ answers)
+    'service': r'\b(?:room service|in-room dining|airport (?:transfers?|shuttle|pick-?up)|valet parking|'
+               r'private beach|all[- ]inclusive|butler|babysitting|kids? club|'
+               r'(?:free|complimentary) (?:wi-?fi|parking|breakfast|cancellation|shuttle|transfers?|upgrades?|'
+               r'late check-?out|early check-?in|access|minibar))\b',
+    'loyalty': r'\b(?:loyalty|membership|member|rewards?) (?:tiers?|levels?)\b|\b(?:silver|gold|platinum) (?:tier|level|member)s?\b',
 }
-HOTEL_CONFIRMED = {'distance_time', 'count_confirm', 'round_the_clock', 'price', 'percent', 'time'}
+HOTEL_CONFIRMED = {'distance_time', 'count_confirm', 'round_the_clock', 'price', 'percent', 'time', 'loyalty'}
 MARK = re.compile(r'\[CONFIRM[^\]]*\]')
 FACT_RE = re.compile('|'.join(f'(?P<{k}>{v})' for k, v in FACT_PATTERNS.items()), re.I)
 
@@ -116,6 +124,45 @@ def load_corpus(crawl_dir='', facts_file=''):
         sources.append(str(paths.resolve(facts_file)))
     confirmed_text = norm(' \n '.join(confirmed))
     return norm(' \n '.join(site)) + ' \n ' + confirmed_text, confirmed_text, sources
+
+
+PATH_IN_TEXT = re.compile(r'\[→\s*([^\]\s]+)\s*\]|`(/[^`\s]*)`|https?://[^\s`)\]]+')
+HOMEPAGE_WORDS = re.compile(r'\bhome ?page\b', re.I)
+
+
+def severity_check(doc):
+    """Playbook severity rule: homepage, room, offer, contact and booking-path items belong on the
+    Priority list. Flags sections of the other lists that touch those pages (from their checks' URLs
+    and the paths in their text). A section can carry "not_priority_because" when it is deliberate
+    (e.g. held for hotel details, or a cosmetic change on a room page)."""
+    if doc.get('title') in ('Priority SEO List', 'Re-check'):
+        return []
+    from urllib.parse import urljoin, urlparse
+    from .audit import CRITICAL_TYPES, page_type
+    site = doc.get('site') or ''
+    host = urlparse(site).netloc.replace('www.', '')
+    out = []
+    for s in doc.get('sections', []):
+        if s.get('not_priority_because') or s.get('hold'):
+            continue
+        urls = [c.get('url') for c in s.get('checks', []) if c.get('url') and c.get('url') != 'sitewide']
+        urls += [c.get('source') for c in s.get('checks', []) if c.get('source')]
+        text = json.dumps(s.get('blocks', []), ensure_ascii=False) + ' ' + s.get('title', '')
+        for m in PATH_IN_TEXT.finditer(text):
+            urls.append(m.group(1) or m.group(2) or m.group(0))
+        hits = set()
+        for u in urls:
+            full = urljoin(site.rstrip('/') + '/', u) if site else u
+            if host and urlparse(full).netloc.replace('www.', '') not in (host, ''):
+                continue
+            t = page_type(full, host) if host else ''
+            if t in CRITICAL_TYPES:
+                hits.add(f'{t}: {urlparse(full).path or "/"}')
+        if HOMEPAGE_WORDS.search(s.get('title', '')):
+            hits.add('home: /')
+        if hits:
+            out.append({'section': f"{s.get('number', '')} {s['title']}".strip(), 'pages': sorted(hits)[:6]})
+    return out
 
 
 def check(doc, crawl_dir='', facts_file=''):

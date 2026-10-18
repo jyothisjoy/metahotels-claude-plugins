@@ -15,7 +15,8 @@ import uuid
 
 from mcp.server.fastmcp import FastMCP
 
-from . import __version__, audit, bing, booking_engine, checks, indexing, keywords, parity, facts, health, librecrawl, librecrawl_proc, mirai, pagecheck, paths, pdf
+from . import (__version__, audit, bing, booking_engine, checks, docs, facts, health, imports, indexing, keywords,
+               librecrawl, librecrawl_proc, mirai, monitor, pagecheck, parity, paths, pdf)
 
 mcp = FastMCP('hotel-seo-tools')
 
@@ -41,7 +42,7 @@ def _start_job(kind, fn, *args, **kwargs):
 
     if kind == 'crawl':
         kwargs['progress'] = progress
-    elif kind in ('audit', 'recheck', 'mirai'):
+    elif kind in ('audit', 'recheck', 'mirai', 'presend'):
         kwargs['progress'] = lambda msg: job.__setitem__('progress', msg)
 
     def run():
@@ -172,11 +173,17 @@ def test_redirects(out_dir: str, pairs: list[dict] | None = None, file: str = ''
 
 @mcp.tool()
 def render_lists_pdf(out_dir: str, json_path: str = '', data: dict | None = None, crawl_dir: str = '',
-                     facts_file: str = '', allow_unverified: bool = False, keep_html: bool = False) -> dict:
-    """Render one list (Priority, Nice-to-Have, Web Team or Re-check) to PDF in the standard format.
+                     facts_file: str = '', allow_unverified: bool = False, keep_html: bool = False,
+                     google_doc: bool = True, folder_id: str = '') -> dict:
+    """Render one list (Priority, Nice-to-Have, Web Team or Re-check) to PDF in the standard format,
+    and the same content as a Google Doc (google_doc=true; the agency copies from Docs, PDFs break
+    their formatting). Re-rendering the same list updates the same Doc, so its link stays the same.
+    folder_id: a Google Drive folder for the Doc (default: the folder set with hotel-seo-docs-folder,
+    else My Drive). Without Google sign-in for Docs it says so and writes a .docs.html file to import.
     Give json_path (a file following lists.schema.json) or the same object as data. file_number
     "auto" numbers it after the highest "NN - ..." PDF in the work folder. The result warns when
-    the last page is nearly empty.
+    the last page is nearly empty, and when a non-Priority list has items on the homepage, rooms,
+    offers, contact or booking path (severity rule).
 
     [CONFIRM] guard: with crawl_dir (a crawl that audit_site has run on) and/or facts_file
     (<domain>/hotel-facts.json), every fact-like phrase (sizes, distances, counts, prices, times,
@@ -193,7 +200,16 @@ def render_lists_pdf(out_dir: str, json_path: str = '', data: dict | None = None
                 'next': 'Mark each phrase [CONFIRM] in the list, correct it to what the site says, or add it '
                         'to hotel-facts.json with its source; then render again.'}
     result = _off_loop(pdf.render, doc, out_dir, keep_html=keep_html)
-    return {'rendered': True, **result, 'confirm_guard': {k: v for k, v in guard.items() if k != 'unverified'}}
+    out = {'rendered': True, **result, 'confirm_guard': {k: v for k, v in guard.items() if k != 'unverified'}}
+    sev = facts.severity_check(doc)
+    if sev:
+        out['severity_warning'] = {
+            'sections': sev,
+            'next': 'These touch the homepage, rooms, offers, contact or the booking path, which belong on the '
+                    'Priority list. Move them, or add "not_priority_because" to the section if it is deliberate.'}
+    if google_doc:
+        out['google_doc'] = _off_loop(docs.publish, doc, out_dir, result['file'], folder_id=folder_id)
+    return out
 
 
 @mcp.tool()
@@ -216,8 +232,12 @@ def audit_site(crawl_dir: str, gsc_property: str = '', hotel_city: str = '', mir
     - copy: phone numbers and odd country codes, different distances for one landmark, prices in the
       text, out-of-season wording, old years in titles, another city in headings (hotel_city, else
       read from the schema), blog post author names, blog posts with no link to rooms or booking
-    - WordPress REST: SEO and Redirection plugins, exposed namespaces, public users, suspicious /
-      backdated posts with trend, Media Library alt text
+    - WordPress REST: SEO and Redirection plugins, public users, suspicious / junk / backdated posts
+      (date gaps and ID order) with trend and "still being created", Media Library alt text, a leftover
+      llms.txt, and whether MCP / site-control routes (/wp-json/mcp, elementor-mcp...) answer without login
+    - full coverage: pages the crawl didn't reach (sitemaps, WordPress posts and pages) are scanned too
+    - tracking: the homepage is rendered in Chromium and the tags that actually fire are recorded
+      (tags_rendered); use those, never the raw-HTML IDs, for any statement about tracking
     - Search Console (gsc_property, e.g. "sc-domain:hotel.com"): spam queries, brand share now vs the
       90 days before, non-brand searches at positions 4-20, pages by impressions, old http/www
       versions still getting clicks, booking pages in search, Arabic searches
@@ -285,7 +305,8 @@ def booking_engine_snapshot(site: str, hotel_id: str, out_dir: str, crawl_dir: s
 @mcp.tool()
 def keyword_ideas(out_dir: str, seeds: list[str] | None = None, url: str = '', countries: list[str] | None = None,
                   language: str = 'en', limit: int = 300) -> dict:
-    """Google Ads Keyword Planner: new keyword ideas with average monthly searches, competition, top-of-page
+    """DEFERRED (API not set up yet: use import_keyword_csv with Keyword Planner exports).
+    Google Ads Keyword Planner: new keyword ideas with average monthly searches, competition, top-of-page
     bid range and monthly volumes. Seeds: up to 20 words (area + "hotel", room types, the non-brand
     Search Console queries); url: the hotel's site. countries: ISO codes (default ["AE"]; feeder markets
     such as GB, SA, IN, RU, DE); language: en, ar, ru... Run once per language you need. Writes
@@ -296,7 +317,7 @@ def keyword_ideas(out_dir: str, seeds: list[str] | None = None, url: str = '', c
 @mcp.tool()
 def keyword_volumes(keywords_list: list[str], out_dir: str, countries: list[str] | None = None,
                     language: str = 'en') -> dict:
-    """Google Ads Keyword Planner numbers for keywords we already have (e.g. the money searches from
+    """DEFERRED (API not set up yet: use import_keyword_csv). Google Ads Keyword Planner numbers for keywords we already have (e.g. the money searches from
     Search Console, the titles we plan to write): average monthly searches, competition, bid range,
     monthly volumes, close variants. Writes keywords-volumes-<date>.csv/.json in out_dir."""
     return _off_loop(keywords.volumes, keywords_list, out_dir, tuple(countries or ['AE']), language)
@@ -334,6 +355,50 @@ def bing_report(site: str, out_dir: str = '') -> dict:
     pages (with anchor text), and Bing's sitemap status (replaces the Search Console Links export and
     the Bing sitemap screenshot). Says so if the Bing API key isn't set up on this machine."""
     return _off_loop(bing.report, site, out_dir)
+
+
+@mcp.tool()
+def presend_check(list_json: str, crawl_dir: str = '', wait_seconds: int = 45) -> dict:
+    """Live diff before sending a list: runs the draft list's checks against the live site now.
+    Items already fixed (the agency may have done them since the crawl) are dropped; partly fixed
+    items stay, titled "(partly done)" with a note of what is already live. Writes
+    <list>-presend.json next to the draft: render that file, not the draft. Background job."""
+    job = _start_job('presend', checks.presend, list_json, crawl_dir=crawl_dir)
+    return _wait(job, wait_seconds)
+
+
+@mcp.tool()
+def monitor_site(site: str, gsc_property: str = '', out_dir: str = '', add_to_schedule: bool = False,
+                 wait_seconds: int = 45) -> dict:
+    """Monitors: what changed on a hotel site since the last run. Alerts on new or growing suspicious
+    (junk / backdated) posts, new spam search terms in Search Console (gsc_property), newly dead
+    booking links, tags that stopped firing on the rendered homepage, a homepage noindex / canonical /
+    status change, defacement text, new WordPress users and REST (MCP) routes that answer without
+    login. The first run saves the baseline. add_to_schedule: also add the site to the list the
+    scheduled hotel-seo-monitor command runs daily. Background job."""
+    if add_to_schedule:
+        monitor.add_site(site, gsc_property)
+    job = _start_job('monitor', monitor.run, site, gsc_property, out_dir)
+    return _wait(job, wait_seconds)
+
+
+@mcp.tool()
+def import_facts_sheet(sheet: str, facts_file: str, filled_on: str = '') -> dict:
+    """Read the hotel information sheet in code (.xlsx, .csv, or a Google Sheets link shared "anyone
+    with the link") and add every filled field to hotel-facts.json with source "hotel info sheet,
+    <filled_on>", so the [CONFIRM] guard accepts those facts. Other formats (PDF, Word): read them
+    yourself and add the facts by hand with the same source."""
+    return imports.facts_sheet(sheet, facts_file, filled_on)
+
+
+@mcp.tool()
+def import_keyword_csv(files: list[str], out_dir: str, label: str = '') -> dict:
+    """Read Keyword Planner CSV exports (Keyword Planner → Download keyword ideas; English, Arabic,
+    worldwide, a country) straight from the files: keywords, average monthly searches (or the range
+    shown), competition, bid range, monthly volumes. Arabic keeps its order (copy-paste reverses it).
+    Writes keywords-planner-<label>-<date>.csv/.json in out_dir. Use this until the Keyword Planner
+    API is set up."""
+    return imports.keyword_csv(files, out_dir, label)
 
 
 @mcp.tool()

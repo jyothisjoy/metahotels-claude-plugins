@@ -1,6 +1,7 @@
-"""One Google sign-in for Search Console and GA4, plus Google Ads (Keyword Planner) with --with-ads.
+"""One Google sign-in for Search Console, GA4 and Google Docs output, plus Google Ads (Keyword Planner)
+with --with-ads.
 
-Asks for the read scopes on one consent screen and writes:
+Asks for the scopes on one consent screen (Docs: only files this app creates) and writes:
   ~/.metahotels-seo/google/adc.json        (GA4, ADC authorized_user format)
   ~/.metahotels-seo/google/gsc/token.json  (Search Console, mcp-gsc format)
 
@@ -15,6 +16,7 @@ import sys
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 from . import paths
+from .docs import DRIVE_SCOPE
 from .keywords import ADS_SCOPE
 
 
@@ -28,7 +30,7 @@ def main():
 
     if not paths.CLIENT_SECRET.exists():
         sys.exit(f'OAuth client file missing: {paths.CLIENT_SECRET}')
-    flow = InstalledAppFlow.from_client_secrets_file(str(paths.CLIENT_SECRET), [paths.GA_SCOPE, paths.GSC_SCOPE] + ([ADS_SCOPE] if args.with_ads else []))
+    flow = InstalledAppFlow.from_client_secrets_file(str(paths.CLIENT_SECRET), [paths.GA_SCOPE, paths.GSC_SCOPE, DRIVE_SCOPE] + ([ADS_SCOPE] if args.with_ads else []))
     creds = flow.run_local_server(
         port=args.port,
         open_browser=not args.no_browser,

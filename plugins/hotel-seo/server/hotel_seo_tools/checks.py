@@ -183,6 +183,63 @@ def describe(c):
     return c.get('description', t or '')
 
 
+def _run_all(doc, crawl_dir, progress):
+    site = doc.get('site')
+    if not site:
+        raise ValueError('The list has no "site" (e.g. "https://hotel.com"); add it and run again.')
+    sitewide = ['/']
+    if crawl_dir:
+        data = json.loads((paths.resolve(crawl_dir) / 'crawl.json').read_text(encoding='utf-8'))
+        sitewide = [u['url'] for u in data['urls'] if is_page(u)]
+    f = Fetcher(site)
+    results = []
+    for i, s in enumerate(doc['sections']):
+        rows = [{'check': describe(c), **run_check(c, f, sitewide)} for c in s.get('checks', [])]
+        auto = [r for r in rows if r['result'] != 'manual']
+        passed = sum(r['result'] == 'pass' for r in auto)
+        status = ('Manual' if not auto else 'Done' if passed == len(auto) else 'Partly' if passed else 'Open')
+        results.append({'index': i, 'number': s.get('number', i + 1), 'title': s['title'], 'status': status,
+                        'passed': passed, 'automatic': len(auto), 'checks': rows})
+        if progress:
+            progress(f"checked {i + 1}/{len(doc['sections'])} items")
+    return results
+
+
+def presend(list_json, crawl_dir='', progress=None):
+    """Live diff before sending: run a draft list's checks against the live site now. Items whose
+    checks all pass are already fixed (the agency may have done them since the crawl): they are
+    dropped. Partly-fixed items stay, titled "(partly done)" with a note of what is already live.
+    Writes <list>-presend.json next to the draft; render that one."""
+    src = paths.resolve(list_json)
+    doc = json.loads(src.read_text(encoding='utf-8'))
+    results = _run_all(doc, crawl_dir, progress)
+    out = copy.deepcopy(doc)
+    out['sections'], dropped, partly = [], [], []
+    for r in results:
+        sec = copy.deepcopy(doc['sections'][r['index']])
+        if r['status'] == 'Done' and not sec.get('hold'):
+            dropped.append(f"{r['number']} {r['title']}")
+            continue
+        if r['status'] == 'Partly':
+            live = [c['check'] for c in r['checks'] if c['result'] == 'pass']
+            sec['title'] = f"{sec['title']} (partly done)"
+            sec.setdefault('blocks', []).insert(0, {'note': 'Already live: ' + '; '.join(live) + '. Only the rest below.'})
+            partly.append(f"{r['number']} {r['title']}")
+        out['sections'].append(sec)
+    if out.get('summary') and dropped:
+        gone = {d.split(' ', 1)[0] for d in dropped}
+        out['summary']['rows'] = [row for row in doc['summary']['rows'] if str(row[0]) not in gone]
+    dest = src.with_name(src.stem + '-presend.json')
+    dest.write_text(json.dumps(out, indent=1, ensure_ascii=False), encoding='utf-8')
+    return {'items': len(results), 'already_fixed_dropped': dropped, 'partly_done': partly,
+            'no_automatic_checks': [f"{r['number']} {r['title']}" for r in results if r['status'] == 'Manual'],
+            'file': str(dest),
+            'next': ('Render this file instead of the draft.' if dropped or partly else
+                     'Nothing is fixed yet: render the draft (or this identical copy).')
+            + (' Items were dropped: re-letter the sections and check the summary and lead still read right.'
+               if dropped else '')}
+
+
 def recheck(list_json, out_dir, crawl_dir='', progress=None):
     src = paths.resolve(list_json)
     doc = json.loads(src.read_text(encoding='utf-8'))

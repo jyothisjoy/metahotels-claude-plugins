@@ -571,6 +571,10 @@
           "hold": {
             "type": "string",
             "description": "The item waits on someone else, shown in orange after the title, e.g. \"waiting for hotel details\" or \"waiting for hotel confirmation\". Say exactly what is needed. Recheck reports it as Waiting, not Open."
+          },
+          "not_priority_because": {
+            "type": "string",
+            "description": "Only on Nice-to-Have / Web Team sections that touch the homepage, rooms, offers, contact or booking path: why it is deliberately not on the Priority list (e.g. \"cosmetic: wording only\"). Silences the renderer's severity warning."
           }
         }
       }
