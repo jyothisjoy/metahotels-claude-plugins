@@ -42,6 +42,21 @@ Private. Contains the **hotel-seo** plugin: give Claude a hotel website and get 
 
 Work is saved in a folder per hotel (`<domain>/`) wherever Claude is started (desktop chat: `~/Documents/MetaHotels SEO`). PDFs are named like `25 - Atana Priority SEO List (14 Oct).pdf`, with running file numbers across hotels.
 
+### What a re-check adds
+
+`recheck_list` only re-checks the points on the lists already sent and marks each one Done, Partly, Open, Manual or Waiting (waiting on the hotel). It never adds points itself.
+
+`/hotel-seo recheck` also crawls and audits the site again. Claude then adds new lettered sections to the Re-check list for:
+
+- **New Priority-type problems found by the new crawl.** For example, a key page now set to noindex, a title on the wrong page, new broken booking links or new spam posts. Anything the agency's changes broke goes at the very top.
+- **The hotel's confirmed corrections** (offers, occupancy), once the hotel has answered the [CONFIRM] questions.
+
+Notes from the agency's WhatsApp messages (for example "redirects being reviewed tomorrow") go on the existing points as context, not as new tasks.
+
+New Nice-to-Have and Web Team problems are not added during a re-check. They wait for the next full `/hotel-seo <domain>` run. Urgent security problems are the exception: the daily monitor reports those to the MetaHotels team the same day.
+
+Nothing compares the new audit with the old one automatically. Claude decides what is new and Priority-level, so read new points before sending, in case one was left off the earlier list on purpose.
+
 ## Update
 
 ```
