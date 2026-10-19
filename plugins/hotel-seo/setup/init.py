@@ -210,7 +210,7 @@ def google_signin(no_browser=False):
         say('  already signed in')
         return
     say('  Sign in as metahotels.m@gmail.com. Google shows "Google hasn\'t verified this app":')
-    say('  click Advanced -> Go to Google Analytics MCP (unsafe) -> Continue. Waiting up to 10 minutes...')
+    say('  click Advanced -> Go to MetaHotels SEO (unsafe) -> Continue. Waiting up to 10 minutes...')
     cmd = [sys.executable, '-m', 'hotel_seo_tools.google_auth'] + (['--no-browser'] if no_browser else [])
     run(cmd, cwd=str(SERVER_SRC))
 

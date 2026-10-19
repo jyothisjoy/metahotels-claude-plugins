@@ -41,7 +41,7 @@ If the property isn't visible to metahotels.m@gmail.com, that is **GA4 access**:
 **Claude pulls** the daily Magic Parity feed (`rate_parity`) when the machine has the parity connection (`hotel-seo-parity-login`). Otherwise list **Rate parity** under Missing inputs.
 
 ### 3a. Keyword Planner
-**The Keyword Planner API is deferred for now.** Until it's set up:
+**The Keyword Planner API is deferred until the `metahotels-analytics` Cloud project has Basic access** (Explorer blocks Keyword Planner). Until it's set up:
 - [ ] **Keyword Planner CSVs**: Keyword Planner → Discover new keywords (hotel URL + 5–10 area phrases) → Download keyword ideas → CSV. One file per language and location: English and Arabic, the hotel's country and worldwide. Put them in `<domain>/keywords/` as downloaded; don't open and re-save them. Claude reads them with `import_keyword_csv`, which keeps Arabic in order.
 
 Once the API is set up (`hotel-seo-ads-login`, see init), Claude pulls the same with `keyword_volumes` / `keyword_ideas`.

@@ -15,7 +15,7 @@ The people, accounts and routines around the method. Edit this file when the tea
 ## Accounts
 
 - Google account for Search Console and GA4: **metahotels.m@gmail.com** (84 GA4 properties, 76 Search Console sites as of Oct 2026). Signed in once per machine through `/hotel-seo init`.
-- GCP project behind the sign-in: `metahotels-analytics` (OAuth app "Google Analytics MCP", published).
+- GCP project behind the sign-in: `metahotels-analytics` (OAuth app "MetaHotels SEO", published).
 
 ## Known booking engine (Mirai) IDs
 

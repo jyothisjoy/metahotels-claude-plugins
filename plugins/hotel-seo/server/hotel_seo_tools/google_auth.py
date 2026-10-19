@@ -7,7 +7,7 @@ Asks for the scopes on one consent screen (Docs: only files this app creates) an
 
 Sign in as metahotels.m@gmail.com. The OAuth app is published, so tokens
 don't expire after 7 days; Google shows an "unverified app" warning:
-Advanced -> Go to Google Analytics MCP.
+Advanced -> Go to MetaHotels SEO.
 """
 import argparse
 import json

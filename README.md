@@ -23,7 +23,7 @@ Private. Contains the **hotel-seo** plugin: give Claude a hotel website and get 
    ```
    Then start a new Claude Code session.
 2. Run `/hotel-seo init`. It installs `uv` if needed, LibreCrawl, Chromium and the desktop-app setup, then walks you through one Google sign-in as **metahotels.m@gmail.com** (get the password from the team; never put it in this repo). Takes about 5–10 minutes.
-3. **Google Ads Keyword Planner (deferred for now).** Until then, put Keyword Planner CSV exports in `<domain>/keywords/`. Later, if the team has Google Ads API access, type the command Claude gives you (`hotel-seo-ads-login`) and enter the manager account ID and developer token yourself, then sign in again with Ads included (Claude gives you the command).
+3. **Google Ads Keyword Planner (deferred for now).** Until then, put Keyword Planner CSV exports in `<domain>/keywords/`. It switches on once the `metahotels-analytics` Cloud project has Basic access to the Google Ads API (Explorer blocks Keyword Planner). There is no developer token any more (Google retired them on 9 Sep 2026). Claude then saves the Ads account IDs (`hotel-seo-ads-login`) and gives you the command to sign in again with Ads included.
 4. **Rate parity and Bing (optional).** `hotel-seo-parity-login` (Azure connection of the parity feed; `--from-env <magicparity>\.env` reads it from the Magic Parity project) and `hotel-seo-bing-login` (Bing Webmaster API key). Claude gives you the exact commands.
 4b. **Mirai (optional).** If the team has Mirai XML API credentials, type the command Claude gives you after init (starting with `!`) and enter them yourself. Claude never sees the password.
 5. **Desktop chat (optional).** Upload `~/.metahotels-seo/hotel-seo-skill.zip` in Settings → Capabilities → Skills, then fully quit and reopen the desktop app. Desktop chat has no `/plugin` command; this zip and the setup from step 2 are how it gets the skill and tools.
@@ -75,7 +75,7 @@ Automatic background updates of a private plugin need a `GITHUB_TOKEN` (or `GH_T
 | "Repository not found" or an authentication error on `marketplace add` | You're not a collaborator yet, or git isn't logged in: run `gh auth login`, then try again. |
 | `git` or `uv` not found in the desktop app | Fully quit and reopen the app after installing them. |
 | `/hotel-seo` tools missing | Start a new session; then `/hotel-seo init --check`. |
-| Google says "This app isn't verified" | Click **Advanced → Go to Google Analytics MCP**, then Continue. |
+| Google says "This app isn't verified" | Click **Advanced → Go to MetaHotels SEO**, then Continue. |
 | Lists come as PDF and Word only, no Google Doc link | The Google sign-in has no Docs permission yet: run `/hotel-seo init` again and approve the consent screen. Meanwhile, upload the `.docx` to Drive and open it with Google Docs. |
 | Start over on a machine | Delete `~/.metahotels-seo/` and run `/hotel-seo init` again. |
 

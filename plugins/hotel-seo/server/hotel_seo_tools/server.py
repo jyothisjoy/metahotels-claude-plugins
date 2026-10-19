@@ -314,7 +314,8 @@ def booking_engine_snapshot(site: str, hotel_id: str, out_dir: str, crawl_dir: s
 @mcp.tool()
 def keyword_ideas(out_dir: str, seeds: list[str] | None = None, url: str = '', countries: list[str] | None = None,
                   language: str = 'en', limit: int = 300) -> dict:
-    """DEFERRED (API not set up yet: use import_keyword_csv with Keyword Planner exports).
+    """DEFERRED until the Cloud project has Basic Google Ads API access (use import_keyword_csv with
+    Keyword Planner exports until health_check shows Google Ads set up).
     Google Ads Keyword Planner: new keyword ideas with average monthly searches, competition, top-of-page
     bid range and monthly volumes. Seeds: up to 20 words (area + "hotel", room types, the non-brand
     Search Console queries); url: the hotel's site. countries: ISO codes (default ["AE"]; feeder markets

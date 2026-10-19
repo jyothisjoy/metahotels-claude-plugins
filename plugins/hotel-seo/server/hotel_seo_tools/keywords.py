@@ -1,10 +1,15 @@
 """Keyword Planner through the Google Ads API: search volumes, competition and bid ranges.
 
 Needs, once per machine:
-  - the Google sign-in (hotel-seo-auth) to include the Ads permission; the signed-in account must
-    have access to the MetaHotels Google Ads manager account
-  - ~/.metahotels-seo/google/ads.json with the developer token and account IDs, written by
-    `hotel-seo-ads-login` (the user types the token; Claude never sees it)
+  - the Google sign-in (hotel-seo-auth --with-ads) to include the Ads permission; the signed-in
+    account must have access to the MetaHotels Google Ads manager account
+  - ~/.metahotels-seo/google/ads.json with the account IDs (not secret), written by
+    `hotel-seo-ads-login`
+
+No developer token: Google retired them on 9 Sep 2026. API access now comes from the Google Cloud
+project that owns the OAuth client (metahotels-analytics), and Keyword Planner needs that project
+at **Basic** access or higher (Explorer blocks KeywordPlanIdeaService). Cloud console → Google Ads
+API → Overview shows the level.
 
 Two calls:
   ideas(seeds, url)      GenerateKeywordIdeas: new keywords from seed words and/or the hotel's site
@@ -15,8 +20,8 @@ Both write keywords-<date>.csv / .json in out_dir. Default market: United Arab E
 """
 import argparse
 import csv
-import getpass
 import json
+import re
 from datetime import date
 
 from . import paths
@@ -44,8 +49,9 @@ def _client():
     cfg = json.loads(ADS_CONFIG.read_text())
     adc = json.loads(paths.GA_CREDENTIALS.read_text())
     from google.ads.googleads.client import GoogleAdsClient
+    # No developer token (retired; google-ads >= 32 no longer requires one): access comes from the
+    # Cloud project behind the OAuth client.
     return GoogleAdsClient.load_from_dict({
-        'developer_token': cfg['developer_token'],
         'login_customer_id': str(cfg['login_customer_id']).replace('-', ''),
         'client_id': adc['client_id'], 'client_secret': adc['client_secret'],
         'refresh_token': adc['refresh_token'], 'use_proto_plus': True,
@@ -97,10 +103,12 @@ def _safe(fn):
             failure = getattr(e, 'failure', None)
             if failure is not None:
                 msg = '; '.join(err.message for err in failure.errors)[:500]
-            hint = ''
-            if 'DEVELOPER_TOKEN' in msg.upper() or 'developer token' in msg:
-                hint = ' Check the developer token (hotel-seo-ads-login) and its access level.'
-            elif name == 'RefreshError' or 'PERMISSION' in msg.upper() or 'USER_PERMISSION' in msg.upper():
+            hint, up = '', (name + ' ' + msg + ' ' + str(e)).upper()
+            if any(k in up for k in ('CLOUD_PROJECT_NOT_APPROVED', 'ACTION_NOT_PERMITTED', 'DEVELOPER_TOKEN',
+                                     'ACCESS LEVEL', 'NOT ALLOWED FOR EXPLORER')):
+                hint = (f' Keyword Planner needs the {paths.GCP_PROJECT} Cloud project at Basic access or higher '
+                        '(Cloud console → Google Ads API → Overview); Explorer blocks it.')
+            elif name == 'RefreshError' or 'PERMISSION' in up:
                 hint = (' The signed-in Google account needs access to the Ads manager account, and the sign-in '
                         'must include Ads (run hotel-seo-auth --with-ads).')
             return {'checked': False, 'reason': f'{name}: {msg[:400]}.{hint}'}
@@ -156,23 +164,21 @@ def volumes(keywords, out_dir='.', countries=('AE',), language='en'):
 
 
 def login():
-    """hotel-seo-ads-login: store the Google Ads developer token and account IDs (typed by the user)."""
-    ap = argparse.ArgumentParser(description='Save Google Ads API settings for Keyword Planner.')
-    ap.parse_args()
-    print('Google Ads API settings for Keyword Planner (stored in', ADS_CONFIG, ')')
-    mcc = input('Manager account ID (e.g. 123-456-7890): ').strip()
-    cid = input('Account to run Keyword Planner in (Enter = same as manager): ').strip() or mcc
-    token = getpass.getpass('Developer token (hidden): ').strip()
-    if not (mcc and token):
-        raise SystemExit('Nothing saved: the manager ID and developer token are both needed.')
+    """hotel-seo-ads-login: store the Google Ads account IDs for Keyword Planner (no secrets)."""
+    ap = argparse.ArgumentParser(description='Save the Google Ads account IDs for Keyword Planner. '
+                                             'No developer token: Google retired them on 9 Sep 2026.')
+    ap.add_argument('--manager', help='manager (MCC) account ID, e.g. 437-179-3247')
+    ap.add_argument('--customer', help='account to run Keyword Planner in (default: the manager)')
+    args = ap.parse_args()
+    mcc = (args.manager or input('Manager account ID (e.g. 123-456-7890): ')).strip()
+    cid = (args.customer or (input('Account to run Keyword Planner in (Enter = same as manager): ')
+                             if not args.manager else '')).strip() or mcc
+    if not re.fullmatch(r'\d{3}-?\d{3}-?\d{4}', mcc) or not re.fullmatch(r'\d{3}-?\d{3}-?\d{4}', cid):
+        raise SystemExit('Nothing saved: account IDs look like 123-456-7890.')
     paths.GOOGLE_DIR.mkdir(parents=True, exist_ok=True)
-    ADS_CONFIG.write_text(json.dumps({'developer_token': token, 'login_customer_id': mcc, 'customer_id': cid},
-                                     indent=2))
-    try:
-        ADS_CONFIG.chmod(0o600)
-    except OSError:
-        pass
-    print('Saved. Now run hotel-seo-auth --with-ads once so the Google sign-in includes Ads.')
+    ADS_CONFIG.write_text(json.dumps({'login_customer_id': mcc, 'customer_id': cid}, indent=2))
+    print(f'Saved to {ADS_CONFIG}. If the Google sign-in has no Ads permission yet, run '
+          'hotel-seo-auth --with-ads once.')
 
 
 if __name__ == '__main__':
