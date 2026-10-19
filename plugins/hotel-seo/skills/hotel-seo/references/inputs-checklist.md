@@ -41,10 +41,10 @@ If the property isn't visible to metahotels.m@gmail.com, that is **GA4 access**:
 **Claude pulls** the daily Magic Parity feed (`rate_parity`) when the machine has the parity connection (`hotel-seo-parity-login`). Otherwise list **Rate parity** under Missing inputs.
 
 ### 3a. Keyword Planner
-**The Keyword Planner API is deferred until the `metahotels-analytics` Cloud project has Basic access** (Explorer blocks Keyword Planner). Until it's set up:
-- [ ] **Keyword Planner CSVs**: Keyword Planner → Discover new keywords (hotel URL + 5–10 area phrases) → Download keyword ideas → CSV. One file per language and location: English and Arabic, the hotel's country and worldwide. Put them in `<domain>/keywords/` as downloaded; don't open and re-save them. Claude reads them with `import_keyword_csv`, which keeps Arabic in order.
+**Claude pulls through the Keyword Planner API** (`keyword_volumes` / `keyword_ideas`, set up by `/hotel-seo init`): monthly searches, 12 months of volumes, competition and bid range for the money searches and new keyword ideas, per country and language.
 
-Once the API is set up (`hotel-seo-ads-login`, see init), Claude pulls the same with `keyword_volumes` / `keyword_ideas`.
+**From you, only if `init --check` shows Google Ads not set up:**
+- [ ] **Keyword Planner CSVs**: Keyword Planner → Discover new keywords (hotel URL + 5–10 area phrases) → Download keyword ideas → CSV. One file per language and location: English and Arabic, the hotel's country and worldwide. Put them in `<domain>/keywords/` as downloaded; don't open and re-save them. Claude reads them with `import_keyword_csv`, which keeps Arabic in order.
 
 ### 4. Mirai
 **Claude pulls through the Mirai API** (`mirai_reservations`) when the machine has Mirai XML API credentials (set once with `hotel-seo-mirai-login`; see init step 4): bookings, revenue, ADR, seasonality, channel source, promo codes and offers sold.

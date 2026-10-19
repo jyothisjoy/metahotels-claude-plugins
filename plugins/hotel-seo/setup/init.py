@@ -201,17 +201,27 @@ def setup_desktop(uv):
 
 # ---------------------------------------------------------------- 4. Google sign-in
 
+ADS_MANAGER_ID = '437-179-3247'    # MetaHotels Manager (Google Ads); Keyword Planner runs through it
+
+
 def google_signin(no_browser=False):
     say('\n[4/5] Google sign-in')
+    from hotel_seo_tools import keywords
+    if not keywords.ADS_CONFIG.exists():
+        paths.GOOGLE_DIR.mkdir(parents=True, exist_ok=True)
+        keywords.ADS_CONFIG.write_text(json.dumps({'login_customer_id': ADS_MANAGER_ID,
+                                                   'customer_id': ADS_MANAGER_ID}, indent=2))
+        say(f'  Keyword Planner: Google Ads manager {ADS_MANAGER_ID} saved to {keywords.ADS_CONFIG}')
     rows = health.check_google()
-    if all(r['ok'] for r in rows):
+    if all(r['ok'] for r in rows) and keywords.configured()[0]:
         for r in rows:
             say(f"  {r['check']}: {r['detail']}")
         say('  already signed in')
         return
-    say('  Sign in as metahotels.m@gmail.com. Google shows "Google hasn\'t verified this app":')
-    say('  click Advanced -> Go to MetaHotels SEO (unsafe) -> Continue. Waiting up to 10 minutes...')
-    cmd = [sys.executable, '-m', 'hotel_seo_tools.google_auth'] + (['--no-browser'] if no_browser else [])
+    say('  Sign in as metahotels.m@gmail.com and allow every permission (Analytics, Search Console, Drive')
+    say('  files, Google Ads). If Google shows "Google hasn\'t verified this app": click Advanced ->')
+    say('  Go to MetaHotels SEO (unsafe) -> Continue. Waiting up to 10 minutes...')
+    cmd = [sys.executable, '-m', 'hotel_seo_tools.google_auth', '--with-ads'] + (['--no-browser'] if no_browser else [])
     run(cmd, cwd=str(SERVER_SRC))
 
 

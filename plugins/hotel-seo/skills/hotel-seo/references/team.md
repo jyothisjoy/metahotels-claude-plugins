@@ -15,7 +15,8 @@ The people, accounts and routines around the method. Edit this file when the tea
 ## Accounts
 
 - Google account for Search Console and GA4: **metahotels.m@gmail.com** (84 GA4 properties, 76 Search Console sites as of Oct 2026). Signed in once per machine through `/hotel-seo init`.
-- GCP project behind the sign-in: `metahotels-analytics` (OAuth app "MetaHotels SEO", published).
+- GCP project behind the sign-in: `metahotels-analytics` (OAuth app "MetaHotels SEO", published; branding verified on metahotels.ae, 19 Oct 2026). Google Ads API at **Basic** access (no developer token since Google retired them).
+- Google Ads: the **MetaHotels Manager** account (437-179-3247) is owned by metahotelads@gmail.com; metahotels.m@gmail.com has Read only access, which is all Keyword Planner needs.
 
 ## Known booking engine (Mirai) IDs
 

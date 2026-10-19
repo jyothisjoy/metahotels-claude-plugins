@@ -314,9 +314,7 @@ def booking_engine_snapshot(site: str, hotel_id: str, out_dir: str, crawl_dir: s
 @mcp.tool()
 def keyword_ideas(out_dir: str, seeds: list[str] | None = None, url: str = '', countries: list[str] | None = None,
                   language: str = 'en', limit: int = 300) -> dict:
-    """DEFERRED until the Cloud project has Basic Google Ads API access (use import_keyword_csv with
-    Keyword Planner exports until health_check shows Google Ads set up).
-    Google Ads Keyword Planner: new keyword ideas with average monthly searches, competition, top-of-page
+    """Google Ads Keyword Planner: new keyword ideas with average monthly searches, competition, top-of-page
     bid range and monthly volumes. Seeds: up to 20 words (area + "hotel", room types, the non-brand
     Search Console queries); url: the hotel's site. countries: ISO codes (default ["AE"]; feeder markets
     such as GB, SA, IN, RU, DE); language: en, ar, ru... Run once per language you need. Writes
@@ -327,7 +325,7 @@ def keyword_ideas(out_dir: str, seeds: list[str] | None = None, url: str = '', c
 @mcp.tool()
 def keyword_volumes(keywords_list: list[str], out_dir: str, countries: list[str] | None = None,
                     language: str = 'en') -> dict:
-    """DEFERRED (API not set up yet: use import_keyword_csv). Google Ads Keyword Planner numbers for keywords we already have (e.g. the money searches from
+    """Google Ads Keyword Planner numbers for keywords we already have (e.g. the money searches from
     Search Console, the titles we plan to write): average monthly searches, competition, bid range,
     monthly volumes, close variants. Writes keywords-volumes-<date>.csv/.json in out_dir."""
     return _off_loop(keywords.volumes, keywords_list, out_dir, tuple(countries or ['AE']), language)
