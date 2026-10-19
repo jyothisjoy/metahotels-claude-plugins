@@ -143,7 +143,8 @@ def _failure(root):
         return ''
     comment = _text(f.find('comment'))
     first = next((ln.strip() for ln in comment.splitlines() if ln.strip()), '')
-    return f"{f.get('type', 'failure')}: {re.sub(r'^[\w.]+Exception:\s*', '', first)[:200]}"
+    message = re.sub(r'^[\w.]+Exception:\s*', '', first)[:200]
+    return f"{f.get('type', 'failure')}: {message}"
 
 
 def _booking(b, hotel_id):

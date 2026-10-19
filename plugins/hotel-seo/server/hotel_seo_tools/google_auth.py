@@ -31,7 +31,10 @@ def main():
     if not paths.CLIENT_SECRET.exists():
         sys.exit(f'OAuth client file missing: {paths.CLIENT_SECRET}')
     flow = InstalledAppFlow.from_client_secrets_file(str(paths.CLIENT_SECRET), [paths.GA_SCOPE, paths.GSC_SCOPE, DRIVE_SCOPE] + ([ADS_SCOPE] if args.with_ads else []))
+    # 127.0.0.1, not "localhost": on some Windows PCs localhost resolves to IPv6 (::1),
+    # where the listener isn't, and the redirect back from Google fails.
     creds = flow.run_local_server(
+        host='127.0.0.1',
         port=args.port,
         open_browser=not args.no_browser,
         access_type='offline',
