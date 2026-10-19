@@ -47,7 +47,7 @@ If the property isn't visible to metahotels.m@gmail.com, that is **GA4 access**:
 - [ ] **Keyword Planner CSVs**: Keyword Planner → Discover new keywords (hotel URL + 5–10 area phrases) → Download keyword ideas → CSV. One file per language and location: English and Arabic, the hotel's country and worldwide. Put them in `<domain>/keywords/` as downloaded; don't open and re-save them. Claude reads them with `import_keyword_csv`, which keeps Arabic in order.
 
 ### 4. Mirai
-**Claude pulls through the Mirai API** (`mirai_reservations`) when the machine has Mirai XML API credentials (set once with `hotel-seo-mirai-login`; see init step 4): bookings, revenue, ADR, seasonality, channel source, promo codes and offers sold.
+**Claude pulls through the Mirai API** (`mirai_reservations`) when the work folder's `.env` has `MIRAI_USER` and `MIRAI_PASS` (one login covers every MetaHotels hotel on Mirai): bookings, cancellations, revenue, ADR, seasonality by stay month, offers and room types sold by name, club sign-ups, channel source, promo codes, guest countries, and what's on the books for the coming months.
 
 **From you, only if the API isn't set up** (2 min):
 - [ ] **Mirai reservations export**: switch the property view to the hotel → Reservations → booking date **1 Mar 2026 → today** → Export Excel. Name it anything; put it in `<domain>/`.
@@ -95,4 +95,4 @@ Needed before anything marked **[CONFIRM]** goes live. The run ends with the exa
 
 - [ ] The Google sign-in includes Docs (`init --check` → Google Docs output OK); otherwise lists come as PDF plus a `.docs.html` file.
 - [ ] metahotels.m@gmail.com has Search Console and GA4 access for every hotel on the rollout list (`init --check` shows how many properties it sees).
-- [ ] Mirai XML API credentials (from integrations@mirai.com) on each machine, or the Mirai masterkey (individual hotel views) for the reservations export.
+- [ ] `MIRAI_USER` and `MIRAI_PASS` (Mirai XML API) in the `.env` of the work folder on each machine, or the Mirai masterkey (individual hotel views) for the reservations export.

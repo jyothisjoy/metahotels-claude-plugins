@@ -64,8 +64,9 @@ def check_google():
     ok, why = keywords.configured()
     # optional: Keyword Planner only; never fails the check
     rows.append(_row('Google Ads (Keyword Planner)', True, 'set up' if ok else f'optional, not set up: {why}'))
-    from . import bing, parity
-    for name, mod in (('Rate parity feed (Azure)', parity), ('Bing Webmaster API', bing)):
+    from . import bing, mirai, parity
+    for name, mod in (('Mirai reservations API', mirai), ('Rate parity feed (Azure)', parity),
+                      ('Bing Webmaster API', bing)):
         ok, why = mod.configured()
         rows.append(_row(name, True, 'set up' if ok else f'optional, not set up: {why}'))
     return rows

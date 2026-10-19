@@ -280,15 +280,23 @@ def recheck_list(list_json: str, out_dir: str, crawl_dir: str = '', wait_seconds
 
 
 @mcp.tool()
-def mirai_reservations(hotel_id: str, date_from: str = '', date_to: str = '', wait_seconds: int = 45) -> dict:
-    """Bookings from the Mirai XML API: count, revenue, ADR, length of stay, booking window, by booking
-    month and by stay month (seasonality), channel source, promo codes, offer IDs, guest country.
-    Dates yyyy-mm-dd (default 1 Mar this year → today). Mirai allows one call per 3 minutes and 31 days
-    per call, so long ranges take a while (background job). If credentials aren't set up it says so:
-    use the Reservations Excel export instead."""
-    if not mirai.configured():
+def mirai_reservations(hotel_id: str, date_from: str = '', date_to: str = '', by: str = 'booking',
+                       out_dir: str = '', wait_seconds: int = 45) -> dict:
+    """Bookings of one hotel from the Mirai XML API (credentials: MIRAI_USER / MIRAI_PASS in the work
+    folder's .env). Returns bookings, cancellations and rate, no-shows, revenue, room nights, ADR,
+    length of stay, booking window, check-in weekday, by booking month and by stay month (seasonality),
+    revenue and room nights per OFFER NAME and ROOM TYPE (packages sold that have no page), boards,
+    channel, promo codes, member-rate modifiers, club sign-ups vs existing members, guest country,
+    language, families, non-refundable share, extras. No guest names, emails or phones are kept.
+    by: "booking" = bookings made between the dates (default 1 Mar this year → today);
+        "checkin" = arrivals between the dates (default today → +90 days, what is on the books).
+    Dates yyyy-mm-dd. out_dir: where the per-booking JSON goes (e.g. "<domain>/mirai").
+    Mirai allows one call per 3 minutes and 31 days per call; windows are cached and shared by every
+    hotel of the login, so the first long range takes a while (background job). Says so if
+    credentials aren't set up: use the Reservations Excel export instead."""
+    if not mirai.configured()[0]:
         return mirai.reservations(hotel_id)
-    job = _start_job('mirai', mirai.reservations, hotel_id, date_from, date_to)
+    job = _start_job('mirai', mirai.reservations, hotel_id, date_from, date_to, by=by, out_dir=out_dir)
     return _wait(job, wait_seconds)
 
 
