@@ -313,7 +313,7 @@
               "required": [
                 "type"
               ],
-              "description": "One machine-checkable condition that is true once the item is done. recheck_list runs them against the live site. url: a path like \"/dining/\" or \"sitewide\" (every page of the recheck crawl) for text_absent / link_absent.",
+              "description": "One machine-checkable condition that is true once the item is done. recheck_list runs them against the live site. url: a path like \"/dining/\" or \"sitewide\" (every page of the recheck crawl) for text_absent / link_absent. Write one check per URL and per table row the section names (6 title changes = 6 title checks): presend_check and render_lists_pdf report URLs with no check. A \"post title\" change gets both an h1 and a title check (agencies often edit only the SEO title). \"Replace with this block\" gets schema_block_equals; each schema line to delete gets schema_count (or schema_block_equals).",
               "oneOf": [
                 {
                   "properties": {
@@ -466,6 +466,15 @@
                     "visible_only": {
                       "type": "boolean",
                       "default": true
+                    },
+                    "scope": {
+                      "enum": [
+                        "visible",
+                        "schema",
+                        "html"
+                      ],
+                      "default": "visible",
+                      "description": "Where to look: visible page text (default), the JSON-LD only, or the raw HTML. Use \"schema\" for schema-only items: a visible testimonial with the same name must not fail it, and a schema phone is not in the visible text."
                     }
                   },
                   "required": [
@@ -483,6 +492,15 @@
                     },
                     "text": {
                       "type": "string"
+                    },
+                    "scope": {
+                      "enum": [
+                        "visible",
+                        "schema",
+                        "html"
+                      ],
+                      "default": "visible",
+                      "description": "Where to look: visible page text (default), the JSON-LD only, or the raw HTML. Use \"schema\" for schema-only items: a visible testimonial with the same name must not fail it, and a schema phone is not in the visible text."
                     }
                   },
                   "required": [
@@ -561,7 +579,12 @@
                     },
                     "href": {
                       "type": "string",
-                      "description": "Substring of the href, e.g. the booking-engine link added to a blog post"
+                      "description": "Part of the address that must be linked. Fails if the matching link has whitespace or %20 in it (\"/search/? idtokenprovider=\")."
+                    },
+                    "exact": {
+                      "type": "boolean",
+                      "default": false,
+                      "description": "true: the link must be exactly this address, not just contain it"
                     }
                   },
                   "required": [
@@ -580,6 +603,28 @@
                   },
                   "required": [
                     "description"
+                  ]
+                },
+                {
+                  "properties": {
+                    "type": {
+                      "const": "schema_block_equals"
+                    },
+                    "url": {
+                      "type": "string"
+                    },
+                    "schema_type": {
+                      "type": "string",
+                      "description": "e.g. \"Hotel\"; default: the @type of expected"
+                    },
+                    "expected": {
+                      "type": "object",
+                      "description": "The exact block the list says to paste (as JSON). Passes only if the page has one block of that type with the same keys and values (@context ignored); reports missing keys, old keys left in, and different values."
+                    }
+                  },
+                  "required": [
+                    "url",
+                    "expected"
                   ]
                 }
               ]

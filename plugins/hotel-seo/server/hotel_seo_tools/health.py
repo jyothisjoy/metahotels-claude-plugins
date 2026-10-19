@@ -45,7 +45,7 @@ def check_google():
         rows.append(_row('Search Console sign-in', False, f'missing {paths.GSC_TOKEN}', signin))
     else:
         try:
-            tok = _refresh(paths.GSC_TOKEN, [paths.GSC_SCOPE])
+            tok = _refresh(paths.GSC_TOKEN, paths.gsc_scopes())
             r = requests.get('https://www.googleapis.com/webmasters/v3/sites',
                              headers={'Authorization': f'Bearer {tok}'}, timeout=20)
             r.raise_for_status()
@@ -54,6 +54,11 @@ def check_google():
                              'Signed in with an account that has no Search Console access. ' + signin))
         except Exception as e:  # noqa: BLE001
             rows.append(_row('Search Console sign-in', False, f'token refresh or API call failed: {e}', signin))
+        read_only = paths.gsc_scopes() == [paths.GSC_SCOPE]
+        rows.append(_row('Search Console read-only', read_only,
+                         'read-only' if read_only else 'the saved sign-in can also change Search Console '
+                         '(submit or delete sitemaps, add or remove properties)',
+                         'Run hotel-seo-auth again (one consent screen); new sign-ins are read-only.'))
     if paths.GSC_TOKEN.exists():
         from .docs import DRIVE_SCOPE
         has = DRIVE_SCOPE in (json.loads(paths.GSC_TOKEN.read_text()).get('scopes') or [])
@@ -65,8 +70,15 @@ def check_google():
     # optional: Keyword Planner only; never fails the check
     rows.append(_row('Google Ads (Keyword Planner)', True, 'set up' if ok else f'optional, not set up: {why}'))
     from . import bing, mirai, parity
-    for name, mod in (('Mirai reservations API', mirai), ('Rate parity feed (Azure)', parity),
-                      ('Bing Webmaster API', bing)):
+    # Mirai: a saved login is only "set up" once one real call works.
+    if mirai.configured()[0]:
+        ok, detail = mirai.test_login()
+        rows.append(_row('Mirai reservations API', ok is not False, detail,
+                         'Mirai rejected the saved login: fix MIRAI_USER / MIRAI_PASS in the work folder .env '
+                         '(or rerun hotel-seo-mirai-login).'))
+    else:
+        rows.append(_row('Mirai reservations API', True, f'optional, not set up: {mirai.configured()[1]}'))
+    for name, mod in (('Rate parity feed (Azure)', parity), ('Bing Webmaster API', bing)):
         ok, why = mod.configured()
         rows.append(_row(name, True, 'set up' if ok else f'optional, not set up: {why}'))
     return rows

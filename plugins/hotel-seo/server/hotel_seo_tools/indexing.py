@@ -37,7 +37,7 @@ def _session():
         return None
     from google.auth.transport.requests import AuthorizedSession
     from google.oauth2.credentials import Credentials
-    creds = Credentials.from_authorized_user_info(json.loads(paths.GSC_TOKEN.read_text()), [paths.GSC_SCOPE])
+    creds = Credentials.from_authorized_user_info(json.loads(paths.GSC_TOKEN.read_text()), paths.gsc_scopes())
     return AuthorizedSession(creds)
 
 

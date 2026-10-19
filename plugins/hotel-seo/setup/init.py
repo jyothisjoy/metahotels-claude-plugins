@@ -154,11 +154,40 @@ def desktop_config_paths():
     return [Path.home() / '.config' / 'Claude' / 'claude_desktop_config.json']
 
 
+def stop_copy_processes(copy):
+    """The desktop app keeps hotel-seo-tools / gsc / ga4 running from the server copy, and on Windows
+    their open files can't be deleted. Stop them (the app restarts them when reopened)."""
+    if os.name != 'nt':
+        return []
+    ps = ("Get-CimInstance Win32_Process | Where-Object { ($_.ExecutablePath -and $_.ExecutablePath.StartsWith($env:HSC, "
+          "'OrdinalIgnoreCase')) -or ($_.CommandLine -and $_.CommandLine.IndexOf($env:HSC, "
+          "[StringComparison]::OrdinalIgnoreCase) -ge 0) } | Where-Object { $_.ProcessId -ne $PID } | "
+          "Select-Object -ExpandProperty ProcessId")
+    try:
+        out = subprocess.run(['powershell', '-NoProfile', '-Command', ps], capture_output=True, text=True,
+                             env={**os.environ, 'HSC': str(copy)}, timeout=60).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    pids = [p for p in out.split() if p.isdigit() and int(p) != os.getpid()]
+    for pid in pids:
+        subprocess.run(['taskkill', '/F', '/T', '/PID', pid], capture_output=True)
+    return pids
+
+
 def setup_desktop(uv):
     say('\n[3/5] Claude desktop app')
     copy = paths.HOME / 'server'
     if copy.exists():
-        shutil.rmtree(copy, ignore_errors=True)
+        stopped = stop_copy_processes(copy)
+        if stopped:
+            say(f'  stopped {len(stopped)} desktop-app server process(es) using the old copy; '
+                'quit and reopen the desktop app afterwards')
+            time.sleep(2)
+        try:
+            shutil.rmtree(copy)
+        except OSError as e:
+            sys.exit(f'  Could not replace {copy}: {e}\n  A program still has files open there (usually the Claude '
+                     'desktop app). Quit the desktop app completely (tray icon -> Quit) and run init again.')
     shutil.copytree(SERVER_SRC, copy, ignore=shutil.ignore_patterns('.venv', '__pycache__', '*.pyc'))
     paths.GOOGLE_DIR.mkdir(parents=True, exist_ok=True)
     shutil.copy2(PLUGIN_DIR / 'setup' / 'google' / 'client_secret.json', paths.GOOGLE_DIR / 'client_secret.json')

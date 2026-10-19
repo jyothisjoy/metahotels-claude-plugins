@@ -42,11 +42,23 @@ ARCHIVE = re.compile(r'/(19|20)\d{2}/(\d{2}/)?(\d{2}/)?$|/author/|/tag/|/categor
 HACKED = re.compile(r'hacked by|defaced by|h[a4]ck[e3]d by|owned by .{0,20}team|was here', re.I)
 EMPTY_TEXT = re.compile(r'no content available|nothing found|page not found|coming soon|lorem ipsum', re.I)
 GENERIC_WORDS = {'hotel', 'hotels', 'resort', 'resorts', 'suites', 'suite', 'apartments', 'apartment', 'beach',
-                 'the', 'and', 'group', 'city', 'tower', 'towers', 'inn', 'spa', 'official', 'site', 'by'} | {
-                     c.lower() for c in CITIES}
+                 'the', 'and', 'group', 'city', 'tower', 'towers', 'inn', 'spa', 'official', 'site', 'by',
+                 # location and descriptor words that sit in hotel names and titles but aren't the brand
+                 # (Pearl Marina: "marina" made "hotel apartments in dubai marina" a brand search)
+                 'marina', 'heights', 'star', 'stars', 'bay', 'creek', 'downtown', 'barsha', 'jumeirah', 'deira',
+                 'palm', 'airport', 'centre', 'center', 'boutique', 'luxury', 'residence', 'residences', 'villa',
+                 'villas', 'plaza', 'view', 'sea', 'gate', 'park', 'tecom', 'internet', 'media', 'business',
+                 'hurghada', 'sahl', 'hasheesh', 'gouna', 'makadi', 'sokhna', 'corniche', 'island', 'oasis'} | {
+                     c.lower().replace(' ', '') for c in CITIES} | {w for c in CITIES for w in c.lower().split()
+                                                                     if len(w) > 3}
 PRICE = re.compile(r'(?:AED|USD|EUR|SAR|QAR|OMR|INR|\$|€|£)\s?\d[\d,]*(?:\.\d+)?(?:\s?[-–]\s?\d[\d,]*)?'
                    r'|\d[\d,]*(?:\s?[-–]\s?\d[\d,]*)?\s?(?:AED|dirhams?|USD)\b', re.I)
-PHONE = re.compile(r'(?:\+|00)\s?\d{1,3}[\s\-.()]*\d{1,4}[\s\-.()]*\d{2,4}[\s\-.]*\d{3,4}')
+# Only runs that start a number (+ or 00 not glued to other digits/letters) and end at a non-digit:
+# joined digit strings (prices, IDs, dates) gave +212 / +220 / +420 on 109 Pearl Marina pages.
+PHONE = re.compile(r'(?<![\w+])(?:\+|00)\s?\d{1,3}[\s\-.()]*\d{1,4}[\s\-.()]*\d{2,4}[\s\-.]*\d{3,4}(?!\d)')
+SHORT_CODES = {'1', '7', '20', '27', '30', '31', '32', '33', '34', '36', '39', '40', '41', '43', '44', '45', '46',
+               '47', '48', '49', '51', '52', '54', '55', '60', '61', '62', '63', '64', '65', '66', '81', '82', '84',
+               '86', '90', '91', '92', '93', '94', '95', '98'}
 LANDMARK = r"((?:the\s+)?[A-Z][\w'’&.-]*(?:\s+(?:of|al|Al|el|bin|the|de|&)?\s*[A-Z][\w'’&.-]*){0,4})"
 DIST_VALUE = r'(\d+(?:\.\d+)?)\s?(km|kms|kilomet(?:er|re)s?|minutes?|mins?|miles?)\b'
 DIST_A = re.compile(DIST_VALUE + r'[^.\n]{0,25}?\b(?:from|to|of|away from)\s+' + LANDMARK)
@@ -118,7 +130,7 @@ def _gsc():
         return None
     from google.auth.transport.requests import AuthorizedSession
     from google.oauth2.credentials import Credentials
-    creds = Credentials.from_authorized_user_info(json.loads(paths.GSC_TOKEN.read_text()), [paths.GSC_SCOPE])
+    creds = Credentials.from_authorized_user_info(json.loads(paths.GSC_TOKEN.read_text()), paths.gsc_scopes())
     return AuthorizedSession(creds)
 
 
@@ -132,19 +144,53 @@ def _gsc_query(s, prop, start, end, dims, row_limit=25000):
     return r.json().get('rows', [])
 
 
-def brand_terms(site_name, home_host):
-    words = re.findall(r'[a-z0-9]+', (site_name or '').lower())
-    terms = {w for w in words if len(w) >= 4 and w not in GENERIC_WORDS}
-    stem = home_host.split('.')[0]
-    for w in list(terms):
-        if w in stem:
-            terms.add(w)
+def _strip_generic(stem):
+    """'pearlmarinahotel' -> 'pearl', 'atanahotel' -> 'atana': drop generic and location words from the
+    ends of a domain label (only the ends, so a name that merely contains one stays whole)."""
+    changed = True
+    while changed and stem:
+        changed = False
+        for w in sorted(GENERIC_WORDS, key=len, reverse=True):
+            if len(w) >= 3 and len(stem) > len(w) + 2:
+                if stem.endswith(w):
+                    stem, changed = stem[:-len(w)], True
+                elif stem.startswith(w) and w not in ('al', 'el'):
+                    stem, changed = stem[len(w):], True
+    return stem
+
+
+def brand_terms(site_name, home_host, hotel_names=()):
+    """Words that make a search a brand search, and where they came from.
+
+    Seeded from the most stable identifiers first: the domain label (atanahotel.com -> "atana"), then
+    the hotel's own schema / hotel.json name. The WordPress site title comes last because owners stuff
+    it with keywords ("Hotels in Barsha Heights, 4-star hotel..." gave barsha/heights/star and a 3%
+    brand share where "atana" queries were 71% of clicks)."""
+    terms, source = set(), []
+    stem = _strip_generic(re.sub(r'[^a-z0-9]', '', home_host.split('.')[0].lower()))
+    if len(stem) >= 4 and stem not in GENERIC_WORDS:
+        terms.add(stem)
+        source.append(f'domain ({home_host.split(".")[0]})')
+    for name in hotel_names:
+        words = {w for w in re.findall(r'[a-z0-9]+', (name or '').lower()) if len(w) >= 4 and w not in GENERIC_WORDS}
+        # a word already inside the domain stem adds nothing; one that isn't is a real second name token
+        new = {w for w in words if not any(w in t for t in terms)}
+        if new:
+            terms |= new
+            source.append(f'hotel name ("{name}")')
     if not terms:
-        terms.add(re.sub(r'(hotel|resort|and|apartments?)+', ' ', stem).split()[0] if stem else stem)
-    return sorted(t for t in terms if t)
+        words = {w for w in re.findall(r'[a-z0-9]+', (site_name or '').lower())
+                 if len(w) >= 4 and w not in GENERIC_WORDS}
+        if words:
+            terms |= words
+            source.append(f'site title ("{site_name}"): check these, titles are often keyword-stuffed')
+    if not terms and stem:
+        terms.add(stem)
+        source.append('domain')
+    return sorted(t for t in terms if t), '; '.join(source)
 
 
-def gsc_report(prop, site_name, home_host, days=90):
+def gsc_report(prop, site_name, home_host, days=90, hotel_names=(), hotel_path=''):
     """Brand share, money searches near page one, pages by impressions, host variants, booking pages,
     Arabic searches and submitted sitemaps. Last 90 days vs the 90 before."""
     if not prop:
@@ -160,9 +206,24 @@ def gsc_report(prop, site_name, home_host, days=90):
         q_now = _gsc_query(s, prop, start, end, ['query'])
         q_prev = _gsc_query(s, prop, p_start, p_end, ['query'])
         pages_now = _gsc_query(s, prop, start, end, ['page'])
+        q_page = _gsc_query(s, prop, start, end, ['query', 'page'])
     except RuntimeError as e:
         return {'checked': False, 'reason': str(e)}
-    terms = brand_terms(site_name, home_host)
+    # The page Google shows for each search. On a domain with several hotels a query-only view hands
+    # one hotel's searches to another (a sister's exact brand query listed as this hotel's opportunity).
+    top_page = {}
+    for r in sorted(q_page, key=lambda r: (r['clicks'], r['impressions'])):
+        top_page[r['keys'][0]] = r['keys'][1]
+    scope = '/' + hotel_path.strip('/') + '/' if hotel_path and hotel_path.strip('/') else ''
+
+    def sister(q):
+        return bool(scope) and q in top_page and not (urlparse(top_page[q]).path + '/').startswith(scope)
+    sister_queries = [r for r in q_now if sister(r['keys'][0])]
+    if scope:
+        q_now = [r for r in q_now if not sister(r['keys'][0])]
+        q_prev = [r for r in q_prev if not sister(r['keys'][0])]
+        pages_now = [r for r in pages_now if (urlparse(r['keys'][0]).path + '/').startswith(scope)]
+    terms, terms_source = brand_terms(site_name, home_host, hotel_names)
 
     def is_brand(q):
         flat = q.lower().replace(' ', '')
@@ -175,7 +236,7 @@ def gsc_report(prop, site_name, home_host, days=90):
         return {'clicks': c, 'impressions': i, 'brand_clicks': bc,
                 'brand_click_share_pct': round(100 * bc / c, 1) if c else None}
     money = sorted(({'query': r['keys'][0], 'impressions': r['impressions'], 'clicks': r['clicks'],
-                     'position': round(r['position'], 1)}
+                     'position': round(r['position'], 1), 'top_page': top_page.get(r['keys'][0], '')}
                     for r in q_now if not is_brand(r['keys'][0]) and 4 <= r['position'] <= 20
                     and r['impressions'] >= 30), key=lambda x: -x['impressions'])[:40]
     arabic = [r for r in q_now if re.search(r'[؀-ۿ]', r['keys'][0])]
@@ -187,7 +248,12 @@ def gsc_report(prop, site_name, home_host, days=90):
                or 'idtokenprovider' in r['keys'][0] or 'bookingstep' in r['keys'][0]]
     out = {
         'checked': True, 'property': prop, 'window': f'{start}..{end}', 'previous': f'{p_start}..{p_end}',
-        'brand_terms': terms, 'now': totals(q_now), 'before': totals(q_prev),
+        'hotel_path': scope or None,
+        'sister_hotel_queries_dropped': {'count': len(sister_queries), 'top': [
+            {'query': r['keys'][0], 'clicks': r['clicks'], 'impressions': r['impressions'],
+             'top_page': top_page.get(r['keys'][0], '')}
+            for r in sorted(sister_queries, key=lambda r: -r['clicks'])[:10]]},
+        'brand_terms': terms, 'brand_terms_source': terms_source, 'now': totals(q_now), 'before': totals(q_prev),
         'money_queries_pos_4_20': money,
         'arabic_queries': {'count': len(arabic), 'impressions': sum(r['impressions'] for r in arabic),
                            'clicks': sum(r['clicks'] for r in arabic),
@@ -494,21 +560,36 @@ def jsonld_nodes(data):
 
 # ---------------------------------------------------------------- copy consistency
 
+def country_code(n):
+    for k in (1, 2):
+        if n[:k] in SHORT_CODES:
+            return n[:k]
+    return n[:3]
+
+
 def phone_report(pages):
-    numbers = Counter()
+    """Phone numbers from tel: links (reliable) and from visible text runs that start with + or 00.
+    Odd country codes are judged against the tel: links; a text-only odd number is listed to check by
+    eye, not raised as an issue."""
+    tel, text = Counter(), Counter()
     where = defaultdict(set)
     for u, p in pages.items():
         for ph in p.get('phones', []):
-            numbers[ph] += 1
+            tel[ph] += 1
             where[ph].add(u)
-    if not numbers:
-        return {'numbers': [], 'odd_country_codes': []}
-    def cc(n):
-        return n[:3]
-    main_cc = Counter(cc(n) for n in numbers.elements()).most_common(1)[0][0]
-    rows = [{'number': '+' + n, 'pages': c, 'urls': sorted(where[n])[:10]} for n, c in numbers.most_common()]
-    odd = [r for r in rows if cc(r['number'][1:]) != main_cc]
-    return {'numbers': rows, 'main_country_code': '+' + main_cc, 'odd_country_codes': odd}
+        for ph in p.get('phones_text', []):
+            text[ph] += 1
+            where[ph].add(u)
+    if not tel and not text:
+        return {'numbers': [], 'odd_country_codes': [], 'odd_country_codes_text_only': []}
+    main_cc = Counter(country_code(n) for n in (tel or text).elements()).most_common(1)[0][0]
+    rows = [{'number': '+' + n, 'pages': len(where[n]), 'in_tel_links': tel[n], 'urls': sorted(where[n])[:10]}
+            for n in sorted(set(tel) | set(text), key=lambda n: -len(where[n]))]
+    odd = [r for r in rows if country_code(r['number'][1:]) != main_cc]
+    return {'numbers': rows, 'main_country_code': '+' + main_cc,
+            'main_code_from': 'tel: links' if tel else 'page text (no tel: links)',
+            'odd_country_codes': [r for r in odd if r['in_tel_links']],
+            'odd_country_codes_text_only': [r for r in odd if not r['in_tel_links']]}
 
 
 def distance_conflicts(texts):
@@ -574,22 +655,63 @@ def city_report(pages, hotel_city):
     return {'hotel_city': hotel_city, 'pages': out}
 
 
+CITY_COUNTRY = {**{c: 'UAE' for c in ('Dubai', 'Abu Dhabi', 'Sharjah', 'Ajman', 'Fujairah', 'Ras Al Khaimah',
+                                       'Umm Al Quwain', 'Al Ain')},
+                'Doha': 'Qatar', 'Riyadh': 'Saudi Arabia', 'Jeddah': 'Saudi Arabia', 'Muscat': 'Oman',
+                'Manama': 'Bahrain', 'Kuwait': 'Kuwait', 'Beirut': 'Lebanon',
+                **{c: 'Egypt' for c in ('Cairo', 'Giza', 'Alexandria', 'New Alamein', 'El Alamein', 'Hurghada',
+                                        'Sharm El Sheikh', 'El Gouna', 'Marsa Matrouh', 'Luxor', 'Aswan',
+                                        'Sahl Hasheesh', 'Ain Sokhna')}}
+TLD_COUNTRY = {'ae': 'UAE', 'eg': 'Egypt', 'qa': 'Qatar', 'sa': 'Saudi Arabia', 'om': 'Oman', 'bh': 'Bahrain',
+               'kw': 'Kuwait', 'lb': 'Lebanon'}
+
+
 def hotel_city(pages):
-    loc = Counter()
-    for p in pages.values():
+    return hotel_city_with_source(pages)['city']
+
+
+def hotel_city_with_source(pages, home_host='', hotel_path=''):
+    """The hotel's city when the operator didn't give one, with where it came from, so a wrong guess is
+    visible. On a domain with several hotels the sitewide schema can be another property's block (two
+    Egyptian hotels were audited as Fujairah), so pages under hotel_path are read first."""
+    scope = '/' + hotel_path.strip('/') + '/' if hotel_path and hotel_path.strip('/') else ''
+    own = {u: p for u, p in pages.items() if scope and (urlparse(u).path + '/').startswith(scope)} or pages
+    rest = [p for u, p in pages.items() if u not in own]
+    # a block that also sits on most pages outside the hotel's section is the sitewide (sister) block
+    sitewide = Counter((n.get('name'), n.get('locality')) for p in rest for n in p.get('jsonld_nodes', [])
+                       if n['type'] in BUSINESS_TYPES)
+    shared = {k for k, c in sitewide.items() if rest and c >= 0.5 * len(rest)}
+    loc, names = Counter(), Counter()
+    for p in own.values():
         for n in p.get('jsonld_nodes', []):
+            if own is not pages and (n.get('name'), n.get('locality')) in shared:
+                continue
             if n['type'] in BUSINESS_TYPES and n.get('locality'):
                 for c in CITIES:
                     if c.lower() in n['locality'].lower():
                         loc[c] += 1
+                        names[(c, n.get('name', ''))] += 1
+    city, source = '', 'not found: pass hotel_city'
     if loc:
-        return loc.most_common(1)[0][0]
-    home = next((p for p in pages.values() if p.get('type') == 'home'), {})
-    hay = ' '.join([home.get('title', '')] + home.get('h1', []))
-    for c in CITIES:
-        if c.lower() in hay.lower():
-            return c
-    return ''
+        city = loc.most_common(1)[0][0]
+        blocks = ', '.join(f'"{nm}"' for (c, nm), _ in names.most_common() if c == city and nm)[:120]
+        source = (f'schema addressLocality on {loc[city]} pages' + (f' ({blocks})' if blocks else '')
+                  + (f'; other cities in schema: {dict(loc)}' if len(loc) > 1 else ''))
+    else:
+        home = next((p for p in own.values() if p.get('type') == 'home'), {})
+        hay = ' '.join([home.get('title', '')] + home.get('h1', []))
+        for c in CITIES:
+            if c.lower() in hay.lower():
+                city, source = c, 'homepage title / H1'
+                break
+    warning = ''
+    tld_country = TLD_COUNTRY.get(home_host.rsplit('.', 1)[-1]) if home_host else None
+    if city and tld_country and CITY_COUNTRY.get(city) != tld_country:
+        warning = (f'inferred city {city} ({CITY_COUNTRY.get(city)}) is not in the country of the domain '
+                   f'(.{home_host.rsplit(".", 1)[-1]} = {tld_country}): pass hotel_city and run again')
+    elif city and len(loc) > 1:
+        warning = f'schema names several cities {dict(loc)}: pass hotel_city (and hotel_path on a multi-hotel domain)'
+    return {'city': city, 'source': source, 'given': False, 'warning': warning}
 
 
 def hacked_text(texts):

@@ -6,6 +6,7 @@
 Used from the plugin's .mcp.json and the desktop app config, so token
 locations are worked out per machine instead of hard-coded.
 """
+import json
 import os
 import shutil
 import subprocess
@@ -14,10 +15,17 @@ from pathlib import Path
 
 from . import paths
 
+GSC_PACKAGE = 'mcp-search-console==0.4.1'   # pinned: _GSC_BOOT relies on its module-level SCOPES
 SERVERS = {
-    'gsc': ['mcp-search-console'],
+    'gsc': ['--from', GSC_PACKAGE, 'python', '-c'],
     'ga4': ['analytics-mcp'],
 }
+# mcp-search-console hardcodes the read-write scope. Refreshing a read-only token with it fails
+# (invalid_scope), after which it deletes token.json, and every refresh rewrites token.json with only
+# that scope (which drops the Docs permission). So it gets exactly the scopes the token was granted.
+_GSC_BOOT = ('import json, os, gsc_server as g\n'
+             'g.SCOPES = json.loads(os.environ["HOTEL_SEO_GSC_SCOPES"])\n'
+             'g.main()\n')
 
 
 def find_uvx():
@@ -44,11 +52,19 @@ def main():
     if which == 'gsc':
         env['GSC_OAUTH_CLIENT_SECRETS_FILE'] = str(paths.CLIENT_SECRET)
         env['GSC_CONFIG_DIR'] = str(paths.GSC_CONFIG_DIR)
+        env['GSC_ALLOW_DESTRUCTIVE'] = 'false'
+        try:
+            granted = json.loads(paths.GSC_TOKEN.read_text()).get('scopes') or []
+        except (OSError, ValueError):
+            granted = []
+        if not any('webmasters' in s for s in granted):
+            granted = granted + paths.gsc_scopes()
+        env['HOTEL_SEO_GSC_SCOPES'] = json.dumps(granted)
     else:
         env['GOOGLE_APPLICATION_CREDENTIALS'] = str(paths.GA_CREDENTIALS)
         env['GOOGLE_PROJECT_ID'] = paths.GCP_PROJECT
         env['GOOGLE_CLOUD_PROJECT'] = paths.GCP_PROJECT
-    cmd = [find_uvx(), '--python', '3.11', *SERVERS[which]]
+    cmd = [find_uvx(), '--python', '3.11', *SERVERS[which]] + ([_GSC_BOOT] if which == 'gsc' else [])
     # Inherit stdin/stdout so the MCP stdio stream passes straight through.
     sys.exit(subprocess.call(cmd, env=env))
 

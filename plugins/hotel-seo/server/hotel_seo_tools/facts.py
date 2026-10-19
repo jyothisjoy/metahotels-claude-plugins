@@ -90,25 +90,33 @@ def _verified(phrase, corpus):
     return False
 
 
-def _items(doc):
+def _items(doc, with_context=False):
+    """(section, text) for every text the guard reads; with_context adds the sentence or table row
+    the text sits in (a value in a table cell is to be deleted when its row says Delete)."""
+    def out(where, text, ctx=None):
+        return (where, text, text if ctx is None else ctx) if with_context else (where, text)
     for w in doc.get('warnings_top', []) + doc.get('warnings_end', []):
-        yield 'warning', w
+        yield out('warning', w)
     for p in doc.get('intro', []):
-        yield 'intro', p
+        yield out('intro', p)
     for s in doc.get('sections', []):
         where = f"{s.get('number', '')} {s.get('title', '')}".strip()
+        prev = ''
         for b in s.get('blocks', []):
             (kind, val), = b.items()
-            if kind in ('p', 'code', 'warning', 'note', 'paste', 'h3'):
-                yield where, val
+            if kind == 'code':
+                yield out(where, val, f'\x00code {prev} {val}')     # "Delete these lines:" then the code block
+            elif kind in ('p', 'warning', 'note', 'paste', 'h3'):
+                yield out(where, val)
             elif kind in ('ol', 'ul'):
                 for li in val:
-                    yield where, li
+                    yield out(where, li)
             elif kind == 'table':
                 for row in val.get('rows', []):
                     joined = ' | '.join(str(c) for c in row)
                     for c in row:
-                        yield where, f'{c}' + (' [CONFIRM]' if MARK.search(joined) else '')
+                        yield out(where, f'{c}' + (' [CONFIRM]' if MARK.search(joined) else ''), joined)
+            prev = str(val) if kind in ('p', 'ol', 'ul', 'h3', 'note') else ''
 
 
 def load_corpus(crawl_dir='', facts_file=''):
@@ -124,6 +132,21 @@ def load_corpus(crawl_dir='', facts_file=''):
         sources.append(str(paths.resolve(facts_file)))
     confirmed_text = norm(' \n '.join(confirmed))
     return norm(' \n '.join(site)) + ' \n ' + confirmed_text, confirmed_text, sources
+
+
+DELETE_WORDS = re.compile(r'\b(?:delete|remove|drop|take out|get rid of)\b', re.I)
+CODE_SPAN = re.compile(r'`[^`]*`')
+REGEX_BACKREF = re.compile(r'^\$\d$')
+
+
+def _to_delete(text, ctx, m, kind_is_code):
+    """A value the list tells the reader to delete is not a claim the list makes: skip it when it sits
+    in a code span (or a code block) and the sentence, row or lead-in says delete / remove."""
+    if not DELETE_WORDS.search(ctx or ''):
+        return False
+    if kind_is_code:
+        return True
+    return any(c.start() <= m.start() and m.end() <= c.end() for c in CODE_SPAN.finditer(text))
 
 
 PATH_IN_TEXT = re.compile(r'\[→\s*([^\]\s]+)\s*\]|`(/[^`\s]*)`|https?://[^\s`)\]]+')
@@ -169,20 +192,27 @@ def check(doc, crawl_dir='', facts_file=''):
     corpus, confirmed, sources = load_corpus(crawl_dir, facts_file)
     if not sources:
         return {'checked': False, 'reason': 'no site_text.json (run audit_site) and no hotel-facts.json'}
-    items = list(_items(doc))
+    items = list(_items(doc, with_context=True))
     marked = defaultdict(str)          # section -> normalised text of its [CONFIRM] items
-    for where, text in items:
+    for where, text, _ in items:
         if MARK.search(str(text)):
             marked[where] += ' ' + norm(str(text))
-    unverified, checked = [], 0
-    for where, text in items:
-        text = str(text)
+    unverified, checked, skipped = [], 0, 0
+    for where, text, ctx in items:
+        text, ctx = str(text), str(ctx)
         if MARK.search(text):
             continue
+        is_code_block = ctx.startswith('\x00code ')
         for m in FACT_RE.finditer(text):
             checked += 1
             phrase, kind = m.group(0), m.lastgroup
             if norm(phrase) in marked[where]:
+                continue
+            if kind == 'price' and REGEX_BACKREF.match(phrase.strip()):
+                skipped += 1           # "$1" in a redirect rule is a regex backreference, not a price
+                continue
+            if _to_delete(text, ctx, m, is_code_block):
+                skipped += 1
                 continue
             evidence = confirmed if kind in HOTEL_CONFIRMED else corpus
             if not _verified(phrase, evidence):
@@ -190,4 +220,5 @@ def check(doc, crawl_dir='', facts_file=''):
                 unverified.append({'section': where, 'phrase': phrase, 'kind': kind,
                                    'needs': 'hotel confirmation' if kind in HOTEL_CONFIRMED else 'the live site',
                                    'context': text[start:m.end() + 60].replace('\n', ' ')})
-    return {'checked': True, 'facts_checked': checked, 'unverified': unverified, 'evidence': sources}
+    return {'checked': True, 'facts_checked': checked, 'skipped_as_deletions_or_regex': skipped,
+            'unverified': unverified, 'evidence': sources}

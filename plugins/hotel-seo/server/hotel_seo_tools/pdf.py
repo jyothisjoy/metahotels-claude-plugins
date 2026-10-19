@@ -65,7 +65,35 @@ def load(doc_or_path):
     return json.loads(p.read_text(encoding='utf-8'))
 
 
+ESCAPED = re.compile(r'\\u[0-9a-fA-F]{4}')
+
+
+def escaped_text(doc):
+    r"""Visible text holding a literal \uXXXX: Arabic (or any non-Latin text) that was escaped twice
+    and would print as codes (one hotel's Arabic came out this way)."""
+    hits = []
+
+    def walk(v, where):
+        if isinstance(v, str):
+            m = ESCAPED.search(v)
+            if m:
+                hits.append(f'{where}: ...{v[max(0, m.start() - 20):m.end() + 20]}...')
+        elif isinstance(v, dict):
+            for k, x in v.items():
+                if k != 'checks':
+                    walk(x, f'{where}.{k}' if where else k)
+        elif isinstance(v, list):
+            for i, x in enumerate(v):
+                walk(x, f'{where}[{i}]')
+    walk(doc, '')
+    return hits
+
+
 def validate(doc):
+    bad = escaped_text(doc)
+    if bad:
+        raise ValueError(r'Literal \uXXXX escapes in the list text (they would print as codes, not letters): '
+                         + '; '.join(bad[:5]) + '. Write the real characters (save the JSON as UTF-8).')
     missing = [k for k in REQUIRED if not doc.get(k)]
     if missing:
         raise ValueError(f'List JSON is missing: {", ".join(missing)}')
@@ -156,6 +184,10 @@ def render(doc_or_path, out_dir, keep_html=False):
         page.emulate_media(media='print')
         page.set_viewport_size({'width': 794 - 2 * 49, 'height': 1000})   # A4 width minus 13 mm margins
         height = page.evaluate('document.documentElement.scrollHeight')
+        # bottom of the last real content (sections, end warnings), not the "When done" footer line
+        content_bottom = page.evaluate(
+            "Math.max(0, ...[...document.querySelectorAll('section, .warning, .working, .summary, .lead')]"
+            ".map(e => e.getBoundingClientRect().bottom + window.scrollY))")
         pdf = page.pdf(format='A4', print_background=True, prefer_css_page_size=True,
                        display_header_footer=True, header_template='<div></div>', footer_template=footer)
         browser.close()
@@ -166,7 +198,12 @@ def render(doc_or_path, out_dir, keep_html=False):
     result = {'file': str(out), 'pages': pages, 'sections': len(doc['sections']),
               'file_number': doc.get('file_number')}
     last_fill = (height % A4_CONTENT_PX) / A4_CONTENT_PX
-    if pages > 1 and 0 < last_fill < 0.15:
+    content_pages = int(content_bottom // A4_CONTENT_PX) + 1 if content_bottom else pages
+    if pages > 1 and content_pages < pages:
+        # e.g. a 5th page holding only the 214-character footer, which the fill check missed
+        result['warning'] = (f'The last page holds no list content, only the footer (content ends on page '
+                             f'{content_pages} of {pages}): tighten wording so the footer fits on the page before.')
+    elif pages > 1 and 0 < last_fill < 0.15:
         result['warning'] = (f'The last page is nearly empty (about {round(last_fill * 100)}% used): tighten '
                              'wording or merge a short section so the list ends on the page before.')
     return result

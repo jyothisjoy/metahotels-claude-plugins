@@ -196,6 +196,11 @@ def render_lists_pdf(out_dir: str, json_path: str = '', data: dict | None = None
     if not json_path and not data:
         return {'error': 'Give json_path or data.'}
     doc = pdf.load(data or json_path)
+    escaped = pdf.escaped_text(doc)
+    if escaped:
+        return {'rendered': False, 'error': r'Literal \uXXXX escapes in the text would print as codes, not '
+                'letters (Arabic is the usual case). Write the real characters and save the JSON as UTF-8.',
+                'where': escaped[:10]}
     guard = facts.check(doc, crawl_dir, facts_file) if (crawl_dir or facts_file) else {
         'checked': False, 'reason': 'no crawl_dir or facts_file given'}
     if guard.get('unverified') and not allow_unverified:
@@ -209,6 +214,13 @@ def render_lists_pdf(out_dir: str, json_path: str = '', data: dict | None = None
             out['docx'] = _off_loop(word.render, doc, result['file'])
         except Exception as e:  # noqa: BLE001 - the PDF is done; say what failed
             out['docx_error'] = f'{type(e).__name__}: {str(e)[:300]}'
+    if doc.get('title') != 'Re-check':
+        from .checks import lint_checks
+        lint = lint_checks(doc)
+        if lint:
+            out['checks_warning'] = {'gaps': lint, 'next': 'Re-check can only prove what the checks cover: add one '
+                                     'check per URL / row (schema_block_equals for a replacement block, '
+                                     'schema_count for deleted lines) to the list JSON, then render again.'}
     sev = facts.severity_check(doc)
     if sev:
         out['severity_warning'] = {
@@ -223,7 +235,7 @@ def render_lists_pdf(out_dir: str, json_path: str = '', data: dict | None = None
 
 @mcp.tool()
 def audit_site(crawl_dir: str, gsc_property: str = '', hotel_city: str = '', mirai_id: str = '',
-               wait_seconds: int = 45) -> dict:
+               hotel_path: str = '', wait_seconds: int = 45) -> dict:
     """Compute every count and finding in code from a finished crawl. Fetches each 200 page once and
     reports, with full counts and URLs:
     - per page: H1s, titles, metas, canonicals, robots, JSON-LD (invalid blocks, every business /
@@ -250,10 +262,16 @@ def audit_site(crawl_dir: str, gsc_property: str = '', hotel_city: str = '', mir
     - Search Console (gsc_property, e.g. "sc-domain:hotel.com"): spam queries, brand share now vs the
       90 days before, non-brand searches at positions 4-20, pages by impressions, old http/www
       versions still getting clicks, booking pages in search, Arabic searches
+    Always pass hotel_city: without it the city is guessed from the schema (on a shared domain that can
+    be a sister hotel's) and findings.md prints the guess, its source and any warning at the top.
+    hotel_path (e.g. "/gewan-hotel-cairo/") for a domain with several hotels: brand terms, the hotel's
+    own Mirai ID, booking links and Search Console are then read from that hotel's pages, and searches
+    whose top page belongs to a sister hotel are left out. Brand terms come from the domain name and
+    the hotel's schema name (the site title only as a last resort) and are printed with their source.
     Writes findings.json, findings.md, site_text.json and replace_pairs.csv in crawl_dir. Use these
     numbers in the lists; never count by hand. Background job: poll job_status."""
     job = _start_job('audit', audit.audit, crawl_dir, site_property=gsc_property, hotel_city=hotel_city,
-                     mirai_id=mirai_id)
+                     mirai_id=mirai_id, hotel_path=hotel_path)
     return _wait(job, wait_seconds)
 
 
@@ -269,13 +287,18 @@ def inspect_pages(urls: list[str], out_dir: str, mobile: bool = True, wait_secon
 
 
 @mcp.tool()
-def recheck_list(list_json: str, out_dir: str, crawl_dir: str = '', wait_seconds: int = 45) -> dict:
+def recheck_list(list_json: str, out_dir: str, crawl_dir: str = '', baseline_crawl_dir: str = '',
+                 wait_seconds: int = 45) -> dict:
     """Re-check a list against the live site using the `checks` stored on each section. Marks every
     item Done / Partly / Open / Manual and writes recheck-results, a Re-check list JSON (status table
     + lettered sections for what is still missing) and an open-items list JSON (the original list
     with only unfinished items) in out_dir, ready for render_lists_pdf. crawl_dir: a fresh crawl,
-    used for "sitewide" checks. Background job."""
-    job = _start_job('recheck', checks.recheck, list_json, out_dir, crawl_dir=crawl_dir)
+    used for "sitewide" checks. "Done" only proves the checks: checks_missing lists URLs and rows the
+    checks don't cover. baseline_crawl_dir (the crawl the list was built from; both crawls need
+    audit_site) adds changes_not_on_any_item: titles, metas, H1s, canonicals, robots and schema types
+    that changed on pages no item named (scope creep, things the agency broke). Background job."""
+    job = _start_job('recheck', checks.recheck, list_json, out_dir, crawl_dir=crawl_dir,
+                     baseline_crawl_dir=baseline_crawl_dir)
     return _wait(job, wait_seconds)
 
 
@@ -378,7 +401,10 @@ def presend_check(list_json: str, crawl_dir: str = '', wait_seconds: int = 45) -
     """Live diff before sending a list: runs the draft list's checks against the live site now.
     Items already fixed (the agency may have done them since the crawl) are dropped; partly fixed
     items stay, titled "(partly done)" with a note of what is already live. Writes
-    <list>-presend.json next to the draft: render that file, not the draft. Background job."""
+    <list>-presend.json next to the draft: render that file, not the draft. Also returns
+    checks_missing (URLs / rows / schema deletions the checks don't cover, so a re-check couldn't
+    prove them) and not_on_any_list (Priority-severity audit URLs and security items that are on none
+    of the same-date lists in that folder). Background job."""
     job = _start_job('presend', checks.presend, list_json, crawl_dir=crawl_dir)
     return _wait(job, wait_seconds)
 
