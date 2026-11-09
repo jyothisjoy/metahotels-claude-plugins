@@ -15,7 +15,7 @@ import uuid
 
 from mcp.server.fastmcp import FastMCP
 
-from . import (__version__, audit, bing, booking_engine, checks, docs, facts, health, imports, indexing, keywords,
+from . import (__version__, audit, bing, booking_engine, checks, docs, facts, gbp, health, imports, indexing, keywords,
                librecrawl, librecrawl_proc, mirai, monitor, pagecheck, parity, paths, pdf, word)
 
 mcp = FastMCP('hotel-seo-tools')
@@ -386,6 +386,73 @@ def index_status(gsc_property: str, site: str, out_dir: str, crawl_dir: str = ''
     job = _start_job('index_status', indexing.inspect_all, gsc_property, site, out_dir, crawl_dir=crawl_dir,
                      extra_urls=extra_urls, daily_budget=daily_budget)
     return _wait(job, wait_seconds)
+
+
+@mcp.tool()
+def gbp_locations(query: str = '') -> dict:
+    """Google Business Profile: every hotel profile the signed-in account manages (name, address, phone,
+    website link, primary category, Maps link, location id). query filters by text in any of those,
+    e.g. the hotel name or domain. Read-only. Says so if Business Profile isn't set up on this machine."""
+    return _off_loop(gbp.locations, query)
+
+
+@mcp.tool()
+def gbp_report(location: str, out_dir: str = '', crawl_dir: str = '', site: str = '', months: int = 12,
+               reviews_limit: int = 200) -> dict:
+    """Google Business Profile report for one hotel. location: "locations/<id>" from gbp_locations, or the
+    hotel's domain / name if it matches exactly one profile. Returns:
+    - listing: name, address, phone, categories, description, attributes, Maps link; notes on a non-hotel
+      primary category, missing description, pending edits, duplicates, and fields Google changed itself
+    - performance by month (months back): views on Search and Maps, mobile share, website clicks, calls,
+      direction requests, messages, bookings, website click rate
+    - search terms that showed the profile (last 3 complete months; small counts come as "below N")
+    - reviews: average, total, stars, last 90 days, reply rate and median reply time, unanswered 1-3 star
+      reviews (no reviewer names kept)
+    - listing vs website: whether the profile's website link answers 200 without redirects, sits on the
+      hotel's domain and carries UTM tags; with crawl_dir (a crawl audit_site has run on), the schema
+      name, phone, city and coordinates against the profile, the profile phone in the site's tel: links,
+      and whether the schema links to the profile (sameAs / hasMap)
+    Writes gbp-<date>.json / .md in out_dir (e.g. "<domain>/gbp"). Read-only; changes go through gbp_propose."""
+    return _off_loop(gbp.report, location, out_dir=out_dir, crawl_dir=crawl_dir, site=site, months=months,
+                     reviews_limit=reviews_limit)
+
+
+@mcp.tool()
+def gbp_propose(location: str, changes: dict, out_dir: str = '', allow_risky: bool = False) -> dict:
+    """Step 1 of a Google Business Profile change: validate it and write a change file. SENDS NOTHING.
+    Reads the live profile, checks every change (listing fields with Google's own validate-only call)
+    and returns a preview of each field now -> after plus a change id.
+    changes (all optional): website, phone, description (750 chars, no links), regular_hours
+    [{"day","open","close"}], special_hours [{"date","closed"} | {"date","open","close"}],
+    additional_categories ["Spa", ...] (replaces the list), attributes {"has_wifi": true, "url_x": "https://...",
+    "y": null to unset}, review_replies [{"review_id","reply"}] (review ids from gbp_report),
+    delete_review_replies ["review_id"], posts [{"type": "STANDARD|OFFER|EVENT", "summary", "button": "BOOK",
+    "url", "photo_url", "title", "start", "end", "coupon", "terms"}], delete_posts ["post id"],
+    photos [{"url": "<public https image>", "category": "ROOMS|EXTERIOR|..."}].
+    Locked: title, address, primary_category; allow_risky=true only when the user asked for exactly that
+    change (it can send the profile back to verification).
+    out_dir: e.g. "<domain>/gbp/changes". Show the preview to the user word for word; apply only after
+    they approve it in a later message."""
+    from . import gbp_write
+    return _off_loop(gbp_write.propose, location, changes, out_dir=out_dir, allow_risky=allow_risky)
+
+
+@mcp.tool()
+def gbp_apply(change_file: str, confirm: str) -> dict:
+    """Step 2: send a proposed Business Profile change to Google. ONLY after the user has seen the
+    gbp_propose preview and approved it in a later message; confirm = that change id. Never call it in the
+    same turn as gbp_propose. Fields that changed on the live profile since the proposal are skipped.
+    Proposals expire after 24 hours and can be applied once. Logs to ~/.metahotels-seo/gbp-changes.jsonl
+    and reads listing fields back (Google reviews most edits first, so "not live yet" is normal)."""
+    from . import gbp_write
+    return _off_loop(gbp_write.apply, change_file, confirm)
+
+
+@mcp.tool()
+def gbp_history(location: str = '', limit: int = 20) -> dict:
+    """Business Profile changes applied from this machine (newest first), with before / after and results."""
+    from . import gbp_write
+    return gbp_write.history(location, limit)
 
 
 @mcp.tool()

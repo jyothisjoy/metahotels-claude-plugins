@@ -1,6 +1,6 @@
 # Audit check registry — hotel-seo
 
-**Registry version 1.1 (19 Oct 2026; 1.1 removed the Core Web Vitals checks and booking attribution by landing page).** The fixed list of what a hotel audit looks at, how each check is decided, and where its result goes. Built from the MetaHotels audit specification and mapped onto this plugin's tools.
+**Registry version 1.2 (7 Nov 2026; 1.2 checks Google Business Profile through `gbp_report` in H09 and H01; 1.1 removed the Core Web Vitals checks and booking attribution by landing page).** The fixed list of what a hotel audit looks at, how each check is decided, and where its result goes. Built from the MetaHotels audit specification and mapped onto this plugin's tools.
 
 The playbook says *how we work*; this file says *what must be checked, every run, and how a result is recorded*. Where they differ, the playbook's ground rules win (direct bookings first, copy-paste ready, numbers from code, [CONFIRM] for unverified facts, severity rule).
 
@@ -252,7 +252,7 @@ What this plugin can see: `response_time_ms` per URL in the crawl, response head
 
 | ID | Check | How in this plugin | Mode | Sev | List |
 |---|---|---|---|---|---|
-| H01 | Name, address, phone, website, brand the same everywhere | `report.phones` (tel: links), `report.schema` blocks (name, street, locality, geo, conflicts), `custom_search` for old names | A + C | high | Pri (D) |
+| H01 | Name, address, phone, website, brand the same everywhere | `report.phones` (tel: links), `report.schema` blocks (name, street, locality, geo, telephone, conflicts), `custom_search` for old names; the Business Profile from `gbp_report` `vs_website` | A + C | high | Pri (D) |
 | H02 | Homepage and location pages describe the real area | `findings.hotel_city` (with source and warning), `report.other_city` | A | high | Pri (D) |
 | H03 | Published amenities vs the source of truth | site text vs `hotel-facts.json` and `booking_engine_snapshot`; [CONFIRM] guard | A + H | high | Pri (D) / Hotel |
 | H04 | Room types: accurate descriptions and working booking paths | `booking_engine_snapshot` (rooms, sizes, occupancy) vs room pages; booking links per room page | A | high | Pri |
@@ -260,7 +260,7 @@ What this plugin can see: `response_time_ms` per URL in the crawl, response head
 | H06 | Policies: cancellation, check-in/out, children, parking | engine cancellation terms vs site; check-in/out only from `hotel-facts.json` | A + H | high | Pri (D) / Hotel |
 | H07 | Phone / email links, maps, directions work | tel: / mailto: links, `report.links` for map links | A | med | Pri* |
 | H08 | Hotel schema: right type, identity, address, matches visible content | `report.schema` (blocks, flags, conflicts), `jsonld_invalid` issues | A | high | Pri (C) |
-| H09 | Local visibility: map links, linked business profiles | schema `hasMap` / `sameAs`; Google Business Profile itself is **N** | A / N | med | Pri (C) |
+| H09 | Local visibility: map links, linked business profiles, the Business Profile itself | schema `hasMap` / `sameAs` (`maps_sameas`); `gbp_report`: website link (200, own domain, UTM), listing notes (lodging category, description, duplicates, Google-made changes), reviews (reply rate, unanswered 1–3 star), views and website clicks by month. **N** when Business Profile isn't set up | A + H / N | med | Pri (C) for site fixes; profile fixes (UTM, category, description, replies) go to the finish message as `gbp_propose` offers |
 | H10 | Brand and brand + location searches land on the right pages | `gsc` brand queries with `top_page`; G16 | A + C | high | Pri |
 
 **B. Room pages and booking intent**

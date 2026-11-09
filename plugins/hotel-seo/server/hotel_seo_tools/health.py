@@ -69,6 +69,16 @@ def check_google():
     ok, why = keywords.configured()
     # optional: Keyword Planner only; never fails the check
     rows.append(_row('Google Ads (Keyword Planner)', True, 'set up' if ok else f'optional, not set up: {why}'))
+    from . import gbp
+    ok, why = gbp.configured()
+    if ok:
+        res = gbp.locations()
+        rows.append(_row('Google Business Profile', res.get('checked'),
+                         f"{res.get('count')} profiles visible" if res.get('checked') else res.get('reason', ''),
+                         'See the reason above: enable the API it names, or sign in as an owner / manager of the '
+                         'hotel profiles (hotel-seo-auth --with-gbp).'))
+    else:
+        rows.append(_row('Google Business Profile', True, f'optional, not set up: {why}'))
     from . import bing, mirai, parity
     # Mirai: a saved login is only "set up" once one real call works.
     if mirai.configured()[0]:

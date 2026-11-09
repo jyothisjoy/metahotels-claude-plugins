@@ -242,15 +242,16 @@ def google_signin(no_browser=False):
                                                    'customer_id': ADS_MANAGER_ID}, indent=2))
         say(f'  Keyword Planner: Google Ads manager {ADS_MANAGER_ID} saved to {keywords.ADS_CONFIG}')
     rows = health.check_google()
-    if all(r['ok'] for r in rows) and keywords.configured()[0]:
+    from hotel_seo_tools import gbp
+    if all(r['ok'] for r in rows) and keywords.configured()[0] and gbp.configured()[0]:
         for r in rows:
             say(f"  {r['check']}: {r['detail']}")
         say('  already signed in')
         return
     say('  Sign in as metahotels.m@gmail.com and allow every permission (Analytics, Search Console, Drive')
-    say('  files, Google Ads). If Google shows "Google hasn\'t verified this app": click Advanced ->')
+    say('  files, Google Ads, Business Profile). If Google shows "Google hasn\'t verified this app": click Advanced ->')
     say('  Go to MetaHotels SEO (unsafe) -> Continue. Waiting up to 10 minutes...')
-    cmd = [sys.executable, '-m', 'hotel_seo_tools.google_auth', '--with-ads'] + (['--no-browser'] if no_browser else [])
+    cmd = [sys.executable, '-m', 'hotel_seo_tools.google_auth', '--with-ads', '--with-gbp'] + (['--no-browser'] if no_browser else [])
     run(cmd, cwd=str(SERVER_SRC))
 
 

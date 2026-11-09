@@ -554,6 +554,9 @@ def jsonld_nodes(data):
             'reviews': [str((_first(r.get('author')) or {}).get('name', '') if isinstance(_first(r.get('author')), dict)
                             else _first(r.get('author')) or '')[:40] for r in reviews if isinstance(r, dict)],
             'rooms': str(n.get('numberOfRooms', '') or ''),
+            'telephone': str(_first(n.get('telephone')) or '')[:40],
+            'maps_sameas': [x for x in same + [n.get('hasMap') or '']
+                            if isinstance(x, str) and re.search(r'google\.[a-z.]+/maps|maps\.app\.goo\.gl|g\.page|[?&]cid=', x)],
         })
     return out
 

@@ -25,6 +25,7 @@ Anyone on the MetaHotels team can do every "From you" item except the hotel fact
 **Claude also pulls** (no exports needed any more):
 - Page indexing states for every crawled and sitemap URL (`index_status`, URL Inspection API, 2,000 URLs a day per site).
 - Incoming links and Bing sitemaps from Bing Webmaster Tools (`bing_report`, when the Bing key is set up).
+- The Google Business Profile: listing, views, website clicks, calls, searches, reviews (`gbp_report`, when Business Profile is set up). No Business Profile screenshots needed.
 
 **From you, only when relevant:**
 - [ ] **Old-URL 404 list**: Indexing → Pages → Not found (404) → Export, only for sites with many old or spam URLs Google still remembers (they're not in any crawl or sitemap). Claude passes them to `index_status`.
