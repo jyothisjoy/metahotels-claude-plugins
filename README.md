@@ -2,6 +2,8 @@
 
 Private. Contains the **hotel-seo** plugin: give Claude a hotel website and get the SEO agency's Priority, Nice-to-Have and Web Team lists as PDF, Word and Google Docs, then re-check the agency's work against them.
 
+The same `metahotels` marketplace also lists **metahotels-optimize** (the site performance pass; its code lives in `jyothisjoy/metahotels-optimize`, which needs the same GitHub access): `/plugin install metahotels-optimize@metahotels`, then `/metahotels-optimize:optimize --init`.
+
 ## Before you start (once per person)
 
 1. **Repo access.** Ask the repo owner to add your GitHub account as a collaborator on `jyothisjoy/metahotels-seo`.
@@ -15,6 +17,7 @@ Private. Contains the **hotel-seo** plugin: give Claude a hotel website and get 
    ```
    /plugin marketplace add jyothisjoy/metahotels-seo
    /plugin install hotel-seo@metahotels
+   /plugin install metahotels-optimize@metahotels     (optional: the performance plugin)
    ```
    If the `/plugin` menu doesn't appear in the Code tab, run the same thing in a terminal; the terminal and the Code tab share the same plugins:
    ```

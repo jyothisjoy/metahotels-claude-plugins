@@ -8,6 +8,13 @@
       "source": "./plugins/hotel-seo",
       "description": "Hotel SEO lists for MetaHotels: crawl, audit, Search Console, GA4 and Mirai analysis, Priority / Nice-to-Have / Web Team lists as PDF, Word and Google Docs, agency re-checks, execute (fixes applied through the site's WordPress tools, verified live) and daily monitors, plus the copywriting-marketing skill",
       "version": "0.12.0"
+    },
+    {
+      "name": "metahotels-optimize",
+      "source": { "source": "github", "repo": "jyothisjoy/metahotels-optimize" },
+      "description": "Complete performance pass for MetaHotels hotel websites (WordPress + Elementor + LiteSpeed, Mirai booking engine): /metahotels-optimize:optimize --init, then /metahotels-optimize:optimize <site>.",
+      "version": "1.0.0",
+      "category": "productivity"
     }
   ]
 }
