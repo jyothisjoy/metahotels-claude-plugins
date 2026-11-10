@@ -151,3 +151,36 @@ def test_hotel_posts_policy():
         with pytest.raises(gbp_write.GbpError):
             gbp_write._hotel_post_policy(bad)
     gbp_write._hotel_post_policy({'summary': 'The spa now offers couples massages'})
+
+
+# ---------------------------------------------------------------- Disparity / Best Rate calendar
+
+def _calendar(tmp_path, name, rows):
+    f = tmp_path / name
+    f.write_text('Date,Weekday,Hotel,Parity Status,Bookings,Day Type\n' + '\n'.join(rows) + '\n', encoding='utf-8')
+    return str(f)
+
+
+def test_parity_calendar_counts_and_saturday_gap(tmp_path):
+    from datetime import date
+    from hotel_seo_tools import parity_calendar
+    rows = []
+    for d in range(1, 32):
+        dt = date(2026, 8, d)
+        st = 'No record' if dt.weekday() == 5 else 'Best Rates/Corrected'
+        rows.append(f'{dt},{dt:%a},Gewan Palace New Alamein,{st},{4 if d == 3 else 0},x')
+    r = parity_calendar.import_calendars([_calendar(tmp_path, 'aug.csv', rows)], str(tmp_path / 'out'))
+    m = r['months'][0]
+    assert (m['best_rate_days'], m['disparity_days'], m['no_record_days']) == (26, 0, 5)
+    assert m['no_record_pattern'] == 'every Sat' and m['bookings'] == 4
+    assert r['parity']['rows'][0][0] == 'Aug 2026' and r['working_rows'] and not r['lead_lines']
+
+
+def test_parity_calendar_disparity_is_not_parity(tmp_path):
+    from hotel_seo_tools import parity_calendar
+    rows = [f'2026-09-{d:02d},x,H,{"Disparity" if d <= 10 else "Lose" if d == 11 else "Odd" if d == 12 else "Best Rates/Corrected"},1,x'
+            for d in range(1, 31)]
+    r = parity_calendar.import_calendars([_calendar(tmp_path, 'sep.csv', rows)], str(tmp_path / 'out'))
+    m = r['months'][0]
+    assert m['disparity_days'] == 11 and m['longest_disparity_run_days'] == 11 and m['unknown_statuses'] == ['Odd']
+    assert r['lead_lines'] and any('Odd' in q for q in r['questions_for_metahotels'])

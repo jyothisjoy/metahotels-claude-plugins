@@ -107,6 +107,13 @@ def build_html(doc):
     if doc.get('working'):
         H.append(f'<h2 style="color:{NAVY};font-family:Arial,sans-serif">What\'s already working (no action)</h2>')
         H.append(_table(['Item', 'Status', 'Note'], doc['working']))
+    if doc.get('parity'):
+        pb = doc['parity']
+        H.append(f'<h2 style="color:{NAVY};font-family:Arial,sans-serif">'
+                 f'{html.escape(pb.get("title") or "Rate parity (Best Rate calendar)")}</h2>')
+        H.append(_table(pb['columns'], pb['rows']))
+        if pb.get('note'):
+            H.append(f'<p style="{FONT}"><i>{_rich(pb["note"])}</i></p>')
     for p in doc.get('intro', []):
         H.append(f'<p style="{FONT}">{_rich(p)}</p>')
     for s in doc['sections']:

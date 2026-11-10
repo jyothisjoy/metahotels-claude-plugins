@@ -33,6 +33,10 @@ Anyone on the MetaHotels team can do every "From you" item except the hotel fact
 
 If the hotel's property isn't visible to metahotels.m@gmail.com, that is **Search Console access**: add the account as a user on the property.
 
+### 2b. Disparity / Best Rate calendar
+**From you:** the monthly CSV export from the parity monitoring, one file per hotel and month, e.g. `disparity-calendar-gewan-palace-new-alamein-2026-08.csv` (Date, Weekday, Hotel, Parity Status, Bookings, Day Type). The last 3 months is ideal. Drop them in `<domain>/` or attach them; Claude asks for the missing months during the run.
+- [ ] **Disparity / Best Rate calendar**: Claude imports it with `import_parity_calendar` and puts a "Rate parity" table on the Priority list (best-rate, disparity and no-record days, direct bookings), a lead line when the site lost the best rate on 20%+ of days, and questions for MetaHotels (e.g. no record every Saturday).
+
 ### 3. GA4
 **Claude pulls through the MCP, last 90 days:** events (`purchase` count and revenue, refunds), traffic acquisition by session source / medium with revenue, users and sessions by country, hostname × sessions when the numbers look off.
 

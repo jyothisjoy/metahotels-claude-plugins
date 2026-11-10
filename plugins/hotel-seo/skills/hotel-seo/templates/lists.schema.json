@@ -125,6 +125,37 @@
         "maxItems": 3
       }
     },
+    "parity": {
+      "type": "object",
+      "description": "\"Rate parity (Best Rate calendar)\" table, Priority list only, after \"What's already working\": the `parity` block import_parity_calendar returns (built in code from the Disparity / Best Rate calendar CSVs). For information: never an agency item. Not checked by the [CONFIRM] guard.",
+      "required": [
+        "columns",
+        "rows"
+      ],
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
     "intro": {
       "type": "array",
       "items": {

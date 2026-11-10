@@ -130,6 +130,7 @@ Order by risk to credibility and rankings first, then by the money-search gain. 
 **Severity rule:** a problem on the **homepage, room pages, offers, contact or the booking path** (booking links, booking engine, pop-ups that lead to it) always goes on the Priority list, however small. So do canonicals that block indexing and sitewide broken links. `audit_site` tags these as Priority in `findings.json`.
 
 **Top of the list, before the items:**
+- **Rate parity table** (from the Disparity / Best Rate calendar): the `parity` block on the Priority list, after "What's already working": per month, best-rate days, disparity days, no-record days and direct bookings. A month with no disparity is also an "already working" row.
 - **Rate parity first.** When `rate_parity` shows the hotel's site losing on 20%+ of priced checks, that is the lead box and the first line of the hotel-contact message (OTAs, devices, markets, worst gaps with screenshots). It is a revenue action, never a page edit; the SEO list still goes ahead.
 - **Lead box** (`lead`): the single biggest issue in two or three sentences with real numbers, plus why timing matters. *Al Bahar, from Mirai: "last year November and December were the hotel's two biggest months for direct bookings (AED 216k and 258k)".*
 - **"What's already working (no action)"** (`working`): 4–6 rows of things checked and fine, such as redirects, canonicals, booking tracking with GA4 numbers, alt text, and the booking engine's rates and member discount. It stops the agency redoing them and shows the hotel what's right.

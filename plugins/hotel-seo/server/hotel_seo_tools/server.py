@@ -157,6 +157,17 @@ def custom_search(crawl_dir: str, terms: list[str], case_sensitive: bool = False
 
 
 @mcp.tool()
+def import_parity_calendar(files: list[str], out_dir: str) -> dict:
+    """The Disparity / Best Rate calendar CSVs the user provides (disparity-calendar-<hotel>-<YYYY-MM>.csv: Date,
+    Weekday, Hotel, Parity Status, Bookings, Day Type), one or more months. Counts in code per hotel and month: best
+    rate / disparity / no-record days, the no-record pattern (e.g. every Saturday), longest disparity run, direct
+    bookings by day type. Writes parity-calendar.json / .md and returns the `parity` block for the Priority list,
+    lead_lines (disparity on 20%+ of recorded days), working_rows (no disparity) and questions_for_metahotels."""
+    from . import parity_calendar
+    return parity_calendar.import_calendars(files, out_dir)
+
+
+@mcp.tool()
 def execute_plan(list_json: str, out_dir: str = '') -> dict:
     """Dry run of /hotel-seo execute for one list (Priority / Nice-to-Have; never Web Team): every section turned into
     actions (SEO fields, redirects, H1 / text replacements, link swaps, alt text, schema, manual steps) with the full
