@@ -41,8 +41,9 @@ DAILY_METRICS = {
     'WEBSITE_CLICKS': 'website_clicks',
     'CALL_CLICKS': 'calls',
     'BUSINESS_DIRECTION_REQUESTS': 'directions',
-    'BUSINESS_CONVERSATIONS': 'messages',
-    'BUSINESS_BOOKINGS': 'bookings',
+    # Reserve with Google bookings only, NOT hotel bookings (those come from Mirai). Business Profile chat
+    # (BUSINESS_CONVERSATIONS) ended on 31 Jul 2024, so it isn't read.
+    'BUSINESS_BOOKINGS': 'reserve_with_google_bookings',
 }
 STARS = {'ONE': 1, 'TWO': 2, 'THREE': 3, 'FOUR': 4, 'FIVE': 5}
 APIS = {  # host -> (name in Cloud console, library id), for "enable this API" hints
@@ -219,7 +220,7 @@ def _daily(loc_name, start, end):
         months.append({'month': m, 'views': views, 'views_search': r['views_search_mobile'] + r['views_search_desktop'],
                        'views_maps': r['views_maps_mobile'] + r['views_maps_desktop'],
                        'views_mobile': r['views_search_mobile'] + r['views_maps_mobile'],
-                       **{k: r[k] for k in ('website_clicks', 'calls', 'directions', 'messages', 'bookings')},
+                       **{k: r[k] for k in ('website_clicks', 'calls', 'directions', 'reserve_with_google_bookings')},
                        'website_click_rate_pct': round(100 * r['website_clicks'] / views, 2) if views else None})
     return months
 

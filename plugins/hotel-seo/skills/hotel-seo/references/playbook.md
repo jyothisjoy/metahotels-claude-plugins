@@ -46,6 +46,8 @@ The full list of checks, with IDs, thresholds, severity, P0–P3 and how results
   - **"Google chose different canonical":** a canonical or duplicate problem.
   - **robots.txt patterns crawled as URLs** (`/*`, `/wp-content/*`): something prints them as links, usually llms.txt or a plugin. Find it and remove the links.
 - **Sitemaps.** Is it submitted? Remove dead or "Couldn't fetch" sitemaps. Is the discovered page count sensible?
+- **Impressions from 13 May 2025 to 27 Apr 2026 are inflated** (Google's logging error, not corrected). Compare clicks across that window, never impressions, CTR or position. Until May 2027, "same months last year" falls in it.
+- **Google Images.** `audit_site` reads the Image search type too (`gsc.image_search`): room, pool and view photos with many image impressions and few clicks get exact alt text (after viewing each one) and sit next to the text they show.
 - **Countries.** Growing feeder markets, such as Russia, the UK and Germany, can justify a later language or content angle.
 - **Links.** `bing_report`: the top linked pages and the sites linking to the hotel. Look for links from sister hotels or the old group site.
 - **Manual actions / Security.** Only matters if there's an issue.
@@ -83,6 +85,7 @@ Claude crawls with the `crawl_site` tool into `<domain>/crawl-<date>/`; LibreCra
 | Copy consistency | Priority quick fixes (wrong phone code, another city in a heading, empty page, company login as author); Nice-to-Have (seasonal wording, prices in FAQs, distances → [CONFIRM]) |
 | Blog → booking | Nice-to-Have: the booking paragraph on the busiest posts |
 | Languages | Nice-to-Have, for information: browser-side translation isn't indexed; Arabic search demand |
+| AI search access | Priority: an AI search crawler blocked in robots.txt, snippet blocks on key pages. Web Team: a firewall / CDN block (after it's confirmed in the host settings). Training bots and llms.txt: run notes only |
 
 The crawl files are for detail:
 - **`internal_all.csv`:** status codes, titles, metas and H1s (missing, duplicate, wrong hotel, misspelled), word count, indexability. Redirecting URLs show their first 3xx hop and final URL.
@@ -145,6 +148,7 @@ Order by risk to credibility and rankings first, then by the money-search gain. 
 | H | **Expired and junk pages** | 10 min | An offer the booking engine no longer sells: unpublish and 301 to /offers/. Pages made by mistake (/nearby/img/): delete and 301. |
 | I | **Redirects for old URLs** | 10–30 min | Rank Math → Redirections (or the Redirection plugin if that's the active one), 301. Regex for patterns, Exact for one-offs, "Starts with" to catch /page/2/. A table of source → destination. |
 | J | **Alt text** | 30–60 min | An exact table: file name → alt text, after viewing each image. Leave it out when every image already has good alt text, and say so in "already working". |
+| — | **AI search crawlers blocked** (when `findings.md` shows it) | 5 min | Goes near the top: a blocked crawler hides the whole site from that search. Rank Math → General Settings → Edit robots.txt: delete the group that disallows OAI-SearchBot, PerplexityBot, Claude-SearchBot or Bingbot (leave training bots such as GPTBot as they are; that's the owner's choice). If the block is in the firewall or CDN, not robots.txt, it's a Web Team item. Check: `robots.txt` has no `Disallow: /` under those agents. |
 | K | **Search Console + Bing** | 5–15 min | Remove dead or "Couldn't fetch" sitemaps by full URL, submit sitemap_index.xml (after the plugin item), request indexing for the canonical fixes, import into Bing. |
 | — | **Finish** | — | LiteSpeed (or other cache) → Purge All → send MetaHotels the change list (mark items done only once live). |
 
@@ -153,6 +157,9 @@ Letters follow the order used, so a list without a plugin problem starts canonic
 **Warning box at the end** when offers or facts are involved: "Don't change offers or prices; we'll send the confirmed copy."
 
 ### Copy standards
+
+The full writing standard, for every piece of copy from a title to a blog post, is [content-writing.md](content-writing.md): the unit brief (guest job, searches, facts, next step), sizes per unit, voice, the edit pass, and the hotel's `voice.md`. The lines below are the short version.
+
 - **Title:** about 60 characters or fewer (hard limit 62–66). Pattern: `[Keyword phrase] | [Hotel name]`. The homepage ends with "Official Site".
 - **Meta description:** 155 characters or fewer, with:
   - location and landmark
@@ -169,6 +176,31 @@ Letters follow the order used, so a list without a plugin problem starts canonic
   - No priceRange unless confirmed. No room count unless confirmed.
 - **Alt text:** describes what's in the photo plus the hotel name. For example "King bed and Sheikh Zayed Road view in the Superior Room at Gevora Hotel Dubai". No "image of".
 - **Button text:** "View Deluxe King Room", not "View More".
+- **Intros answer first.** The first two sentences of a room, offer, area or FAQ text say what it is, where, and who it suits, with one concrete fact, and still make sense quoted alone (name the hotel or room instead of "it" / "this"). That is what Google's AI features and ChatGPT lift. No warm-up ("Welcome to…", "Whether you're travelling for business or leisure…").
+- **Key facts in text.** Sizes, views, beds, what an offer includes: in the page text, not only in a photo, slider caption, tab or PDF.
+- **No invisible characters.** Text copied from chat tools or Word can carry zero-width spaces or soft hyphens: the title looks right and fails the re-check. `presend_check` and `render_lists_pdf` report them (`copy_problems` / `copy_warning`), along with AI tells. Arabic direction marks are fine.
+- **No AI tells in anything we hand over to paste.** Hotel copy is where they show most. Don't write: nestled, in the heart of, boasts (use "has"), vibrant, oasis, haven, unparalleled, seamless, elevate, unforgettable, tapestry, testament, curated, "whether you're … or …", "not just X but Y", "X rather than simply Y", "this matters", a reflex list of three adjectives, "serves as / stands as" (use "is"). Write plain, specific sentences: "The Deluxe King has a 32 m² room [CONFIRM size], a king bed and a view of the Creek." Guests trust copy less when it reads as AI, and the agency pastes ours word for word.
+
+### What we don't recommend (Google says)
+
+Agencies and SEO tools suggest these regularly. They never go on our lists, and `/hotel-seo check` labels them when someone else's report recommends them (registry rule 12):
+
+| Habit | Why not |
+|---|---|
+| llms.txt "to rank in Google" | Google's AI optimization guide: it neither helps nor hurts in Google Search. (A **leftover** one from a removed plugin is still a cleanup item.) |
+| A target word count | Google has no preferred word count; judge by what the guest needs. |
+| Keyword density, repeating the keyword | Keyword stuffing is against Google's spam policies. |
+| FAQ schema "for the rich result" | Google stopped showing FAQ rich results for almost all sites on 7 May 2026 (gov and health only since Aug 2023). FAQPage markup is still valid and read; a real FAQ still helps guests. It just won't earn a rich result. |
+| HowTo markup | Deprecated (Sept 2023). |
+| Special "AI schema", AI text files or an "AI version" of pages | Google: no extra requirements for AI Overviews / AI Mode beyond being indexed and eligible for a snippet. |
+| New date, no real change | Google lists faking freshness as a warning sign. Update the facts, then the date. |
+| Buying links, link swaps, PBNs | Link spam. |
+| Dozens of near-identical "hotel near <landmark>" pages | Scaled content abuse. A new area page needs its own purpose and real content (registry C03). |
+| Meta keywords | Google ignores the tag. |
+| "Submitted to Google through the Indexing API" (Rank Math Instant Indexing) | Google's Indexing API is only for job postings and livestreams; for hotel pages it does nothing. Request indexing in Search Console instead. (IndexNow for Bing is a different thing and fine.) |
+| A Lighthouse "agentic browsing" score, ai-catalog.json, `/.well-known` agent files, WebMCP | No search or answer engine is documented to use them; the score rises just by adding files. What matters for AI agents is that the booking button works (registry AI13). |
+| A minimum title or meta length, a keyword in the URL slug | Not Google rules. Changing slugs costs redirects. |
+| "Disavow all weak links" | Google ignores most spam links on its own; disavow only for a manual action or a known paid-link history. |
 
 ---
 
@@ -197,6 +229,7 @@ End with: Purge cache → add to your change list.
 
 ## 6. Web Team List: standard items
 
+0. **Back-button hijacking** (Google spam policy since 15 Jun 2026), when `findings.md` Security shows it: find the script that adds history entries (chat, popup, ad or booking widget) and remove or reconfigure it.
 1. **GA4 setup:**
    - correct property and stream
    - Consent Mode v2
@@ -208,6 +241,7 @@ End with: Purge cache → add to your change list.
 3. **Template-level fixes** the SEO team can't do: canonical in the theme, sitewide redirects, header and footer templates.
 4. **Speed:** server response time, page weight, Elementor bloat, image formats, caching and CDN.
 5. **Hidden broken assets** (old logos, dead scripts).
+5b. **AI search crawlers blocked by the firewall or CDN** (registry AI02), once confirmed: Cloudflare → AI Crawl Control → Search on Allow (choose "Disallow AI Training", never "Block", to stop training only); QUIC.cloud / LiteSpeed bot rules the same way. Optional: IndexNow (Rank Math has it) so Bing and Copilot hear about changed pages the same day.
 6. **Security, always first when present:** suspicious or backdated posts (full count, by month, latest date), spam search terms in Search Console, REST routes that answer without logging in (`audit_site` probes `mcp`, `wp-abilities`, `elementor-mcp-composer` read-only and says OPEN or requires login; OPEN goes first), a leftover `llms.txt` from an SEO plugin that is no longer active, public user lists. Name the immediate steps: find what creates the posts, check admin users, malware scan, rotate passwords.
 
 ---
@@ -301,4 +335,16 @@ In [team.md](team.md).
 - A re-check "Done" doesn't mean nothing else changed. *Gewan Cairo / White Beach (18 Oct 2026): a duplicate LocalBusiness block the item said to delete was still live; a "replace with this block" was pasted as a merge (six old fields kept, AED on an Egyptian hotel, sameAs dropped); blog Book Now links were pasted as `/search/? idtokenprovider=…` (the space breaks the engine); and a duplicate H1 on two posts and a CTA on three were added without being asked.* `schema_block_equals`, `scope`, malformed-link detection and `baseline_crawl_dir` catch these. *Pearl Marina (19 Oct): the agency put title changes in the Yoast SEO title, not the post title:* check both `h1` and `title`.
 - A list someone will search live in front of the client must come with what not to search. *An Egyptian hotel (Oct 2026): almost every page-one ranking was its brand, an old name or a misspelling; generic city searches sat on page 2 or lower.* See "Showcase keywords" in SKILL.md.
 - A health check must test, not look for a file. *18 Oct 2026: `init --check` said "all good" with no Mirai row while a saved Mirai login returned 401 on first use.* The Mirai row now makes one real call, and `hotel-seo-mirai-login` tests before saving.
+- Search Console impressions can be wrong for a whole year. *Google over-reported impressions from 13 May 2025 to 27 Apr 2026 and won't correct the history (clicks were fine).* A year-on-year impressions or CTR "drop" across that window is the bug ending, not a problem on the site. `audit_site` warns when its windows overlap it; compare clicks.
+- A site can be invisible to ChatGPT search without anyone deciding it. *Nov 2026 review of the WordRocket SEO skills:* a robots.txt `Disallow: /` for OAI-SearchBot, or a CDN's "block AI bots" switch, removes the hotel from ChatGPT's answers, and Cloudflare's "Block" also stops Googlebot and Bingbot. `audit_site` now reads robots.txt per crawler and tests the firewall (AI01–AI03).
+- Search Console query rows leave out rare (anonymised) searches. *Nov 2026 review of the claude-seo toolkit:* we added up query rows for site totals, which undercounts clicks on small hotel sites and overstates brand share. Totals now come from the property itself; brand share says it's a share of query-attributed clicks.
+- Hotels can't post offers on their Google profile. Google's posts policy: no Offer posts on hotel profiles, and no post that mentions or links to deals or discounts. `gbp_propose` refuses them.
+- A 'captcha' on a page isn't a firewall. Most hotel homepages load reCAPTCHA for the contact form; only a vendor challenge page the browser didn't get counts as a block (AI02).
+- A run isn't done until the live site shows it the same way everywhere. *Abar (handoff, 31 Oct 2026): a reviewer found within an hour of "done": guest numbers fixed in a room page's body but not its meta, one apartment at three sizes, one landmark at 0.9 / 1 / 1.6 km, long metas, default titles, an old year in a blog title, no room schema, two internal links marked nofollow.* `site_consistency_check` runs in every full run and re-check.
+- A figure next to a landmark can belong to another place. *Abar (9 Nov 2026): a second reviewer's four distance "conflicts" were The Market Mall in Green Community, Dubai Exhibition Centre, The Els Club and three different "Emirates" places; four of that list's five items were false alarms.* The matcher gives a figure to the longest place name before it, within the clause, and every DISTANCE row is read by hand.
+- Hotel answers go into `hotel-facts.json` the day they arrive. *Abar: capacities approved by email on 6 Nov were only in a notes file; a later list followed the booking engine (Two-Bedroom "up to 5") instead of the hotel (4 adults + 4 children).* The engine is then a setting to correct, not the site.
+- On a group domain, name pages by full URL. *Rose (Nov 2026): every hotel had `/about-us/`, `/rooms/` and `/contact-us/`; looking pages up by the last slug aimed about 130 changes at the wrong hotel.*
+- Some searches belong to the hotel's other websites. *Abar: restaurant and iftar searches are gulcafe.com's.* `hotel.json` `other_sites` leaves them out of the hotel's opportunities.
+- A search and its target page must be in the same language. *Rose: English searches were aimed at the /ar/ homepage, which had no impressions in 90 days.*
+- Some hotels approve every change before it goes live and write sizes in sq ft (Abar). `hotel.json` `preferences`; the renderer reminds until the approval is recorded.
 - Read-only must be enforced by the permission, not the instructions. The Search Console sign-in asked for read-write access across 76 properties. New sign-ins are read-only; `health_check` flags old ones.

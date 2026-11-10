@@ -17,6 +17,7 @@ import json
 import re
 import string
 import time
+import unicodedata
 from datetime import date
 from urllib.parse import urljoin
 
@@ -31,7 +32,13 @@ AUTO = {'title', 'meta', 'h1', 'h1_count', 'redirect', 'status', 'canonical', 'n
 
 
 def _clean(s):
+    """Text for comparison only. Invisible format characters (zero-width space, soft hyphen, BOM, word
+    joiner, bidi marks, tag characters: Unicode category Cf) are dropped, so a pasted title that looks right
+    passes and an old phone number with a hidden character in it is still found. Never used to rewrite
+    copy: on Arabic pages bidi marks are meaningful."""
     s = re.sub(r'`', '', str(s or ''))
+    s = ''.join(ch for ch in s if unicodedata.category(ch) != 'Cf')
+    s = s.replace(' ', ' ').replace(' ', ' ')
     return re.sub(r'\s+', ' ', s).strip().lower()
 
 
@@ -278,6 +285,76 @@ def _path_of(u, host):
     return p if p.endswith('/') or '.' in p.rsplit('/', 1)[-1] else p + '/'
 
 
+# Hotel-copy AI tells (references/content-writing.md section 4). Detection only: we never rewrite automatically.
+AI_TELLS = re.compile(
+    r'\bnestled\b|\bin the heart of\b|\bboasts?\b|\bvibrant\b|\boasis\b|\bhaven\b|\bunparalleled\b|\bseamless(?:ly)?\b|'
+    r'\belevate[sd]?\b|\bunforgettable\b|\btapestry\b|\btestament\b|\bcurated\b|\bdelve\b|\bwhether you\'?re\b|'
+    r'\bnot just\b[^.]{1,60}\bbut\b|\brather than (?:simply|merely|just)\b|\bthis matters\b|\b(?:serves|stands) as\b|'
+    r'\bembark\b|\bindulge\b|\bluxurious retreat\b|\bperfect blend\b|\bsecond to none\b|\bleverag\w*|\benhanc\w*|'
+    r'\bgame-changing\b|\binnovative\b|\bholistic\b|\brobust\b|\bunlock\w*', re.I)
+# Stock openings (content-writing.md section 4): checked at the start of each paste block and paragraph
+STOCK_OPENING = re.compile(r"^\s*(welcome to|discover|experience|looking for|have you ever|in today'?s|"
+                           r"when it comes to|whether you'?re|are you (?:looking|planning))\b", re.I)
+# Honesty gate (content-writing.md section 4): superlatives need a source; urgency must be real
+SUPERLATIVE = re.compile(r"(?<![\w-])(?:the )?(?:best|largest|biggest|first|only|finest|leading|number one|no\. ?1)"
+                         r"(?= (?:hotel|resort|apartments?|property|pool|beach|rooftop|spa|in|on|of|choice|place|"
+                         r"value|rate|price))|#1\b|"
+                         r"\baward[- ]winning\b|\bonly \d+ rooms? left\b|\bselling fast\b", re.I)
+HIDDEN = re.compile('[​-‍⁠﻿­‪-‮⁦-⁩\U000e0000-\U000e007f]')
+QUOTED_COLUMNS = re.compile(r'^(now|current|currently|old|was|before|live now|on the site)\b', re.I)
+LIMITS = ((re.compile(r'title', re.I), 62, 'title'), (re.compile(r'meta', re.I), 155, 'meta description'))
+
+
+def _plain(cell):
+    return re.sub(r'\[CONFIRM[^\]]*\]|`|\*\*|\*', '', str(cell)).strip()
+
+
+def lint_copy(doc):
+    """Copy the agency will paste word for word: AI tells and stock openings, em dashes in paste blocks,
+    titles over 62 and metas over 155 characters in copy tables, and invisible characters (zero-width,
+    soft hyphen, BOM, bidi overrides, tag characters) that break titles and fail re-checks. Columns that
+    quote the live site ("Now", "Current") are skipped. Bidi marks U+200E/U+200F are allowed: Arabic and
+    mixed-direction text needs them."""
+    out = []
+    for s in doc.get('sections', []):
+        name = f"{s.get('number', '')} {s.get('title', '')}".strip()
+        texts = []
+        for b in s.get('blocks', []):
+            (kind, val), = b.items()
+            if kind in ('paste', 'p'):
+                texts.append(str(val))
+                if kind == 'paste':
+                    if STOCK_OPENING.search(str(val)):
+                        out.append(f'{name}: stock opening "{str(val)[:50]}" (start with the answer or a fact)')
+                    if '—' in str(val):
+                        out.append(f'{name}: em dash in paste copy "{str(val)[:50]}" (use a colon, comma or full stop)')
+            elif kind == 'table':
+                cols = [str(c) for c in val.get('columns', [])]
+                keep = [i for i, c in enumerate(cols) if not QUOTED_COLUMNS.search(c)] or list(range(len(cols)))
+                for row in val.get('rows', []):
+                    texts.append(' | '.join(str(row[i]) for i in keep if i < len(row)))
+                    for i in keep:
+                        if i >= len(row) or i >= len(cols):
+                            continue
+                        cell = _plain(row[i])
+                        if not cell or cell.lower().startswith('keep'):
+                            continue
+                        for rx, limit, label in LIMITS:
+                            if rx.search(cols[i]) and len(cell) > limit:
+                                out.append(f'{name}: {label} is {len(cell)} characters (max {limit}): "{cell[:70]}"')
+                                break
+        for t in texts:
+            for m in SUPERLATIVE.finditer(t):
+                out.append(f'{name}: superlative "{m.group(0)}" needs a source on file, or cut it: '
+                           f'"{t[max(0, m.start() - 30):m.end() + 30].strip()}"')
+            for m in AI_TELLS.finditer(t):
+                out.append(f'{name}: AI tell "{m.group(0)}" in "{t[max(0, m.start() - 30):m.end() + 30].strip()}"')
+            h = HIDDEN.search(t)
+            if h:
+                out.append(f'{name}: invisible character U+{ord(h.group(0)):04X} in "{t[:60]}"')
+    return out[:60]
+
+
 def lint_checks(doc):
     """Checks that can't prove the section done (a recheck marked Done while one of the 12 blog posts its
     own text named still had the old link; 2 of 6 title changes and 2 of 14 link replacements checked):
@@ -423,7 +500,8 @@ def presend(list_json, crawl_dir='', progress=None):
     dest.write_text(json.dumps(out, indent=1, ensure_ascii=False), encoding='utf-8')
     lint = lint_checks(doc)
     coverage = list_coverage(doc, crawl_dir, src.parent)
-    return {'checks_missing': lint, 'not_on_any_list': coverage,
+    copy_lint = lint_copy(doc)
+    return {'checks_missing': lint, 'not_on_any_list': coverage, 'copy_problems': copy_lint,
             'items': len(results), 'already_fixed_dropped': dropped, 'partly_done': partly,
             'no_automatic_checks': [f"{r['number']} {r['title']}" for r in results if r['status'] == 'Manual'],
             'file': str(dest),
@@ -433,6 +511,8 @@ def presend(list_json, crawl_dir='', progress=None):
                if dropped else '')
             + (' checks_missing: add the missing checks to the draft (one per URL / row) and run again.'
                if lint else '')
+            + (' copy_problems: rewrite those phrases plainly (playbook 4) and remove invisible characters.'
+               if copy_lint else '')
             + (' not_on_any_list: put each on a list, or note in run-notes why it is left out.'
                if coverage.get('priority_urls_on_no_list') or coverage.get('security_items_on_no_list') else '')}
 
@@ -600,6 +680,30 @@ def recheck(list_json, out_dir, crawl_dir='', progress=None, baseline_crawl_dir=
     open_doc['subtitle'] = (f"Still open after re-check {n} of the {base} of {first_date} · "
                             f"{len(open_doc['sections'])} items")
     files['open_items_list'].write_text(json.dumps(open_doc, indent=1, ensure_ascii=False), encoding='utf-8')
+
+    # Pages the agency changed and the re-check confirmed: one Search Console inspect link each. Google's API
+    # can't request indexing, so it's a click per URL (handoff, Nov 2026: this list was being built by hand).
+    from urllib.parse import quote, urlparse as _up
+    changed = []
+    for r in results:
+        if r['status'] != 'Done':
+            continue
+        for c in doc['sections'][r['index']].get('checks', []):
+            u = c.get('url') or c.get('source')
+            if u and u != 'sitewide' and c.get('type') != 'manual':
+                full = urljoin(site.rstrip('/') + '/', u)
+                if full not in changed:
+                    changed.append(full)
+    if changed:
+        prop = 'sc-domain:' + _up(site).netloc.replace('www.', '')
+        lines = [f'# Request indexing: {doc["hotel"]} · re-check {n} · {today.isoformat()}', '',
+                 f'{len(changed)} pages changed and confirmed live. Open each link (signed in to Search Console), '
+                 'then **Request indexing**. Once per page is enough; asking again doesn\'t speed it up. If the '
+                 f'property isn\'t `{prop}`, change resource_id in the links.', '']
+        lines += [f'- [ ] {u}  \n  https://search.google.com/search-console/inspect?resource_id={quote(prop, safe="")}'
+                  f'&id={quote(u, safe="")}' for u in changed]
+        files['indexing_requests'] = out / f'{stem}-indexing-requests.md'
+        files['indexing_requests'].write_text('\n'.join(lines) + '\n', encoding='utf-8')
 
     diff = (baseline_diff(doc, baseline_crawl_dir, crawl_dir) if baseline_crawl_dir and crawl_dir else
             {'checked': False, 'reason': 'give baseline_crawl_dir (the crawl the list was built from) and crawl_dir'})

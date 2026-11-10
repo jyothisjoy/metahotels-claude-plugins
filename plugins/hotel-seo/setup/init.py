@@ -224,6 +224,14 @@ def setup_desktop(uv):
             if f.is_file():
                 z.write(f, Path('hotel-seo') / f.relative_to(SKILL_SRC))
     say(f'  skill zip for the desktop app: {zip_path}')
+    copy_src = PLUGIN_DIR / 'skills' / 'copywriting-marketing'
+    if copy_src.is_dir():
+        copy_zip = paths.HOME / 'copywriting-marketing-skill.zip'
+        with zipfile.ZipFile(copy_zip, 'w', zipfile.ZIP_DEFLATED) as z:
+            for f in copy_src.rglob('*'):
+                if f.is_file():
+                    z.write(f, Path('copywriting-marketing') / f.relative_to(copy_src))
+        say(f'  copywriting skill zip for the desktop app: {copy_zip} (upload it the same way)')
     say('  -> In the desktop app: Settings -> Capabilities -> Skills -> Upload skill, pick that zip,')
     say('     then fully quit and reopen the app so it loads the three MCP servers.')
 

@@ -40,10 +40,10 @@
                      "severity", "priority", "recommended_action", "success_criteria", "status"],
         "properties": {
           "id": {"type": "string", "description": "Stable across re-checks: <check_id>-<short slug>, e.g. T03-blog-canonicals"},
-          "check_id": {"type": "string", "pattern": "^[TOGKLPHAMBCV][0-9]{2}$"},
+          "check_id": {"type": "string", "pattern": "^([TOGKLPHAMBCV]|AI)[0-9]{2}$"},
           "category": {"enum": ["technical_seo", "on_page", "search_console", "keyword_research", "internal_linking",
                                 "performance", "hotel_specific", "ga4", "mirai", "backlinks", "content_strategy",
-                                "verification"]},
+                                "verification", "ai_search"]},
           "finding_type": {"enum": ["issue", "opportunity", "measurement_integrity"]},
           "title": {"type": "string"},
           "affected_urls": {"type": "array", "items": {"type": "string"}},

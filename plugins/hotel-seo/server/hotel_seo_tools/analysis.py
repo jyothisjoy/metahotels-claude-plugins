@@ -134,14 +134,34 @@ def _gsc():
     return AuthorizedSession(creds)
 
 
-def _gsc_query(s, prop, start, end, dims, row_limit=25000):
+def _gsc_query(s, prop, start, end, dims, row_limit=25000, search_type='web', max_rows=200000, filters=None):
+    """Search Analytics rows, paged with startRow (one call returns at most 25,000 rows; a group domain's
+    query x page report is bigger than that)."""
     url = ('https://www.googleapis.com/webmasters/v3/sites/' + requests.utils.quote(prop, safe='')
            + '/searchAnalytics/query')
-    r = s.post(url, json={'startDate': str(start), 'endDate': str(end), 'dimensions': dims,
-                          'rowLimit': row_limit}, timeout=90)
-    if r.status_code != 200:
-        raise RuntimeError(f'Search Console API {r.status_code}: {r.text[:200]}')
-    return r.json().get('rows', [])
+    want = max_rows if row_limit >= 25000 else row_limit   # 25000 (the default) means "all rows"
+    rows, page = [], min(row_limit, 25000)
+    while True:
+        body = {'startDate': str(start), 'endDate': str(end), 'dimensions': dims, 'rowLimit': page,
+                'startRow': len(rows), 'type': search_type}
+        if filters:
+            body['dimensionFilterGroups'] = [{'filters': filters}]
+        r = s.post(url, json=body, timeout=90)
+        if r.status_code != 200:
+            raise RuntimeError(f'Search Console API {r.status_code}: {r.text[:200]}')
+        got = r.json().get('rows', [])
+        rows += got
+        if len(got) < page or len(rows) >= want:
+            return rows[:want]
+
+
+def _gsc_site_totals(s, prop, start, end, scope=''):
+    """Clicks and impressions for the whole property (or the hotel's section) with no dimension: this
+    includes the anonymised searches that query rows leave out, often a large share on small hotel sites."""
+    filters = [{'dimension': 'page', 'operator': 'contains', 'expression': scope}] if scope else None
+    rows = _gsc_query(s, prop, start, end, [], row_limit=1, filters=filters)
+    return {'clicks': rows[0]['clicks'], 'impressions': rows[0]['impressions']} if rows else \
+        {'clicks': 0, 'impressions': 0}
 
 
 def _strip_generic(stem):
@@ -190,7 +210,24 @@ def brand_terms(site_name, home_host, hotel_names=()):
     return sorted(t for t in terms if t), '; '.join(source)
 
 
-def gsc_report(prop, site_name, home_host, days=90, hotel_names=(), hotel_path=''):
+# Google's logging error: Search Console over-reported impressions from 13 May 2025 to 27 Apr 2026 and the
+# history won't be corrected (clicks were not affected). Impressions, CTR and average position compared
+# across that window are not like for like.
+GSC_IMPRESSIONS_ANOMALY = (date(2025, 5, 13), date(2026, 4, 27))
+
+
+def gsc_anomaly_note(*windows):
+    """A warning when any (start, end) window overlaps the inflated-impressions period, else ''."""
+    a0, a1 = GSC_IMPRESSIONS_ANOMALY
+    hit = [f'{s}..{e}' for s, e in windows if s <= a1 and e >= a0]
+    if not hit:
+        return ''
+    return (f"window {', '.join(hit)} overlaps Google's impressions logging error ({a0}..{a1}): impressions were "
+            'over-reported and not corrected, so compare clicks only; impressions, CTR and position changes '
+            'across it are not real')
+
+
+def gsc_report(prop, site_name, home_host, days=90, hotel_names=(), hotel_path='', other_sites=None):
     """Brand share, money searches near page one, pages by impressions, host variants, booking pages,
     Arabic searches and submitted sitemaps. Last 90 days vs the 90 before."""
     if not prop:
@@ -229,16 +266,54 @@ def gsc_report(prop, site_name, home_host, days=90, hotel_names=(), hotel_path='
         flat = q.lower().replace(' ', '')
         return any(t in flat for t in terms)
 
-    def totals(rows):
+    def totals(rows, w_start, w_end):
         c = sum(r['clicks'] for r in rows)
         i = sum(r['impressions'] for r in rows)
         bc = sum(r['clicks'] for r in rows if is_brand(r['keys'][0]))
-        return {'clicks': c, 'impressions': i, 'brand_clicks': bc,
-                'brand_click_share_pct': round(100 * bc / c, 1) if c else None}
-    money = sorted(({'query': r['keys'][0], 'impressions': r['impressions'], 'clicks': r['clicks'],
-                     'position': round(r['position'], 1), 'top_page': top_page.get(r['keys'][0], '')}
-                    for r in q_now if not is_brand(r['keys'][0]) and 4 <= r['position'] <= 20
-                    and r['impressions'] >= 30), key=lambda x: -x['impressions'])[:40]
+        try:
+            site = _gsc_site_totals(s, prop, w_start, w_end, scope)
+        except RuntimeError:
+            site = {'clicks': None, 'impressions': None}
+        # Query rows leave out anonymised (rare) searches: the site total is the real one. Brand share is a
+        # share of the clicks Google attributes to a query, and says so.
+        return {'clicks': site['clicks'] if site['clicks'] is not None else c,
+                'impressions': site['impressions'] if site['impressions'] is not None else i,
+                'query_attributed_clicks': c,
+                'anonymised_clicks_pct': round(100 * (site['clicks'] - c) / site['clicks'], 1)
+                if site['clicks'] else None,
+                'brand_clicks': bc,
+                'brand_click_share_pct': round(100 * bc / c, 1) if c else None,
+                'brand_share_note': 'share of clicks Google attributes to a query (anonymised searches excluded)'}
+    def other_site(q):
+        """Searches that belong to the hotel's other websites (Abar, Nov 2026: restaurant and iftar searches are
+        gulcafe.com's, the in-house restaurant's own site: link there, don't compete with it)."""
+        for o in other_sites or []:
+            if any(t.lower() in q.lower() for t in o.get('terms', [])):
+                return o.get('domain', '')
+        return ''
+
+    def page_lang(u):
+        m = re.match(r'^/([a-z]{2})(?:-[a-z]{2})?/', urlparse(u or '').path.lower())
+        return m.group(1) if m else 'en'
+
+    candidates = [r for r in q_now if not is_brand(r['keys'][0]) and 4 <= r['position'] <= 20
+                  and r['impressions'] >= 30]
+    left_out = [{'query': r['keys'][0], 'impressions': r['impressions'], 'belongs_to': other_site(r['keys'][0])}
+                for r in candidates if other_site(r['keys'][0])]
+    money = []
+    for r in sorted(candidates, key=lambda r: -r['impressions']):
+        q = r['keys'][0]
+        if other_site(q):
+            continue
+        tp = top_page.get(q, '')
+        q_lang = 'ar' if ARABIC.search(q) else 'en'
+        # Rose, Nov 2026: English searches were aimed at the /ar/ homepage, which had no impressions. A search
+        # is only matched with a page in its own language.
+        money.append({'query': q, 'impressions': r['impressions'], 'clicks': r['clicks'],
+                      'position': round(r['position'], 1), 'top_page': tp,
+                      'language_mismatch': bool(tp) and (q_lang == 'ar') != (page_lang(tp) == 'ar')})
+        if len(money) >= 40:
+            break
     arabic = [r for r in q_now if re.search(r'[؀-ۿ]', r['keys'][0])]
     variants = [{'page': r['keys'][0], 'clicks': r['clicks'], 'impressions': r['impressions']}
                 for r in pages_now if urlparse(r['keys'][0]).scheme == 'http'
@@ -253,8 +328,9 @@ def gsc_report(prop, site_name, home_host, days=90, hotel_names=(), hotel_path='
             {'query': r['keys'][0], 'clicks': r['clicks'], 'impressions': r['impressions'],
              'top_page': top_page.get(r['keys'][0], '')}
             for r in sorted(sister_queries, key=lambda r: -r['clicks'])[:10]]},
-        'brand_terms': terms, 'brand_terms_source': terms_source, 'now': totals(q_now), 'before': totals(q_prev),
+        'brand_terms': terms, 'brand_terms_source': terms_source, 'now': totals(q_now, start, end), 'before': totals(q_prev, p_start, p_end),
         'money_queries_pos_4_20': money,
+        'left_out_other_sites': left_out[:20],
         'arabic_queries': {'count': len(arabic), 'impressions': sum(r['impressions'] for r in arabic),
                            'clicks': sum(r['clicks'] for r in arabic),
                            'top': [{'query': r['keys'][0], 'impressions': r['impressions'],
@@ -265,6 +341,9 @@ def gsc_report(prop, site_name, home_host, days=90, hotel_names=(), hotel_path='
                                  for r in sorted(pages_now, key=lambda r: -r['impressions'])[:60]],
         'host_variant_pages': sorted(variants, key=lambda x: -x['clicks'])[:20],
         'booking_and_account_pages': sorted(account, key=lambda x: -x['impressions'])[:20],
+        'impressions_anomaly': gsc_anomaly_note((start, end), (p_start, p_end)),
+        'pages_with_impressions_16m': _pages_16m(s, prop, end, scope),
+        'image_search': gsc_image_search(s, prop, start, end, scope),
     }
     url = 'https://www.googleapis.com/webmasters/v3/sites/' + requests.utils.quote(prop, safe='') + '/sitemaps'
     r = s.get(url, timeout=60)
@@ -281,7 +360,313 @@ def gsc_report(prop, site_name, home_host, days=90, hotel_names=(), hotel_path='
     return out
 
 
+def _pages_16m(s, prop, end, scope=''):
+    """Every page with at least one impression in the last 16 months (Search Console's whole history). A page a list
+    targets that isn't here has had no search impressions at all (Rose, Nov 2026: English searches were aimed at the
+    /ar/ homepage, 0 impressions)."""
+    try:
+        rows = _gsc_query(s, prop, end - timedelta(days=480), end, ['page'])
+    except RuntimeError:
+        return None
+    return sorted(r['keys'][0] for r in rows if not scope or (urlparse(r['keys'][0]).path + '/').startswith(scope))
+
+
+def key_pages_without_impressions(pages, gsc):
+    """Indexable home / room / offer / contact pages with no impressions in 16 months."""
+    seen = gsc.get('pages_with_impressions_16m')
+    if seen is None:
+        return None
+    have = {u.rstrip('/').replace('://www.', '://') for u in seen}
+    return sorted(u for u, p in pages.items() if p.get('type') in ('home', 'rooms', 'offers', 'contact')
+                  and 'noindex' not in (p.get('robots', '') + ' ' + p.get('x_robots_tag', '')).lower()
+                  and u.rstrip('/').replace('://www.', '://') not in have)
+
+
+def gsc_image_search(s, prop, start, end, scope=''):
+    """Google Images: totals, the site's own image CTR, and pages with many image impressions but a CTR
+    below the site's median (hotel photos are searched; this tab is rarely looked at)."""
+    try:
+        pages = _gsc_query(s, prop, start, end, ['page'], search_type='image')
+        queries = _gsc_query(s, prop, start, end, ['query'], row_limit=1000, search_type='image')
+    except RuntimeError as e:
+        return {'checked': False, 'reason': str(e)}
+    if scope:
+        pages = [r for r in pages if (urlparse(r['keys'][0]).path + '/').startswith(scope)]
+    clicks = sum(r['clicks'] for r in pages)
+    impr = sum(r['impressions'] for r in pages)
+    ctrs = [r['clicks'] / r['impressions'] for r in pages if r['impressions'] >= 100]
+    med = statistics.median(ctrs) if ctrs else None
+    med_impr = statistics.median([r['impressions'] for r in pages]) if pages else 0
+    low = [{'page': r['keys'][0], 'impressions': r['impressions'], 'clicks': r['clicks'],
+            'ctr_pct': round(100 * r['clicks'] / r['impressions'], 2)}
+           for r in pages if med is not None and r['impressions'] >= max(100, med_impr)
+           and r['clicks'] / r['impressions'] < med]
+    return {'checked': True, 'clicks': clicks, 'impressions': impr,
+            'ctr_pct': round(100 * clicks / impr, 2) if impr else None,
+            'median_page_ctr_pct': round(100 * med, 2) if med is not None else None,
+            'top_pages': [{'page': r['keys'][0], 'impressions': r['impressions'], 'clicks': r['clicks']}
+                          for r in sorted(pages, key=lambda r: -r['impressions'])[:15]],
+            'high_impressions_low_ctr': sorted(low, key=lambda x: -x['impressions'])[:15],
+            'top_queries': [{'query': r['keys'][0], 'impressions': r['impressions'], 'clicks': r['clicks']}
+                            for r in sorted(queries, key=lambda r: -r['impressions'])[:15]]}
+
+
+# ---------------------------------------------------------------- AI search crawlers
+
+# Search crawlers that decide whether the site can be shown (and linked) in AI answers.
+AI_SEARCH_BOTS = {
+    'OAI-SearchBot': 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; OAI-SearchBot/1.0; '
+                     '+https://openai.com/searchbot',
+    'PerplexityBot': 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; PerplexityBot/1.0; '
+                     '+https://perplexity.ai/perplexitybot)',
+    'Claude-SearchBot': 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-SearchBot/1.0; '
+                        '+https://www.anthropic.com)',
+    'Googlebot': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+    'Bingbot': 'Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)',
+}
+# Training-only crawlers: blocking them is the owner's choice and doesn't remove search visibility.
+AI_TRAINING_BOTS = ('GPTBot', 'ClaudeBot', 'Google-Extended', 'Applebot-Extended', 'CCBot')
+# Agents that fetch a page because a guest asked them to ("check this hotel and book me a room"). They
+# generally don't follow robots.txt, so only the firewall can stop them: firewall test only.
+AI_USER_AGENTS = {
+    'ChatGPT-User': 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; '
+                    '+https://openai.com/bot',
+    'Claude-User': 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-User/1.0; '
+                   '+Claude-User@anthropic.com)',
+    'Perplexity-User': 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Perplexity-User/1.0; '
+                       '+https://perplexity.ai/perplexity-user)',
+}
+# Vendor challenge pages only. A bare "captcha" is NOT a block: reCAPTCHA on a contact form is on most
+# hotel homepages.
+CHALLENGE = re.compile(r'challenge-platform|cf-chl-|<title>\s*Just a moment\.\.\.|Attention Required! \| Cloudflare|'
+                       r'px-captcha|captcha-delivery\.com|datadome|sgcaptcha|/\.well-known/sgcaptcha', re.I)
+
+
+def _robots_groups(text):
+    """robots.txt as Google reads it (RFC 9309): groups of user-agent lines with their allow/disallow rules."""
+    groups, cur, last_ua = [], None, False
+    for raw in text.splitlines():
+        line = raw.split('#', 1)[0].strip()
+        if ':' not in line:
+            continue
+        key, val = (x.strip() for x in line.split(':', 1))
+        key = key.lower()
+        if key == 'user-agent':
+            if not last_ua:
+                cur = {'agents': [], 'rules': []}
+                groups.append(cur)
+            cur['agents'].append(val.lower())
+            last_ua = True
+        elif key in ('allow', 'disallow') and cur is not None:
+            cur['rules'].append((key, val))
+            last_ua = False
+        else:
+            last_ua = False
+    return groups
+
+
+def _robots_rule_rx(path):
+    rx = re.escape(path).replace(r'\*', '.*')
+    return re.compile('^' + (rx[:-2] + '$' if rx.endswith(r'\$') else rx))
+
+
+def robots_allowed(text, bot, path):
+    """Google's matching: the group whose user-agent is the bot's product token (else '*'); within it the
+    longest matching rule wins, and Allow wins a tie. Several groups for the same agent are merged."""
+    token = bot.lower()
+    groups = _robots_groups(text)
+    rules = [r for g in groups if token in g['agents'] for r in g['rules']]
+    if not any(token in g['agents'] for g in groups):
+        rules = [r for g in groups if '*' in g['agents'] for r in g['rules']]
+    best = None
+    for kind, val in rules:
+        if not val:
+            continue  # "Disallow:" with no path allows everything
+        if _robots_rule_rx(val).match(path):
+            key = (len(val), kind == 'allow')
+            if best is None or key > best[0]:
+                best = (key, kind)
+    return best is None or best[1] == 'allow'
+
+
+def ai_access(site, ua, extra_urls=()):
+    """Can AI search crawlers and guest-triggered AI agents reach the site? robots.txt per crawler, read the
+    way Google reads it, for the homepage and key pages; plus a user-agent test against the firewall,
+    judged against a normal browser fetch of the same page. A spoofed user agent is a signal, not proof:
+    CDNs that verify crawlers by IP block a fake Googlebot/Bingbot on purpose, so those aren't judged."""
+    s = _session(ua)
+    home = site.rstrip('/') + '/'
+    test_urls = [home] + [u for u in extra_urls if u and u.rstrip('/') != home.rstrip('/')][:2]
+    r = _get(s, urljoin(site, '/robots.txt'))
+    text = r.text if r is not None and r.status_code == 200 else ''
+    named = {a for g in _robots_groups(text) for a in g['agents']}
+    robots = {}
+    for bot in list(AI_SEARCH_BOTS) + list(AI_TRAINING_BOTS):
+        blocked = [u for u in test_urls
+                   if not robots_allowed(text, bot, urlparse(u).path or '/')]
+        robots[bot] = {'allowed': not blocked, 'blocked_urls': blocked, 'named_in_robots': bot.lower() in named}
+    base = _get(s, home, allow_redirects=True)
+    headers = dict(base.headers) if base is not None else {}
+    cdn = [n for n, hit in (('Cloudflare', 'cf-ray' in {k.lower() for k in headers}),
+                            ('LiteSpeed', 'litespeed' in headers.get('Server', '').lower()),
+                            ('QUIC.cloud', any(k.lower().startswith('x-qc-') for k in headers)),
+                            ('SiteGround', 'sg-' in ' '.join(headers).lower())) if hit]
+    base_code = base.status_code if base is not None else 0
+    base_challenged = base is not None and bool(CHALLENGE.search(base.text[:50000]))
+
+    def probe(bua):
+        b = _get(_session(bua), home, allow_redirects=True)
+        code = b.status_code if b is not None else 0
+        challenged = b is not None and bool(CHALLENGE.search(b.text[:50000]) or b.headers.get('cf-mitigated'))
+        size = len(b.content) if b is not None else 0
+        return {'status': code, 'challenge_page': challenged and not base_challenged, 'bytes': size}
+
+    firewall = {bot: probe(bua) for bot, bua in {**AI_SEARCH_BOTS, **AI_USER_AGENTS}.items()}
+    base_size = len(base.content) if base is not None else 0
+
+    def blocked(bot):
+        f = firewall[bot]
+        if base_code != 200:
+            return False
+        # a different answer from the browser's: error status, a vendor challenge, or a near-empty page
+        return (f['status'] in (401, 403, 406, 429, 503) or f['challenge_page']
+                or (f['status'] == 200 and base_size > 20000 and f['bytes'] < base_size * 0.2))
+    judged = [b for b in AI_SEARCH_BOTS if b not in ('Googlebot', 'Bingbot')]
+    blocked_robots = [b for b in AI_SEARCH_BOTS if not robots[b]['allowed']]
+    blocked_firewall = [b for b in judged if blocked(b)]
+    blocked_agents = [b for b in AI_USER_AGENTS if blocked(b)]
+    rstatus = r.status_code if r is not None else 0
+    if rstatus != 200 and not 400 <= rstatus < 500:
+        # unreachable or 5xx: not a pass (Google treats a 5xx robots.txt as "disallow everything")
+        blocked_robots = []
+    return {'robots_txt_status': rstatus, 'robots_checked': rstatus == 200 or 400 <= rstatus < 500,
+            'firewall_checked': base_code == 200, 'robots': robots,
+            'browser_status': base_code, 'cdn': cdn, 'firewall': firewall,
+            'search_bots_blocked_in_robots': blocked_robots,
+            'search_bots_blocked_by_firewall_signal': blocked_firewall,
+            'guest_agents_blocked_by_firewall_signal': blocked_agents, 'urls_tested': test_urls,
+            'training_bots_blocked': [b for b in AI_TRAINING_BOTS if not robots[b]['allowed']]}
+
+
+SNIPPET_BLOCK = re.compile(r'nosnippet|max-snippet\s*:\s*(0|[1-4]?\d)\b', re.I)
+
+
+def snippet_blocks(pages):
+    """Pages whose robots meta / X-Robots-Tag stop Google showing a snippet: that also keeps them out of
+    AI Overviews and AI Mode (max-snippet under 50 characters counts as blocked)."""
+    return [{'url': u, 'robots': (p.get('robots', '') + ' ' + p.get('x_robots_tag', '')).strip()}
+            for u, p in pages.items()
+            if SNIPPET_BLOCK.search(p.get('robots', '') + ' ' + p.get('x_robots_tag', ''))]
+
+
+# ---------------------------------------------------------------- languages
+
+LANG_CODE = re.compile(r'^(x-default|[a-z]{2,3}(-[a-z]{4})?(-([a-z]{2}|\d{3}))?)$', re.I)   # case doesn't matter
+# Common wrong codes: a country used as a language, or a non-ISO region
+WRONG_LANG = {'jp': 'ja', 'cn': 'zh', 'gr': 'el', 'dk': 'da', 'se': 'sv', 'kr': 'ko', 'cz': 'cs', 'ua': 'uk',
+              'il': 'he', 'ir': 'fa', 'in': 'hi'}
+WRONG_REGION = {'uk': 'gb', 'eu': None, 'uae': 'ae', 'ksa': 'sa'}
+
+
+def _hreflang_code_ok(code):
+    if not LANG_CODE.match(code):
+        return False
+    parts = code.lower().split('-')
+    return parts[0] not in WRONG_LANG and not (len(parts) > 1 and parts[-1] in WRONG_REGION)
+ARABIC = re.compile(r'[؀-ۿ]')
+
+
+def hreflang_report(pages, data):
+    """hreflang as Google uses it: every alternate points back (else that pair is ignored), targets answer
+    200, are indexable and canonical, codes are valid (en-GB, not en-uk), and Arabic pages really are
+    Arabic in their title / meta / H1 (Rank Math fields are often left in English on Polylang /ar/ pages)."""
+    from .librecrawl import page_status
+    status = {u['url'].rstrip('/'): page_status(u) for u in data.get('urls', [])}
+    norm = {u.rstrip('/'): p for u, p in pages.items()}
+    with_tags = {u: p for u, p in pages.items() if p.get('hreflang')}
+    out = {'pages_with_hreflang': len(with_tags), 'no_return_link': [], 'bad_targets': [], 'invalid_codes': [],
+           'no_self_reference': [], 'x_default_missing': 0, 'arabic_pages_not_arabic': [], 'lang_mismatch': []}
+    for u, p in with_tags.items():
+        alts = p['hreflang']
+        for code in alts:
+            if not _hreflang_code_ok(code):
+                out['invalid_codes'].append({'url': u, 'code': code})
+        if u.rstrip('/') not in {v.rstrip('/') for v in alts.values()}:
+            out['no_self_reference'].append(u)
+        if 'x-default' not in alts:
+            out['x_default_missing'] += 1
+        for code, target in alts.items():
+            t = target.rstrip('/')
+            if t == u.rstrip('/'):
+                continue
+            tp = norm.get(t)
+            if tp is None:
+                st = status.get(t)
+                if st and st != 200:
+                    out['bad_targets'].append({'url': u, 'code': code, 'target': target, 'problem': f'returns {st}'})
+                continue
+            if 'noindex' in (tp.get('robots', '') + ' ' + tp.get('x_robots_tag', '')).lower():
+                out['bad_targets'].append({'url': u, 'code': code, 'target': target, 'problem': 'noindex'})
+            elif tp.get('canonical') and tp['canonical'].rstrip('/') != t:
+                out['bad_targets'].append({'url': u, 'code': code, 'target': target,
+                                           'problem': f"canonical points to {tp['canonical']}"})
+            elif tp.get('hreflang') and u.rstrip('/') not in {v.rstrip('/') for v in tp['hreflang'].values()}:
+                out['no_return_link'].append({'url': u, 'code': code, 'target': target})
+    for u, p in pages.items():
+        lang = (p.get('html_lang') or '').lower()
+        visible = ' '.join([p.get('title', ''), p.get('meta_description', '')] + p.get('h1', []))
+        if lang.startswith('ar') and visible.strip() and not ARABIC.search(visible):
+            out['arabic_pages_not_arabic'].append({'url': u, 'title': p.get('title', '')})
+        elif lang and not lang.startswith('ar') and ARABIC.search(p.get('title', '')) and '/ar' not in u \
+                and len(ARABIC.findall(p.get('title', ''))) > len(p.get('title', '')) / 2:
+            out['lang_mismatch'].append({'url': u, 'html_lang': lang, 'title': p.get('title', '')})
+    for k in ('no_return_link', 'bad_targets', 'invalid_codes', 'no_self_reference', 'arabic_pages_not_arabic',
+              'lang_mismatch'):
+        out[k] = out[k][:200]
+    return out
+
+
+def expired_offer_schema(pages, today=None):
+    """Offer markup whose validThrough / priceValidUntil is already past: an expired offer still in schema."""
+    today = (today or date.today()).isoformat()
+    return [{'url': u, 'dates': [d for d in p.get('offer_valid_through', []) if d < today]}
+            for u, p in pages.items() if any(d < today for d in p.get('offer_valid_through', []))]
+
+
+def meta_template_report(pages):
+    """Meta descriptions built from a template: identical to the title, starting with the whole title, or
+    the same text with only the page name changed (a Rank Math pattern applied site-wide)."""
+    same, starts, skeletons = [], [], defaultdict(list)
+    for u, p in pages.items():
+        t, m = (p.get('title') or '').strip(), (p.get('meta_description') or '').strip()
+        if not m or not t:
+            continue
+        if m.lower() == t.lower():
+            same.append(u)
+        elif len(t) > 15 and m.lower().startswith(t.lower()):
+            starts.append(u)
+        name = (p.get('h1') or [''])[0] or t.split('|')[0]
+        sk = m.replace(name.strip(), '{name}') if name.strip() and name.strip() in m else ''
+        if sk and '{name}' in sk:
+            skeletons[sk].append(u)
+    tmpl = [{'pattern': k, 'pages': len(v), 'examples': v[:5]} for k, v in skeletons.items() if len(v) >= 3]
+    return {'meta_equals_title': same, 'meta_starts_with_title': starts,
+            'templated': sorted(tmpl, key=lambda x: -x['pages'])[:10]}
+
+
 # ---------------------------------------------------------------- links
+
+def _live_status(url):
+    """Live status of a link target fetched like a browser, or None if it can't be reached at all."""
+    h = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+                       'Chrome/140.0.0.0 Safari/537.36'}
+    try:
+        r = requests.get(url, headers=h, timeout=20, allow_redirects=True, stream=True)
+        r.close()
+        return r.status_code
+    except requests.RequestException:
+        return None
+
 
 def link_report(data, page_urls, home_host, out_dir):
     """Broken and redirected link targets grouped by target, with how many pages link to them.
@@ -324,6 +709,16 @@ def link_report(data, page_urls, home_host, out_dir):
             out.append(row)
         return out
     b, r = rows(broken), rows(redirected)
+    # Re-test before reporting: status 0 (timeout), 403 and 429 at crawl time are often the crawler being
+    # blocked or slowed, not a broken link (Rose, Nov 2026: a sitewide sister-domain link with status 0 reached a
+    # plan as a Critical "broken link"; it loads fine). Only what still fails live is a finding.
+    false_alarms = []
+    for g in list(b):
+        if g.get('status') in (0, 403, 429, 503):
+            live = _live_status(g['target'])
+            if live and live < 400:
+                b.remove(g)
+                false_alarms.append(dict(g, live_status=live))
     pairs = {}
     for g in r:
         if g.get('final') and g['final'].rstrip('/') != g['target'].rstrip('/'):
@@ -333,8 +728,8 @@ def link_report(data, page_urls, home_host, out_dir):
         w.writerow(['search', 'replace', 'pages_linking'])
         for src, (dst, n) in sorted(pairs.items(), key=lambda kv: -kv[1][1]):
             w.writerow([src, dst, n])
-    return {'broken_targets': b, 'redirected_targets': r,
-            'counts': {'broken_internal_targets': sum(1 for x in b if x.get('internal')),
+    return {'broken_targets': b, 'redirected_targets': r, 'false_alarms': false_alarms,
+            'counts': {'false_alarms_retested_ok': len(false_alarms),'broken_internal_targets': sum(1 for x in b if x.get('internal')),
                        'broken_external_targets': sum(1 for x in b if not x.get('internal')),
                        'sitewide_broken': sum(1 for x in b if x['sitewide']),
                        'redirected_targets': len(r), 'sitewide_redirected': sum(1 for x in r if x['sitewide']),

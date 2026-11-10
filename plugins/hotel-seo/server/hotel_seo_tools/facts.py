@@ -27,7 +27,9 @@ from . import paths
 
 NUM = r'\d[\d,.]*'
 FACT_PATTERNS = {
-    'size': rf'{NUM}\s*(?:m²|m2|sqm|sq\.?\s?m|square met(?:er|re)s?)',
+    # m² and sq ft (Abar's sizes are in sq ft), single figures and ranges ("700–807 sq ft")
+    'size': rf'{NUM}(?:\s?[–-]\s?{NUM})?\s*(?:m²|m2|sqm|sq\.?\s?m\b|square met(?:er|re)s?|sq\.?\s?ft|ft²|'
+            rf'square f(?:ee|oo)t)',
     'distance_time': rf'{NUM}\s*(?:km|kilomet(?:er|re)s?|miles?|minutes?|mins?|hours?|hrs?)\b',
     # up to two words between the number and the noun: "3 loyalty tiers", "13 luxury suites"
     'count_confirm': rf'{NUM}\s+(?:[a-z-]+\s+){{0,2}}?(?:rooms?|suites?|keys|guests?|people|persons|adults|'
@@ -54,6 +56,7 @@ FACT_RE = re.compile('|'.join(f'(?P<{k}>{v})' for k, v in FACT_PATTERNS.items())
 def norm(s):
     s = (s or '').lower().replace('²', '2').replace('–', '-').replace('—', '-')
     s = re.sub(r'(\d),(\d{3})', r'\1\2', s)
+    s = re.sub(r'\s*(?:sq\.?\s?ft|ft2|square f(?:ee|oo)t)\b', ' sqft', s)
     s = re.sub(r'\s*(?:sq\.?\s?m|sqm|square met(?:er|re)s?|m 2)\b', ' m2', s)
     s = re.sub(r'(\d)\s*([a-z%])', r'\1 \2', s)          # "830m2" == "830 m2"
     s = re.sub(r'\bhrs?\b', 'hour', s)
@@ -119,6 +122,114 @@ def _items(doc, with_context=False):
             prev = str(val) if kind in ('p', 'ol', 'ul', 'h3', 'note') else ''
 
 
+def is_confirmed_source(source):
+    """Sources in hotel-facts.json that count as confirmation for the [CONFIRM] guard."""
+    s = str(source or '').strip().lower()
+    return bool(s) and not s.startswith('booking.com')
+
+
+def is_hotel_source(source):
+    """The hotel's own answer (information sheet, email, WhatsApp, the hotel contact): it beats the booking engine
+    when they disagree; the engine is then a setting to correct, not the site."""
+    return str(source or '').strip().lower().startswith(('hotel', 'the hotel'))
+
+
+ROOM_FACT = re.compile(r'^\s*(?P<room>[^:]{3,80}?):\s*(?P<val>.+)$')
+GUESTS = re.compile(r'(?:up to|sleeps|max(?:imum)?|for)\s*(\d+)\s*(?:guests?|people|persons|adults)?|(\d+)\s*guests', re.I)
+ADULTS_KIDS = re.compile(r'(\d+)\s*adults?\s*(?:\+|and|&)\s*(\d+)\s*(?:children|kids|child)', re.I)
+SIZE_VAL = re.compile(r'(\d[\d,.]*(?:\s?[–-]\s?\d[\d,.]*)?)\s*(m²|m2|sqm|sq\.?\s?m\b|sq\.?\s?ft|ft²|square f(?:ee|oo)t|'
+                      r'square met(?:er|re)s?)', re.I)
+
+
+def _room_key(name):
+    return re.sub(r'[^a-z0-9]+', ' ', name.lower().replace('one', '1').replace('two', '2').replace('three', '3')
+                  .replace('four', '4')).strip()
+
+
+def room_fact(text):
+    """("2 bedroom apartment", "guests" | "size", value) for facts like "Two Bedroom Apartment: up to 8 guests
+    (4 adults + 4 children)" or "Two Bedroom Apartment: 1,012–1,184 sq ft"; None otherwise."""
+    m = ROOM_FACT.match(str(text or ''))
+    if not m or not re.search(r'room|suite|apartment|studio|villa|chalet|penthouse|bedroom', m.group('room'), re.I):
+        return None
+    val = m.group('val')
+    ak = ADULTS_KIDS.search(val)
+    g = GUESTS.search(val)
+    if ak or g:
+        n = int(ak.group(1)) + int(ak.group(2)) if ak else int(g.group(1) or g.group(2))
+        return _room_key(m.group('room')), 'guests', n
+    sz = SIZE_VAL.search(val)
+    if sz:
+        return _room_key(m.group('room')), 'size', norm(sz.group(0))
+    return None
+
+
+def add_facts(facts_file, facts, source):
+    """Add facts with their source. One value per fact: a hotel answer marks the booking-engine / other facts it
+    contradicts (same room, same kind) "superseded"; a later non-hotel fact that contradicts a hotel answer is
+    stored already superseded. Returns what was added, what was superseded, and the booking engine corrections."""
+    f = paths.resolve(facts_file)
+    doc = json.loads(f.read_text(encoding='utf-8')) if f.exists() else {'facts': []}
+    rows = doc.setdefault('facts', [])
+    have = {x.get('fact') for x in rows}
+    hotel_new = is_hotel_source(source)
+    added, superseded = [], []
+    for text in facts:
+        if text in have:
+            continue
+        rf = room_fact(text)
+        rec = {'fact': text, 'source': source}
+        for x in rows:
+            xf = room_fact(x.get('fact'))
+            if not (rf and xf and xf[:2] == rf[:2] and xf[2] != rf[2]) or x.get('superseded'):
+                continue
+            if hotel_new and not is_hotel_source(x.get('source')):
+                x['superseded'] = True
+                x['superseded_by'] = f'{text} ({source})'
+                superseded.append(x['fact'])
+            elif not hotel_new and is_hotel_source(x.get('source')):
+                rec['superseded'] = True
+                rec['superseded_by'] = f"{x['fact']} ({x['source']})"
+        rows.append(rec)
+        have.add(text)
+        added.append(text)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps(doc, indent=1, ensure_ascii=False), encoding='utf-8')
+    return {'added': added, 'superseded': superseded, 'engine_corrections': engine_corrections(facts_file)}
+
+
+def engine_corrections(facts_file):
+    """Rooms where the hotel has answered and the booking engine sells something else: a booking-engine setting for
+    whoever manages Mirai, never a [CONFIRM] question and never a page edit (Abar, Nov 2026: the engine sold the
+    Two-Bedroom for 5; the hotel said 4 adults + 4 children)."""
+    f = paths.resolve(facts_file)
+    if not f.exists():
+        return []
+    rows = json.loads(f.read_text(encoding='utf-8')).get('facts', [])
+    hotel = {}
+    for x in rows:
+        rf = room_fact(x.get('fact'))
+        if rf and is_hotel_source(x.get('source')) and not x.get('superseded'):
+            hotel[rf[:2]] = (x['fact'], x['source'], rf[2])
+    out = []
+    for x in rows:
+        rf = room_fact(x.get('fact'))
+        if rf and str(x.get('source', '')).lower().startswith('booking engine') and rf[:2] in hotel \
+                and hotel[rf[:2]][2] != rf[2]:
+            h = hotel[rf[:2]]
+            out.append({'room': x['fact'].split(':')[0].strip(), 'kind': rf[1], 'engine_sells': x['fact'],
+                        'hotel_says': f'{h[0]} ({h[1]})',
+                        'fix': f"Booking engine setting: change {rf[1]} for {x['fact'].split(':')[0].strip()} to the "
+                               "hotel's answer (Mirai extranet; not a page edit)."})
+    seen, uniq = set(), []
+    for c in out:
+        k = (c['room'], c['kind'], c['engine_sells'])
+        if k not in seen:
+            seen.add(k)
+            uniq.append(c)
+    return uniq
+
+
 def load_corpus(crawl_dir='', facts_file=''):
     site, confirmed, sources = [], [], []
     if crawl_dir:
@@ -128,7 +239,11 @@ def load_corpus(crawl_dir='', facts_file=''):
             sources.append(str(f))
     if facts_file and paths.resolve(facts_file).exists():
         facts = json.loads(paths.resolve(facts_file).read_text(encoding='utf-8')).get('facts', [])
-        confirmed.extend(x.get('fact', '') for x in facts)
+        # A fact the hotel has corrected is kept for the record with "superseded": true and no longer counts
+        # (Abar, Nov 2026: the engine sold the Two-Bedroom for 5; the hotel said 4 adults + 4 children).
+        # Booking.com alone is never confirmation.
+        confirmed.extend(x.get('fact', '') for x in facts
+                         if is_confirmed_source(x.get('source', '')) and not x.get('superseded'))
         sources.append(str(paths.resolve(facts_file)))
     confirmed_text = norm(' \n '.join(confirmed))
     return norm(' \n '.join(site)) + ' \n ' + confirmed_text, confirmed_text, sources

@@ -21,7 +21,7 @@ from urllib.parse import parse_qs, urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
-from . import analysis, paths
+from . import analysis, consistency, paths
 from .librecrawl import UA, is_page
 
 CRITICAL_TYPES = {'home', 'rooms', 'offers', 'contact', 'booking'}
@@ -149,6 +149,11 @@ def scan_pages(urls, home_host, delay=0.3, progress=None):
             'seo_plugin_html': [name for name, rx in SEO_HTML.items() if rx.search(html[:200000])],
             'translation_plugin': [name for name, rx in TRANSLATE_HTML.items() if rx.search(html)],
             'hreflang_count': len(soup.find_all('link', rel=lambda v: v and 'alternate' in v, hreflang=True)),
+            'hreflang': {(l.get('hreflang') or '').strip(): urljoin(url, l.get('href') or '')
+                         for l in soup.find_all('link', rel=lambda v: v and 'alternate' in v, hreflang=True)},
+            'html_lang': (soup.html.get('lang') or '').strip() if soup.html else '',
+            'offer_valid_through': sorted(set(re.findall(
+                r'"(?:validThrough|priceValidUntil)"\s*:\s*"(\d{4}-\d{2}-\d{2})', html))),
             'links_rooms': False, 'links_booking': False,
         }
         phones = set()
@@ -517,8 +522,14 @@ def audit(crawl_dir, site_property='', progress=None, hotel_city='', mirai_id=''
     city_info = ({'city': hotel_city, 'source': 'given (hotel_city)', 'given': True, 'warning': ''} if hotel_city
                  else analysis.hotel_city_with_source(ok, home_host, hotel_path))
     city = city_info['city']
+    hj = crawl_dir.parent / 'hotel.json'
+    try:
+        hotel_info = json.loads(hj.read_text(encoding='utf-8')) if hj.exists() else {}
+    except ValueError:
+        hotel_info = {}
     gsc = analysis.gsc_report(site_property, wp.get('site_name', ''), home_host,
-                              hotel_names=hotel_names(crawl_dir, ok, hotel_path), hotel_path=hotel_path)
+                              hotel_names=hotel_names(crawl_dir, ok, hotel_path), hotel_path=hotel_path,
+                              other_sites=hotel_info.get('other_sites'))
     report = {
         'sitemaps': analysis.sitemaps(site, UA),
         'canonical_targets': analysis.canonical_targets(ok, data, UA),
@@ -530,7 +541,10 @@ def audit(crawl_dir, site_property='', progress=None, hotel_city='', mirai_id=''
         'schema': analysis.schema_report(ok),
         'links': analysis.link_report(data, list(ok), home_host, crawl_dir),
         'phones': analysis.phone_report(ok),
-        'distance_conflicts': analysis.distance_conflicts(texts),
+        # one landmark, one distance: the stricter matcher from the Abar handoff (figures belong to the longest
+        # place name before them, within the clause) and compared with hotel-facts.json
+        'distance_conflicts': consistency.distance_rows(texts, str(crawl_dir.parent / 'hotel-facts.json'),
+                                                        home_host.split('.')[0]),
         'prices_in_text': analysis.price_mentions(texts, ok),
         'out_of_season': analysis.season_report(ok, texts),
         'other_city': analysis.city_report(ok, city),
@@ -540,6 +554,13 @@ def audit(crawl_dir, site_property='', progress=None, hotel_city='', mirai_id=''
         'translation': {'client_side_plugin': sorted({n for p in ok.values() for n in p.get('translation_plugin', [])}),
                         'pages_with_hreflang': sum(1 for p in ok.values() if p.get('hreflang_count'))},
         'llms_txt': llms_txt(site, wp.get('seo_plugin', [])),
+        'ai_access': analysis.ai_access(site, UA, [next((u for u, p in ok.items() if p.get('type') == t), '')
+                                                   for t in ('rooms', 'offers')]),
+        'snippet_blocked_pages': analysis.snippet_blocks(ok),
+        'hreflang': analysis.hreflang_report(ok, data),
+        'expired_offer_schema': analysis.expired_offer_schema(ok),
+        'meta_templates': analysis.meta_template_report(ok),
+        'key_pages_no_impressions_16m': analysis.key_pages_without_impressions(ok, gsc) if gsc.get('checked') else None,
         'coverage': coverage,
     }
 
@@ -600,6 +621,25 @@ def audit(crawl_dir, site_property='', progress=None, hotel_city='', mirai_id=''
     for x in report['phones']['odd_country_codes']:
         for u in x['urls']:
             add('phone_country_code', u, f"{x['number']} (main code {report['phones']['main_country_code']})")
+    ai = report['ai_access']
+    for bot in ai['search_bots_blocked_in_robots']:
+        # robots.txt is read, not guessed: a blocked search crawler hides the whole site from that search
+        add('ai_search_bot_blocked', site.rstrip('/') + '/', f"robots.txt blocks {bot} from the homepage", 'Priority')
+    for x in report['snippet_blocked_pages']:
+        add('snippet_blocked', x['url'], x['robots'])
+    hl = report['hreflang']
+    for x in hl['no_return_link']:
+        add('hreflang_no_return', x['url'], f"{x['code']} → {x['target']} doesn't link back (Google ignores the pair)")
+    for x in hl['bad_targets']:
+        add('hreflang_bad_target', x['url'], f"{x['code']} → {x['target']}: {x['problem']}")
+    for x in hl['invalid_codes']:
+        add('hreflang_invalid_code', x['url'], f"\"{x['code']}\" is not a valid language(-region) code")
+    for x in hl['arabic_pages_not_arabic']:
+        add('arabic_page_untranslated', x['url'], f"lang=ar but title/meta/H1 have no Arabic: {x['title']}")
+    for x in report['expired_offer_schema']:
+        add('offer_schema_expired', x['url'], f"Offer markup valid until {', '.join(x['dates'])}")
+    for u in report['meta_templates']['meta_equals_title']:
+        add('meta_equals_title', u, 'meta description is the title again')
     for g in report['links']['broken_targets']:
         if g.get('internal') or g['sitewide']:
             for u in g['sources']:
@@ -632,6 +672,10 @@ def audit(crawl_dir, site_property='', progress=None, hotel_city='', mirai_id=''
                         f"the active SEO plugin ({', '.join(wp.get('seo_plugin', []))}): delete the leftover file")
     if wp.get('users_public'):
         security.append(f"/wp-json/wp/v2/users lists {len(wp['users'])} usernames publicly")
+    if tracking.get('history_entries_added'):
+        security.append(f"Back-button hijacking signal: the homepage added {tracking['history_entries_added']} browser "
+                        f"history entries with no click ({tracking.get('push_states_without_click')}). Google's spam "
+                        'policy (since 15 Jun 2026): find the script (chat, popup, ad or booking widget) and remove it')
     for h in report['hacked_text']:
         security.append(f"Defacement text \"{h['text']}\" on {h['pages']} pages: " + ', '.join(h['urls'][:8]))
     if spam.get('spam_hits'):
@@ -714,6 +758,13 @@ def findings_md(f):
           + (', keyword-stuffed' if s['stuffed'] else '') + ')' for s in t['common_suffixes']]
     L.append(f"- WordPress default titles (\"Page – Site name\"): {len(t['default_wordpress_titles'])} pages")
     L.append(f"- Duplicate titles: {len(t['duplicate_titles'])}")
+    mt = r.get('meta_templates') or {}
+    if mt:
+        L.append(f"- Meta descriptions identical to the title: {len(mt['meta_equals_title'])}; starting with the "
+                 f"whole title: {len(mt['meta_starts_with_title'])}; one template with only the page name changed: "
+                 + ('; '.join(f"\"{x['pattern'][:90]}\" on {x['pages']} pages" for x in mt['templated'][:3]) or 'none'))
+    if r.get('expired_offer_schema'):
+        L.append(f"- Offer schema past its validThrough / priceValidUntil date: {len(r['expired_offer_schema'])} pages")
     L.append('')
 
     L += ['## Indexing', '']
@@ -742,6 +793,9 @@ def findings_md(f):
 
     lk = r['links']
     L += ['## Links', '', f"- {lk['counts']}"]
+    if lk.get('false_alarms'):
+        L.append('- Failed at crawl time but load fine now (not findings): ' + ', '.join(
+            f"{x['target']} ({x.get('status')} → {x['live_status']})" for x in lk['false_alarms'][:8]))
     for x in lk['broken_targets'][:25]:
         L.append(f"- Broken: {x['target']} ({x.get('status')}) from {x['pages_linking']} pages"
                  + (' [sitewide]' if x['sitewide'] else '') + f", anchor {x['anchors'][:2]}")
@@ -767,7 +821,7 @@ def findings_md(f):
         L.append("- Odd codes in page text only (check by eye before listing; not counted as issues): "
                  f"{[(x['number'], x['pages']) for x in ph['odd_country_codes_text_only'][:6]]}")
     for d in r['distance_conflicts']:
-        L.append(f"- {d['landmark']}: {list(d['values'])} (different figures for the same place)")
+        L.append(f"- DISTANCE {d['landmark']}: {d['detail']} (check by hand: two figures can be two places)")
     L.append(f"- Pages naming another city in a title/H1/meta (hotel city {r['other_city']['hotel_city'] or 'unknown'}): "
              f"{len(r['other_city']['pages'])}")
     L.append(f"- Out-of-season wording: {len(r['out_of_season'])} pages; old years in titles/H1s/URLs: {len(r['old_years'])}")
@@ -783,15 +837,56 @@ def findings_md(f):
 
     tr = r['translation']
     L += ['## Languages', '', f"- Browser-side translation plugin: {tr['client_side_plugin'] or 'none'}; "
-          f"pages with hreflang: {tr['pages_with_hreflang']}"]
+          f"pages with hreflang: {tr['pages_with_hreflang']}"
+          + (' (hreflang present: the plugin serves real language pages, not browser-side only)'
+             if tr['client_side_plugin'] and tr['pages_with_hreflang'] else '')]
+    hl = r.get('hreflang') or {}
+    if hl.get('pages_with_hreflang'):
+        L.append(f"- hreflang: pairs that don't link back {len(hl['no_return_link'])}; alternates that redirect, "
+                 f"404, are noindex or not canonical {len(hl['bad_targets'])}; invalid codes "
+                 f"{sorted({x['code'] for x in hl['invalid_codes']}) or 'none'}; pages not listing themselves "
+                 f"{len(hl['no_self_reference'])}; without x-default {hl['x_default_missing']}")
+    if hl.get('arabic_pages_not_arabic'):
+        L.append(f"- Arabic pages (lang=ar) whose title, meta and H1 have no Arabic: {len(hl['arabic_pages_not_arabic'])}"
+                 ', e.g. ' + ', '.join(urlparse(x['url']).path for x in hl['arabic_pages_not_arabic'][:5]))
     if g.get('checked'):
         a = g['arabic_queries']
         L.append(f"- Arabic searches: {a['count']} queries, {a['impressions']} impressions, {a['clicks']} clicks")
     L.append('')
 
+    ai = r.get('ai_access') or {}
+    if ai:
+        L += ['## AI search access (ChatGPT, Perplexity, Claude, Copilot, Google AI features)', '']
+        if not ai.get('robots_checked') or not ai.get('firewall_checked'):
+            L += [f"> NOT CHECKED: robots.txt answered {ai['robots_txt_status']}, homepage {ai['browser_status']}. "
+                  'AI checks AI01–AI02 are insufficient_data, not a pass.', '']
+        L += [f"- robots.txt ({ai['robots_txt_status']}): search crawlers blocked: "
+              f"{ai['search_bots_blocked_in_robots'] or 'none'}; training-only crawlers blocked (owner's choice, "
+              f"not an issue): {ai['training_bots_blocked'] or 'none'}",
+              f"- Firewall signal (spoofed user agent, homepage {ai['browser_status']} for a browser; CDN "
+              f"{ai['cdn'] or 'none seen'}): " + ', '.join(
+                  f"{b} {v['status']}" + (' CHALLENGE' if v['challenge_page'] else '') for b, v in ai['firewall'].items()),
+              f"- Pages tested: {', '.join(urlparse(u).path for u in ai.get('urls_tested', []))}",
+              f"- AI search bots that look blocked by the firewall (confirm in the host / Cloudflare bot settings "
+              f"before listing): {ai['search_bots_blocked_by_firewall_signal'] or 'none'}. Googlebot/Bingbot "
+              'results are not judged here (CDNs block fake ones on purpose): use index_status.',
+              f"- AI agents acting for a guest (ChatGPT-User, Claude-User, Perplexity-User; they don't follow "
+              f"robots.txt, only a firewall stops them) that look blocked: "
+              f"{ai.get('guest_agents_blocked_by_firewall_signal') or 'none'}",
+              f"- Pages blocking snippets (nosnippet / max-snippet under 50, which also keeps them out of AI "
+              f"Overviews and AI Mode): {len(r.get('snippet_blocked_pages') or [])}", '']
+
     if g.get('checked'):
-        L += ['## Search Console (' + g['window'] + ' vs ' + g['previous'] + ')', '',
-              f"- Now: {g['now']}", f"- Before: {g['before']}",
+        L += ['## Search Console (' + g['window'] + ' vs ' + g['previous'] + ')', '']
+        if g.get('impressions_anomaly'):
+            L += [f"> WARNING: {g['impressions_anomaly']}.", '']
+        im = g.get('image_search') or {}
+        if im.get('checked'):
+            L += [f"- Google Images: {im['clicks']} clicks, {im['impressions']} impressions, CTR {im['ctr_pct']}% "
+                  f"(median page {im['median_page_ctr_pct']}%). High impressions, below-median CTR: " + ('; '.join(
+                      f"{urlparse(x['page']).path} ({x['impressions']} impr, {x['ctr_pct']}%)"
+                      for x in im['high_impressions_low_ctr'][:6]) or 'none')]
+        L += [f"- Now: {g['now']}", f"- Before: {g['before']}",
               f"- Brand terms used: {g['brand_terms']} (from {g.get('brand_terms_source', 'n/a')}); check them "
               'before quoting the brand share',
               (f"- Searches whose top page belongs to a sister hotel (left out, hotel_path {g['hotel_path']}): "
@@ -800,6 +895,15 @@ def findings_md(f):
               '- Non-brand searches at positions 4–20: ' + '; '.join(
                   f"{q['query']} ({q['impressions']} impr, pos {q['position']}, page "
                   f"{urlparse(q.get('top_page') or '').path or '?'})" for q in g['money_queries_pos_4_20'][:12]),
+              '- Key pages (home, rooms, offers, contact) with no impressions in 16 months (never target a search '
+              'at these without fixing why first): ' + (', '.join(urlparse(u).path for u in
+                                                     (r.get('key_pages_no_impressions_16m') or [])[:10]) or 'none'),
+              "- Left out, they belong to the hotel's other websites (link there instead): " + ('; '.join(
+                  f"{x['query']} → {x['belongs_to']}" for x in g.get('left_out_other_sites', [])[:6]) or 'none'),
+              "- Searches whose top page is in another language (target a page in the search's language): " + (
+                  '; '.join(f"{q['query']} → {urlparse(q['top_page']).path}"
+                            for q in [x for x in g['money_queries_pos_4_20'] if x.get('language_mismatch')][:6])
+                  or 'none'),
               '- Old host versions still getting clicks: ' + ('; '.join(
                   f"{x['page']} ({x['clicks']} clicks)" for x in g['host_variant_pages'][:5]) or 'none'),
               '- Booking / account pages in search: ' + ('; '.join(
@@ -814,6 +918,11 @@ def findings_md(f):
         L.append(f"- Tags that FIRE on the rendered homepage (use these, not raw HTML, for any tracking statement): "
                  f"GTM {t['gtm'] or 'none'}, GA4 {t['ga4'] or 'none'} ({t['ga4_hits']} hits), Google Ads "
                  f"{t['google_ads'] or 'none'}, Meta pixel {'yes' if t['meta_pixel'] else 'no'}")
+        cm = tr.get('consent_mode') or []
+        L.append(f"- Consent Mode: {'; '.join(c['command'] + ' ' + json.dumps(c['params']) for c in cm) or 'no gtag consent call seen'}"
+                 f"; consent state on GA4 hits (gcs): {tr.get('ga4_consent_states') or 'none seen'}; cookie banner: "
+                 f"{'yes' if tr.get('consent_banner') else 'no'}. EEA guests under basic consent mode are not counted "
+                 'in GA4: read A11 (GA4 vs Mirai) with this in mind')
     else:
         L.append(f"- Rendered check failed ({tr.get('reason')}): run inspect_pages before saying anything about tags")
     L += [f"- Tags in raw HTML: GTM {f['tags_in_raw_html']['gtm'] or 'none'}, gtag {f['tags_in_raw_html']['gtag'] or 'none'} "
@@ -842,6 +951,10 @@ def rendered_tags(site, crawl_dir):
         if row.get('error'):
             return {'checked': False, 'reason': row['error']}
         return {'checked': True, 'url': row['url'], 'tags_fired': row['tags_fired'],
-                'consent_banner': row.get('consent_banner'), 'screenshot': row.get('screenshot')}
+                'consent_banner': row.get('consent_banner'), 'consent_mode': row.get('consent_mode'),
+                'ga4_consent_states': row.get('ga4_consent_states'),
+                'history_entries_added': row.get('history_entries_added', 0),
+                'push_states_without_click': row.get('push_states_without_click', []),
+                'screenshot': row.get('screenshot')}
     except Exception as e:  # noqa: BLE001 - no Chromium etc.: say so, the audit carries on
         return {'checked': False, 'reason': f'{type(e).__name__}: {str(e)[:200]}'}

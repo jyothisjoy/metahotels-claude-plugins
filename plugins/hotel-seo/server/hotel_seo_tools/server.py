@@ -42,7 +42,7 @@ def _start_job(kind, fn, *args, **kwargs):
 
     if kind == 'crawl':
         kwargs['progress'] = progress
-    elif kind in ('audit', 'recheck', 'mirai', 'presend'):
+    elif kind in ('audit', 'recheck', 'mirai', 'presend', 'consistency'):
         kwargs['progress'] = lambda msg: job.__setitem__('progress', msg)
 
     def run():
@@ -157,6 +157,133 @@ def custom_search(crawl_dir: str, terms: list[str], case_sensitive: bool = False
 
 
 @mcp.tool()
+def execute_plan(list_json: str, out_dir: str = '') -> dict:
+    """Dry run of /hotel-seo execute for one list (Priority / Nice-to-Have; never Web Team): every section turned into
+    actions (SEO fields, redirects, H1 / text replacements, link swaps, alt text, schema, manual steps) with the full
+    page URL, the new value and the checks that prove it. Skips held items, [CONFIRM] and prices. Finds blockers
+    first (a Yoast site can't take Rank Math field writes) and whether the hotel requires client approval. Writes
+    <domain>/execute-<date>/plan.json. Nothing is written to the site."""
+    from . import execute
+    return _off_loop(execute.plan, list_json, out_dir)
+
+
+@mcp.tool()
+def start_execute_batch(plan_file: str, batch: str, approved: bool = False) -> dict:
+    """The gate before writing one batch: approved=true only after the user said yes to that batch's table; refused
+    while the hotel's client approval isn't recorded or a blocker applies. Returns the items to write with the site's
+    own MCP tools."""
+    from . import execute
+    return execute.start_batch(plan_file, batch, approved)
+
+
+@mcp.tool()
+def record_execute_item(plan_file: str, item_id: str, before: dict | str | list | None = None,
+                        after: dict | str | list | None = None, written: bool = False, post_id: int | None = None,
+                        element_id: str = '', tool: str = '', note: str = '') -> dict:
+    """Log one execute item: call with before=<current value> BEFORE writing (that's what undo restores), then with
+    after=<written value>, written=true. A failure: note=<why>, written=false."""
+    from . import execute
+    return execute.record_item(plan_file, item_id, before, after, written, post_id, element_id, tool, note)
+
+
+@mcp.tool()
+def verify_execute_batch(plan_file: str, batch: str) -> dict:
+    """Run each written item's checks on the live page: done only when the page shows it; "unverified" when the site
+    accepted the write but the page doesn't (wrong widget key, template override, cache). Appends the indexing list
+    (one Search Console inspect link per changed page)."""
+    from . import execute
+    return _off_loop(execute.verify_batch, plan_file, batch)
+
+
+@mcp.tool()
+def record_client_approval(plan_file: str, by: str, note: str = '') -> dict:
+    """The client's approval of the change list: who and how ("Mr Yunus, email 6 Nov"). Only after the user confirms
+    the client said yes; never inferred."""
+    from . import execute
+    return execute.record_client_approval(plan_file, by, note)
+
+
+@mcp.tool()
+def undo_execute(plan_file: str) -> dict:
+    """The writes an execute run made, newest first, with the before values to write back (redirects it created:
+    delete them). Nothing else is deleted."""
+    from . import execute
+    return execute.undo_steps(plan_file)
+
+
+@mcp.tool()
+def resolve_post(site: str, url: str) -> dict:
+    """The WordPress post behind a full URL, matched on the full path (never the slug alone: on a group site every
+    hotel has /about-us/ and /rooms/). Two posts with the path is an error."""
+    from . import execute
+    return _off_loop(execute.resolve_post, site, url)
+
+
+@mcp.tool()
+def elementor_settings(element: dict, new_text: str, key: str = '') -> dict:
+    """Settings for elementor-update-element that the widget actually renders (heading → title, text-editor → editor
+    in <p>, button → text, icon-box / image-box → title_text). element: one element from elementor-get-structure with
+    its settings. Writing the wrong key "succeeds" and changes nothing on the page."""
+    from . import execute
+    return execute.elementor_settings(element, new_text, key)
+
+
+@mcp.tool()
+def add_facts(facts_file: str, facts: list[str], source: str) -> dict:
+    """Add confirmed facts to hotel-facts.json the day they arrive, whatever the channel. source: "hotel (<who>,
+    <channel> <date>)" for the hotel's own answers, which mark the booking-engine facts they contradict (same room,
+    same kind) as superseded. Room facts as "<Room name>: up to 8 guests (4 adults + 4 children)" or "<Room name>:
+    1,012–1,184 sq ft"; distances as "<Place>: 11.9 km by road (from the main entrance)". Returns what was
+    superseded and the booking engine corrections."""
+    return facts.add_facts(facts_file, facts, source)
+
+
+@mcp.tool()
+def engine_corrections(facts_file: str) -> dict:
+    """Rooms where the hotel has answered and the booking engine sells something else: a Mirai setting for whoever
+    manages the engine, never a [CONFIRM] question and never a page edit."""
+    return {'corrections': facts.engine_corrections(facts_file)}
+
+
+@mcp.tool()
+def hotel_settings(domain_dir: str, preferences: dict | None = None, other_sites: list[dict] | None = None,
+                   approval: dict | None = None) -> dict:
+    """Per-hotel settings in <domain>/hotel.json, merged (other keys are kept). preferences: {"client_approval": true,
+    "units": "sqft"}; other_sites: [{"domain": "gulcafe.com", "terms": ["restaurant", "iftar"]}]; approval: one
+    client approval of a list, {"list": "Priority SEO List (14 Oct)", "by": "Mr Yunus", "channel": "email",
+    "date": "2026-11-06"} (only after the user confirms the client's yes)."""
+    d = paths.resolve(domain_dir)
+    d.mkdir(parents=True, exist_ok=True)
+    f = d / 'hotel.json'
+    data = json.loads(f.read_text(encoding='utf-8')) if f.exists() else {}
+    if preferences:
+        data['preferences'] = {**(data.get('preferences') or {}), **preferences}
+    if other_sites is not None:
+        data['other_sites'] = other_sites
+    if approval:
+        if not approval.get('by'):
+            raise ValueError('an approval needs who approved ("by") and how ("channel")')
+        data.setdefault('approvals', []).append(approval)
+    f.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding='utf-8')
+    return {'file': str(f), 'preferences': data.get('preferences'), 'other_sites': data.get('other_sites'),
+            'approvals': len(data.get('approvals', []))}
+
+
+@mcp.tool()
+def site_consistency_check(site: str, out_dir: str = '', facts_file: str = '', landmarks: list[str] | None = None,
+                           room_path: str = '', wait_seconds: int = 45) -> dict:
+    """One fact must read the same on every page: reads every sitemap page live and reports room guests (body vs
+    meta), room sizes (title/meta vs body), landmark distances (across pages and vs facts_file), long / missing
+    metas, titles over 60, WordPress default titles, old years in titles, room pages without room schema, FAQPage
+    blocks copied across pages or several on one page, and internal links marked nofollow. Writes nothing to the
+    site; writes consistency.json in out_dir. Every DISTANCE row is checked by hand against its quoted text."""
+    from . import consistency
+    job = _start_job('consistency', consistency.run, site, out_dir, facts_file=facts_file, landmarks=landmarks,
+                     room_path=room_path)
+    return _wait(job, wait_seconds)
+
+
+@mcp.tool()
 def test_redirects(out_dir: str, pairs: list[dict] | None = None, file: str = '', wait_seconds: int = 45) -> dict:
     """List-mode redirect test. Give pairs [{"source": url, "expected": url}] or a file
     (.txt one URL per line, or .csv with source,expected). A row PASSes when the first hop is
@@ -221,6 +348,30 @@ def render_lists_pdf(out_dir: str, json_path: str = '', data: dict | None = None
             out['checks_warning'] = {'gaps': lint, 'next': 'Re-check can only prove what the checks cover: add one '
                                      'check per URL / row (schema_block_equals for a replacement block, '
                                      'schema_count for deleted lines) to the list JSON, then render again.'}
+    # Per-hotel settings in <domain>/hotel.json (out_dir is <domain>/Reports). Abar, Nov 2026: the MD sees every
+    # change before it goes live, and sizes are in sq ft.
+    try:
+        hj = paths.resolve(out_dir).parent / 'hotel.json'
+        prefs = json.loads(hj.read_text(encoding='utf-8')).get('preferences', {}) if hj.exists() else {}
+        approvals = json.loads(hj.read_text(encoding='utf-8')).get('approvals', []) if hj.exists() else []
+    except (ValueError, OSError):
+        prefs, approvals = {}, []
+    if prefs.get('client_approval') and doc.get('title') != 'Re-check':
+        key = f"{doc.get('title', '')} ({doc.get('date', '')})"
+        if not any(a.get('list') == key for a in approvals):
+            out['client_approval_warning'] = {
+                'list': key, 'next': 'This hotel approves every change before it goes live (hotel.json '
+                'preferences.client_approval). Send the client the change list first and add their yes to hotel.json '
+                f'"approvals": [{{"list": "{key}", "by": "<name>", "channel": "<email / WhatsApp>", "date": "<date>"}}] '
+                'before the agency gets this list. Never assume approval.'}
+    if prefs.get('units'):
+        out['units'] = f"this hotel writes sizes in {prefs['units']} (hotel.json preferences.units)"
+    from .checks import lint_copy
+    copy_lint = lint_copy(doc)
+    if copy_lint:
+        out['copy_warning'] = {'problems': copy_lint, 'next': 'The agency pastes this word for word: rewrite '
+                               'the AI-sounding phrases plainly (playbook 4) and remove invisible characters, '
+                               'then render again.'}
     sev = facts.severity_check(doc)
     if sev:
         out['severity_warning'] = {

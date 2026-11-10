@@ -13,6 +13,7 @@ Run from Claude (monitor_site), or on a schedule with the hotel-seo-monitor comm
 site list from ~/.metahotels-seo/monitor/sites.json.
 """
 import argparse
+import hashlib
 import json
 import re
 from datetime import date, datetime
@@ -36,6 +37,21 @@ def _site_url(site):
     return site.rstrip('/') if '//' in site else f'https://{site.strip("/")}'
 
 
+def _page_state(r, soup):
+    robots = soup.find('meta', attrs={'name': re.compile('^robots$', re.I)})
+    canon = soup.find('link', rel=lambda v: v and 'canonical' in v)
+    types = []
+    for t in soup.find_all('script', type='application/ld+json'):
+        types += re.findall(r'"@type"\s*:\s*"([^"]+)"', t.get_text() or '')
+    return {'status': r.status_code,
+            'noindex': 'noindex' in (((robots.get('content') or '') if robots else '')
+                                     + ' ' + r.headers.get('X-Robots-Tag', '')).lower(),
+            'canonical': canon.get('href', '') if canon else '',
+            'title': (soup.title.get_text() if soup.title else '').strip(),
+            'h1': [h.get_text(' ', strip=True) for h in soup.find_all('h1')][:3],
+            'schema_types': sorted(set(types))}
+
+
 def snapshot(site, gsc_property=''):
     site = _site_url(site)
     host = _host(site)
@@ -45,7 +61,7 @@ def snapshot(site, gsc_property=''):
 
     r = audit._get(s, site + '/', allow_redirects=True)
     home = {'status': r.status_code if r is not None else 0, 'final_url': r.url if r is not None else ''}
-    links, texts = [], {}
+    links, texts, pages = [], {}, {}
     if r is not None and r.status_code == 200:
         soup = BeautifulSoup(r.text, 'html.parser')
         robots = soup.find('meta', attrs={'name': re.compile('^robots$', re.I)})
@@ -65,9 +81,12 @@ def snapshot(site, gsc_property=''):
         # booking links on the pages the homepage links to (rooms, offers, menu pages)
         for u in list(dict.fromkeys(internal))[:40]:
             pr = audit._get(s, u)
+            if pr is not None and pr.status_code != 200:
+                pages[u] = {'status': pr.status_code}
             if pr is None or pr.status_code != 200 or 'html' not in pr.headers.get('content-type', ''):
                 continue
             ps = BeautifulSoup(pr.text, 'html.parser')
+            pages[u] = _page_state(pr, ps)
             for a in ps.find_all('a', href=True):
                 href = urljoin(u, a['href']).split('#')[0]
                 if audit.is_booking_href(href) or audit.BOOK_TEXT.search(a.get_text(' ')):
@@ -76,6 +95,16 @@ def snapshot(site, gsc_property=''):
                 t.decompose()
             texts[u] = ps.get_text(' ')
     snap['home'] = home
+    # the key pages the homepage links to (rooms, offers, contact, menu pages): a template or plugin update,
+    # or a staging push, can noindex or strip them all without touching the homepage
+    snap['pages'] = pages
+    rb = audit._get(s, site + '/robots.txt')
+    rtext = rb.text if rb is not None and rb.status_code == 200 else ''
+    snap['robots_txt'] = {'status': rb.status_code if rb is not None else 0,
+                          'hash': hashlib.sha1(rtext.encode()).hexdigest()[:12] if rtext else '',
+                          'blocks_googlebot_home': not analysis.robots_allowed(rtext, 'Googlebot', '/'),
+                          'ai_search_bots_blocked': [b for b in analysis.AI_SEARCH_BOTS
+                                                     if not analysis.robots_allowed(rtext, b, '/')]}
     bl = audit.check_booking_links(links) if links else {'dead': [], 'unique_links_checked': 0}
     snap['booking_links_checked'] = bl['unique_links_checked']
     snap['booking_dead'] = sorted({f"{d['href']} ({d['status']}) on {d['source']}" for d in bl['dead']})
@@ -124,6 +153,32 @@ def compare(old, new):
         alerts.append(f"Homepage canonical changed: {oh.get('canonical')} → {nh.get('canonical')}")
     if new.get('defacement'):
         alerts.append(f"Defacement text on the site: {new['defacement']}")
+    orb, nrb = old.get('robots_txt') or {}, new.get('robots_txt') or {}
+    if nrb.get('blocks_googlebot_home') and not orb.get('blocks_googlebot_home'):
+        alerts.append('robots.txt now blocks Googlebot from the homepage (staging setting pushed live?)')
+    nb = sorted(set(nrb.get('ai_search_bots_blocked') or []) - set(orb.get('ai_search_bots_blocked') or []))
+    if nb and orb:
+        alerts.append(f"robots.txt now blocks AI search crawlers: {nb}")
+    if orb.get('hash') and nrb.get('hash') and orb['hash'] != nrb['hash']:
+        changes.append('robots.txt changed')
+    # key pages: only pages seen in both runs, so a menu change isn't reported as a breakage
+    op_, np2 = old.get('pages') or {}, new.get('pages') or {}
+    for u in sorted(set(op_) & set(np2)):
+        o, n = op_[u], np2[u]
+        if n.get('status') != o.get('status') and n.get('status', 0) >= 400:
+            alerts.append(f"{u} now returns {n.get('status')} (was {o.get('status')})")
+            continue
+        if n.get('noindex') and not o.get('noindex'):
+            alerts.append(f"{u} is now NOINDEX")
+        if o.get('canonical') and n.get('canonical') != o.get('canonical'):
+            alerts.append(f"{u} canonical changed: {o['canonical']} → {n.get('canonical') or '(none)'}")
+        if o.get('h1') and not n.get('h1'):
+            alerts.append(f"{u} lost its H1 (was \"{o['h1'][0]}\")")
+        lost = sorted(set(o.get('schema_types') or []) - set(n.get('schema_types') or []))
+        if lost and set(lost) & {'Hotel', 'Resort', 'LodgingBusiness', 'HotelRoom', 'Offer', 'BreadcrumbList'}:
+            alerts.append(f"{u} lost schema: {lost}")
+        if o.get('title') and n.get('title') != o.get('title'):
+            changes.append(f"{u} title: \"{o['title']}\" → \"{n.get('title')}\"")
     new_dead = sorted(set(new.get('booking_dead', [])) - set(old.get('booking_dead', [])))
     if new_dead:
         alerts.append(f"{len(new_dead)} booking link(s) newly dead: " + '; '.join(new_dead[:8]))

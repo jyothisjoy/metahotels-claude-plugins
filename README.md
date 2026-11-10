@@ -37,8 +37,16 @@ Private. Contains the **hotel-seo** plugin: give Claude a hotel website and get 
 /hotel-seo recheck atanahotel.com    after the agency says "done": every item checked on the live site
 /hotel-seo monitor atanahotel.com    what changed since the last run (posts, spam searches, booking links, tags)
 /hotel-seo monitor add atanahotel.com   add it to the daily monitor run
+/hotel-seo execute atanahotel.com      apply a list's fixes through the site's WordPress tools, batch by batch with your yes;
+                                     done only when the live page shows it (execute --undo <plan file> reverses it)
+/hotel-seo write <domain> <what>    one piece of copy (a title, an intro, an FAQ, an offer page, a blog post), paste-ready
+/hotel-seo check <report or file>    fact-check an agency's or tool's SEO report against Google's own documentation
 /hotel-seo init --check              health check
 ```
+
+Everything the plugin writes for a website or Business Profile, from a title to a blog post, follows one writing standard: `plugins/hotel-seo/skills/hotel-seo/references/content-writing.md`.
+
+Every full run also checks whether ChatGPT, Perplexity, Copilot and Google's AI features can reach the site (robots.txt per crawler, firewall, snippet blocks), reads Google Images data, and warns when a Search Console comparison falls in Google's inflated-impressions period (13 May 2025 – 27 Apr 2026).
 
 Work is saved in a folder per hotel (`<domain>/`) wherever Claude is started (desktop chat: `~/Documents/MetaHotels SEO`). Files are named like `25 - Atana Priority SEO List (14 Oct).pdf` (and `.docx`), with running file numbers across hotels; re-rendering a list keeps its number. Re-checks carry their round: `27 - Atana Priority Re-check 2 (21 Oct)` and the re-issued list `28 - Atana Priority Open Items after Re-check 2 (21 Oct)`.
 
@@ -101,4 +109,4 @@ Machine state lives in `~/.metahotels-seo/` (LibreCrawl, Google tokens, Google A
 
 ## Changing the method
 
-Edit `plugins/hotel-seo/skills/hotel-seo/references/playbook.md` (add hotel lessons to section 10), bump `version` in both `plugins/hotel-seo/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, commit and push. Teammates get it with the update commands above.
+Run the offline tests first (`uv run --with pytest python -m pytest -q tests` in `plugins/hotel-seo/server`). Edit `plugins/hotel-seo/skills/hotel-seo/references/playbook.md` (add hotel lessons to section 10), bump `version` in both `plugins/hotel-seo/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, commit and push. Teammates get it with the update commands above.

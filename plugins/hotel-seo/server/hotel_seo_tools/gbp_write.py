@@ -17,7 +17,8 @@ them can send the profile back to verification or get it suspended.
   attributes       {"has_wifi": true, "has_pool": true, "url_reservations": "https://...", "x": null to unset}
   review_replies   [{"review_id": "...", "reply": "..."}]           (new or replacing an existing reply)
   delete_review_replies   ["review_id"]
-  posts            [{"type": "STANDARD|OFFER|EVENT", "summary", "button": "BOOK|LEARN_MORE|CALL|...",
+  posts            (hotel profiles: STANDARD or EVENT only, no deals, discounts or offer links; Google policy)
+                   [{"type": "STANDARD|OFFER|EVENT", "summary", "button": "BOOK|LEARN_MORE|CALL|...",
                      "url", "photo_url", "title", "start": "yyyy-mm-dd", "end": "yyyy-mm-dd",
                      "coupon", "terms", "language": "en"}]
   delete_posts     ["<post id or full name>"]
@@ -161,6 +162,26 @@ def _show_attr(a):
     if not a:
         return None
     return a.get('values') or [u.get('uri') for u in a.get('uriValues', [])] or (a.get('repeatedEnumValue') or {}).get('setValues')
+
+
+DEAL = re.compile(r'(?:special|exclusive|limited|seasonal|summer|winter|weekend|holiday|eid|ramadan|our|latest|'
+                  r'new|stay) offers?\b|\boffers?\s*(?:ends|valid|code|:)|/offers?/|/packages?/|\bdeals?\b|discount|%\s*off|\boff\b\s*\d|\bsave\s+\d|\bpromo|promotion|coupon|'
+                  r'voucher|special (?:rate|price)|best (?:rate|price)|\bfree night|early bird|last minute|'
+                  r'عرض|عروض|خصم|تخفيض', re.I)
+
+
+def _hotel_post_policy(p):
+    """Google's posts policy for hotels: no Offer posts, and no post that mentions or links to deals,
+    promotions, special offers or discounts (support.google.com/business/answer/7213077, "Hotel posts").
+    Updates and events are fine."""
+    if str(p.get('type', 'STANDARD')).upper() == 'OFFER':
+        raise GbpError('hotel profiles can\'t have Offer posts (Google posts policy). Use a STANDARD update '
+                       'about the hotel instead, with no deal or discount in it')
+    text = ' '.join(str(p.get(k) or '') for k in ('summary', 'title', 'url', 'terms', 'coupon'))
+    m = DEAL.search(text)
+    if m:
+        raise GbpError(f'hotel posts can\'t mention or link to deals, promotions or discounts (Google posts '
+                       f'policy); found "{m.group(0)}". Rewrite it as a hotel update or event')
 
 
 def _post_body(p):
@@ -329,7 +350,11 @@ def propose(location, changes, out_dir='', allow_risky=False):
                     'before': old})
 
     # ---- posts and photos
+    prim = ((live['categories'] or {}).get('primaryCategory') or {}).get('displayName', '')
+    lodging = bool(re.search(r'hotel|resort|inn|lodging|motel|hostel|apartment|guest ?house|chalet|villa', prim, re.I))
     for p in changes.get('posts', []):
+        if lodging:
+            _hotel_post_policy(p)
         body = _post_body(p)
         ops.append({'kind': 'post', 'rows': [(f"New {body['topicType'].lower()} post", '', body['summary'])],
                     'method': 'POST', 'url': f'{base}/localPosts', 'body': body, 'before': None})
