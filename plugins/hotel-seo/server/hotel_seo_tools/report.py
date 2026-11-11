@@ -107,14 +107,15 @@ CORE = {
                         'Remove nosnippet / data-nosnippet or raise max-snippet (-1): it also keeps the page out of '
                         'AI Overviews and AI Mode.', None),
     'hreflang_no_return': ('Technical', 'Medium', "hreflang pair that doesn't link back",
-                           'Each language version must list the other (and itself); Google ignores one-way pairs.',
-                           None),
+                           'Each language version must list the other (and itself); Google ignores one-way pairs. '
+                           'Polylang: link the EN and AR versions of the page (the language columns in Pages) so '
+                           'both print the pair.', 'hreflang_ok'),
     'hreflang_bad_target': ('Technical', 'Medium', 'hreflang points to a redirect, 404, noindex or non-canonical page',
                             'Point each hreflang at the final, indexable, self-canonical URL of that language version.',
-                            None),
+                            'hreflang_ok'),
     'hreflang_invalid_code': ('Technical', 'Medium', 'Invalid hreflang language code',
                               'Use ISO 639-1 language (+ optional ISO 3166-1 region) codes: en-GB not en-UK, ja not jp.',
-                              None),
+                              'hreflang_ok'),
     'arabic_page_untranslated': ('Content', 'High', 'Arabic page (lang=ar) with no Arabic title, meta or H1',
                                  'Write the Arabic title, meta description and H1 (native Arabic, not machine '
                                  'translation), or noindex the page until it is translated.', None),
@@ -124,7 +125,50 @@ CORE = {
     'meta_equals_title': ('On-Page', 'Low', 'Meta description repeats the title',
                           'Write a meta description of 155 characters or fewer that adds what the title does not: '
                           'location, one product fact, Book direct.', None),
+    # site_checks.py (registry 1.7): link graph, hreflang sets, boilerplate, link previews, headings, anchors, URL
+    # variants. Each issue carries its own re-check (issue['recheck']); the last field names its type.
+    'orphan_key_page': ('Technical', 'High', 'Room, offer, dining, spa or meeting page that no page links to (orphan)',
+                        "Link each page from its section page (Rooms, Offers, Dining...) and the hotel's menu or main "
+                        "page, with the page's name as the anchor. If it is out of date, unpublish it and 301 it to "
+                        'the section page instead.', 'inlinked'),
+    'orphan_page': ('Technical', 'Medium', 'Page that no page links to (orphan: found only in the sitemap or WordPress)',
+                    'Link it from the most relevant page with a descriptive anchor; if nobody needs it, unpublish it '
+                    'and 301 it to the closest live page (it then drops out of the sitemap).', 'inlinked'),
+    'key_page_too_deep': ('Technical', 'Medium', "Key page more than 3 clicks from the hotel's main page",
+                          "Link the page from the hotel's main page or its section page (menu, a card on the Rooms / "
+                          "Offers page) so it is at most 3 clicks from the hotel's main page.", 'click_depth'),
+    'hreflang_incomplete': ('Technical', 'Medium', 'EN/AR hreflang set incomplete (missing language version, '
+                            'self-reference or x-default)',
+                            'Polylang → Pages: link the English and Arabic versions of each page (the language '
+                            'columns); Polylang then prints the same set on both, each listing itself. Create the '
+                            'missing translation where a key page has none (written in Arabic, not machine-translated). '
+                            'Give the home page an x-default that points to the English home.', 'hreflang_ok'),
+    'boilerplate_shared': ('Content', 'Medium', 'Same sentences on many room / offer / area pages (name-swapped copy)',
+                           'Rewrite the listed sentences on each page with what is specific to that room, offer or '
+                           'place (size, view, bed, inclusions, distance: content-writing.md). Shared facts such as '
+                           'check-in times or policies go on one page that the others link to.', 'text_absent'),
+    'link_preview_missing': ('On-Page', 'Medium', 'No link preview (og:title / og:image): WhatsApp and social shares '
+                             'show no picture or title',
+                             'Rank Math → (page) → Social: set the title and image (1200 × 630, a JPG or WebP that '
+                             'loads); set a default in Rank Math → Titles & Meta → Global Meta → OpenGraph Thumbnail. '
+                             'Paste the URL into WhatsApp to check the preview.', 'og_present'),
+    'heading_level_skipped': ('On-Page', 'Low', 'Heading levels skipped (e.g. H2 straight to H4)',
+                              "In Elementor, change the heading widget's HTML tag so levels go down one step at a time "
+                              '(H2 → H3 → H4); the look comes from the widget style, not the tag.', 'heading_levels'),
+    'heading_empty': ('On-Page', 'Low', 'Empty headings (heading tags with no text)',
+                      'Delete the empty Elementor heading widgets, or set their HTML tag to div / p when they only hold '
+                      'spacing or an icon.', 'heading_levels'),
+    'generic_anchor_text': ('On-Page', 'Low', 'Internal links with generic text ("Read more", "Click here")',
+                            'Change the link / button text to say where it goes ("Deluxe King Room", "See the '
+                            'Ramadan offer"); on Elementor loop cards, take the button text from the post title.',
+                            'generic_anchors_max'),
+    'url_variant_duplicate': ('Technical', 'Medium', 'Same page answers at a case or trailing-slash variant (no '
+                              'redirect or canonical)',
+                              'Redirect each variant with a 301 to the main address (one rule: lowercase, one '
+                              'trailing-slash style) and keep the self-canonical on the main page.', 'variant_resolved'),
 }
+# core checks the Web Team fixes (server or theme work, registry rule 1.2.3); the rest go to the SEO agency
+WEB_OWNED = {'url_variant_duplicate'}
 
 
 def _sev_max(a, b):
@@ -181,10 +225,13 @@ def core_findings(crawl_dir, reg, slug):
         sev = floor(sev, types)
         urls = sorted({i['url'] for i in items})
         rows = [[i['url'], i['detail']] for i in sorted(items, key=lambda x: x['url'])]
-        rchecks = [c for c in (_recheck(rk, i['url'], i['detail']) for i in items) if c] if rk else []
+        # an issue's own re-check (site_checks, hreflang) wins over the one built from its detail; one per page
+        rchecks = [c for c in (i.get('recheck') or (_recheck(rk, i['url'], i['detail']) if rk else None)
+                               for i in items) if c]
+        rchecks = list({json.dumps(c, sort_keys=True): c for c in rchecks}.values())
         findings.append({
             'id': f'core-{check}', 'check': check, 'category': cat, 'title': title, 'severity': sev,
-            'hotel': slug, 'owner': 'seo', 'count': len(items), 'pages': urls,
+            'hotel': slug, 'owner': 'web' if check in WEB_OWNED else 'seo', 'count': len(items), 'pages': urls,
             'evidence': {'summary': f'{len(items)} occurrence(s) on {len(urls)} page(s)', 'tool': 'audit_site'},
             'fix': fix, 'blocks': [{'table': {'columns': ['Page', 'What audit_site found'], 'rows': rows}}],
             'checks': rchecks, 'actions': []})

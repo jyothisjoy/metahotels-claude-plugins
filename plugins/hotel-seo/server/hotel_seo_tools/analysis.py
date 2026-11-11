@@ -608,7 +608,8 @@ def hreflang_report(pages, data):
             elif tp.get('canonical') and tp['canonical'].rstrip('/') != t:
                 out['bad_targets'].append({'url': u, 'code': code, 'target': target,
                                            'problem': f"canonical points to {tp['canonical']}"})
-            elif tp.get('hreflang') and u.rstrip('/') not in {v.rstrip('/') for v in tp['hreflang'].values()}:
+            # a target with no hreflang tags at all doesn't link back either (Polylang: translation not linked)
+            elif u.rstrip('/') not in {v.rstrip('/') for v in (tp.get('hreflang') or {}).values()}:
                 out['no_return_link'].append({'url': u, 'code': code, 'target': target})
     for u, p in pages.items():
         lang = (p.get('html_lang') or '').lower()

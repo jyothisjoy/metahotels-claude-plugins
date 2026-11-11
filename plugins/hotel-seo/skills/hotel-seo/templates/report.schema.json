@@ -470,6 +470,138 @@
          ]
         },
         {
+         "description": "Passes when a page of the site (recheck crawl, else the homepage) links to url",
+         "properties": {
+          "type": {
+           "const": "inlinked"
+          },
+          "url": {
+           "type": "string"
+          }
+         },
+         "required": [
+          "url"
+         ]
+        },
+        {
+         "description": "Passes when url is at most expected clicks from source",
+         "properties": {
+          "type": {
+           "const": "click_depth"
+          },
+          "url": {
+           "type": "string"
+          },
+          "source": {
+           "type": "string",
+           "description": "the hotel's main page"
+          },
+          "expected": {
+           "type": "integer",
+           "default": 3
+          }
+         },
+         "required": [
+          "url",
+          "source"
+         ]
+        },
+        {
+         "description": "Passes when the hreflang set is valid, lists the page, has every language (and x-default if asked), and each target answers 200, is indexable, self-canonical and links back",
+         "properties": {
+          "type": {
+           "const": "hreflang_ok"
+          },
+          "url": {
+           "type": "string"
+          },
+          "languages": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          },
+          "x_default": {
+           "type": "boolean"
+          }
+         },
+         "required": [
+          "url"
+         ]
+        },
+        {
+         "description": "Passes when og:title and og:image are set and the image answers 200",
+         "properties": {
+          "type": {
+           "const": "og_present"
+          },
+          "url": {
+           "type": "string"
+          }
+         },
+         "required": [
+          "url"
+         ]
+        },
+        {
+         "description": "Passes when no heading level is skipped / no heading is empty (header, footer and nav left out)",
+         "properties": {
+          "type": {
+           "const": "heading_levels"
+          },
+          "url": {
+           "type": "string"
+          },
+          "what": {
+           "enum": [
+            "skipped",
+            "empty",
+            "both"
+           ]
+          }
+         },
+         "required": [
+          "url"
+         ]
+        },
+        {
+         "description": "Passes when generic anchors (\"Read more\", \"Click here\") are at most this share of in-content internal links (or fewer than 3)",
+         "properties": {
+          "type": {
+           "const": "generic_anchors_max"
+          },
+          "url": {
+           "type": "string"
+          },
+          "expected": {
+           "type": "number",
+           "default": 0.25
+          }
+         },
+         "required": [
+          "url"
+         ]
+        },
+        {
+         "description": "Passes when source redirects, is gone, or is canonical to url",
+         "properties": {
+          "type": {
+           "const": "variant_resolved"
+          },
+          "url": {
+           "type": "string"
+          },
+          "source": {
+           "type": "string",
+           "description": "the case / trailing-slash variant"
+          }
+         },
+         "required": [
+          "url",
+          "source"
+         ]
+        },
+        {
          "properties": {
           "type": {
            "const": "redirect"
@@ -1368,6 +1500,138 @@
         ]
        },
        {
+        "description": "Passes when a page of the site (recheck crawl, else the homepage) links to url",
+        "properties": {
+         "type": {
+          "const": "inlinked"
+         },
+         "url": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "url"
+        ]
+       },
+       {
+        "description": "Passes when url is at most expected clicks from source",
+        "properties": {
+         "type": {
+          "const": "click_depth"
+         },
+         "url": {
+          "type": "string"
+         },
+         "source": {
+          "type": "string",
+          "description": "the hotel's main page"
+         },
+         "expected": {
+          "type": "integer",
+          "default": 3
+         }
+        },
+        "required": [
+         "url",
+         "source"
+        ]
+       },
+       {
+        "description": "Passes when the hreflang set is valid, lists the page, has every language (and x-default if asked), and each target answers 200, is indexable, self-canonical and links back",
+        "properties": {
+         "type": {
+          "const": "hreflang_ok"
+         },
+         "url": {
+          "type": "string"
+         },
+         "languages": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          }
+         },
+         "x_default": {
+          "type": "boolean"
+         }
+        },
+        "required": [
+         "url"
+        ]
+       },
+       {
+        "description": "Passes when og:title and og:image are set and the image answers 200",
+        "properties": {
+         "type": {
+          "const": "og_present"
+         },
+         "url": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "url"
+        ]
+       },
+       {
+        "description": "Passes when no heading level is skipped / no heading is empty (header, footer and nav left out)",
+        "properties": {
+         "type": {
+          "const": "heading_levels"
+         },
+         "url": {
+          "type": "string"
+         },
+         "what": {
+          "enum": [
+           "skipped",
+           "empty",
+           "both"
+          ]
+         }
+        },
+        "required": [
+         "url"
+        ]
+       },
+       {
+        "description": "Passes when generic anchors (\"Read more\", \"Click here\") are at most this share of in-content internal links (or fewer than 3)",
+        "properties": {
+         "type": {
+          "const": "generic_anchors_max"
+         },
+         "url": {
+          "type": "string"
+         },
+         "expected": {
+          "type": "number",
+          "default": 0.25
+         }
+        },
+        "required": [
+         "url"
+        ]
+       },
+       {
+        "description": "Passes when source redirects, is gone, or is canonical to url",
+        "properties": {
+         "type": {
+          "const": "variant_resolved"
+         },
+         "url": {
+          "type": "string"
+         },
+         "source": {
+          "type": "string",
+          "description": "the case / trailing-slash variant"
+         }
+        },
+        "required": [
+         "url",
+         "source"
+        ]
+       },
+       {
         "properties": {
          "type": {
           "const": "redirect"
@@ -1997,6 +2261,138 @@
      },
      "required": [
       "url"
+     ]
+    },
+    {
+     "description": "Passes when a page of the site (recheck crawl, else the homepage) links to url",
+     "properties": {
+      "type": {
+       "const": "inlinked"
+      },
+      "url": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "url"
+     ]
+    },
+    {
+     "description": "Passes when url is at most expected clicks from source",
+     "properties": {
+      "type": {
+       "const": "click_depth"
+      },
+      "url": {
+       "type": "string"
+      },
+      "source": {
+       "type": "string",
+       "description": "the hotel's main page"
+      },
+      "expected": {
+       "type": "integer",
+       "default": 3
+      }
+     },
+     "required": [
+      "url",
+      "source"
+     ]
+    },
+    {
+     "description": "Passes when the hreflang set is valid, lists the page, has every language (and x-default if asked), and each target answers 200, is indexable, self-canonical and links back",
+     "properties": {
+      "type": {
+       "const": "hreflang_ok"
+      },
+      "url": {
+       "type": "string"
+      },
+      "languages": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "x_default": {
+       "type": "boolean"
+      }
+     },
+     "required": [
+      "url"
+     ]
+    },
+    {
+     "description": "Passes when og:title and og:image are set and the image answers 200",
+     "properties": {
+      "type": {
+       "const": "og_present"
+      },
+      "url": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "url"
+     ]
+    },
+    {
+     "description": "Passes when no heading level is skipped / no heading is empty (header, footer and nav left out)",
+     "properties": {
+      "type": {
+       "const": "heading_levels"
+      },
+      "url": {
+       "type": "string"
+      },
+      "what": {
+       "enum": [
+        "skipped",
+        "empty",
+        "both"
+       ]
+      }
+     },
+     "required": [
+      "url"
+     ]
+    },
+    {
+     "description": "Passes when generic anchors (\"Read more\", \"Click here\") are at most this share of in-content internal links (or fewer than 3)",
+     "properties": {
+      "type": {
+       "const": "generic_anchors_max"
+      },
+      "url": {
+       "type": "string"
+      },
+      "expected": {
+       "type": "number",
+       "default": 0.25
+      }
+     },
+     "required": [
+      "url"
+     ]
+    },
+    {
+     "description": "Passes when source redirects, is gone, or is canonical to url",
+     "properties": {
+      "type": {
+       "const": "variant_resolved"
+      },
+      "url": {
+       "type": "string"
+      },
+      "source": {
+       "type": "string",
+       "description": "the case / trailing-slash variant"
+      }
+     },
+     "required": [
+      "url",
+      "source"
      ]
     },
     {

@@ -24,12 +24,13 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
-from . import paths
+from . import paths, site_checks
 from .librecrawl import UA, is_page
 
 AUTO = {'title', 'meta', 'h1', 'h1_count', 'redirect', 'status', 'canonical', 'noindex', 'text_absent',
         'text_present', 'alt', 'schema_count', 'link_absent', 'link_present', 'title_present', 'meta_present',
-        'title_max', 'meta_max', 'canonical_self', 'jsonld_valid', 'alt_present', 'schema_block_equals'}
+        'title_max', 'meta_max', 'canonical_self', 'jsonld_valid', 'alt_present', 'schema_block_equals'} \
+    | set(site_checks.LIVE)          # inlinked, click_depth, hreflang_ok, og_present, heading_levels, ...
 
 
 def _clean(s):
@@ -137,6 +138,8 @@ def run_check(c, f, sitewide_urls):
     t = c.get('type')
     if t not in AUTO:
         return {'result': 'manual', 'actual': 'check by hand'}
+    if t in site_checks.LIVE:
+        return site_checks.LIVE[t](c, f, sitewide_urls)
     if t == 'redirect':
         try:
             r = f.s.get(f.url(c['source']), timeout=25, allow_redirects=True)
@@ -272,6 +275,8 @@ def run_check(c, f, sitewide_urls):
 
 def describe(c):
     t = c.get('type')
+    if t in site_checks.DESCRIBE:
+        return site_checks.DESCRIBE[t](c)
     if t == 'redirect':
         return f"301 {c['source']} → {c['expected']}"
     if t in ('title', 'meta', 'h1', 'canonical'):

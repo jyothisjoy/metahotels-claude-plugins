@@ -21,7 +21,7 @@ from urllib.parse import parse_qs, urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
-from . import analysis, consistency, paths
+from . import analysis, consistency, paths, site_checks
 from .librecrawl import UA, is_page
 
 CRITICAL_TYPES = {'home', 'rooms', 'offers', 'contact', 'booking'}
@@ -171,6 +171,7 @@ def scan_pages(urls, home_host, delay=0.3, progress=None):
                 pages[url]['links_booking'] = True
             elif urlparse(href).netloc.replace('www.', '') == home_host and page_type(href, home_host) == 'rooms':
                 pages[url]['links_rooms'] = True
+        pages[url].update(site_checks.og(soup))
         for t in soup(['script', 'style', 'noscript', 'svg']):
             t.decompose()
         texts[url] = re.sub(r'\s+', ' ', soup.get_text(' ')).strip()
@@ -188,6 +189,9 @@ def scan_pages(urls, home_host, delay=0.3, progress=None):
         main = re.sub(r'\s+', ' ', soup.get_text(' ')).strip()
         pages[url]['content_words'] = len(main.split())
         pages[url]['main_text_start'] = main[:400]
+        # headings, in-content anchors and copy sentences (site_checks: O04, L05, O20)
+        extras = site_checks.page_extras(soup, soup, url, pages[url]['type'], home_host)
+        pages[url].update({k: v for k, v in extras.items() if not k.startswith('og_')})
         if progress and n % 20 == 0:
             progress(f'scanned {n}/{len(urls)} pages')
         time.sleep(delay)
@@ -594,9 +598,10 @@ def audit(crawl_dir, site_property='', progress=None, hotel_city='', mirai_id=''
 
     issues = []
 
-    def add(check, url, detail, sev=None):
+    def add(check, url, detail, sev=None, recheck=None):
         t = pages.get(url, {}).get('type') or page_type(url, home_host)
-        issues.append({'check': check, 'url': url, 'page_type': t, 'severity': sev or severity(t), 'detail': detail})
+        issues.append({'check': check, 'url': url, 'page_type': t, 'severity': sev or severity(t), 'detail': detail}
+                      | ({'recheck': recheck} if recheck else {}))
 
     for u, p in ok.items():
         if not p['h1']:
@@ -658,17 +663,26 @@ def audit(crawl_dir, site_property='', progress=None, hotel_city='', mirai_id=''
         add('snippet_blocked', x['url'], x['robots'])
     hl = report['hreflang']
     for x in hl['no_return_link']:
-        add('hreflang_no_return', x['url'], f"{x['code']} → {x['target']} doesn't link back (Google ignores the pair)")
+        add('hreflang_no_return', x['url'], f"{x['code']} → {x['target']} doesn't link back (Google ignores the pair)",
+            recheck={'type': 'hreflang_ok', 'url': x['url']})
     for x in hl['bad_targets']:
-        add('hreflang_bad_target', x['url'], f"{x['code']} → {x['target']}: {x['problem']}")
+        add('hreflang_bad_target', x['url'], f"{x['code']} → {x['target']}: {x['problem']}",
+            recheck={'type': 'hreflang_ok', 'url': x['url']})
     for x in hl['invalid_codes']:
-        add('hreflang_invalid_code', x['url'], f"\"{x['code']}\" is not a valid language(-region) code")
+        add('hreflang_invalid_code', x['url'], f"\"{x['code']}\" is not a valid language(-region) code",
+            recheck={'type': 'hreflang_ok', 'url': x['url']})
     for x in hl['arabic_pages_not_arabic']:
         add('arabic_page_untranslated', x['url'], f"lang=ar but title/meta/H1 have no Arabic: {x['title']}")
     for x in report['expired_offer_schema']:
         add('offer_schema_expired', x['url'], f"Offer markup valid until {', '.join(x['dates'])}")
     for u in report['meta_templates']['meta_equals_title']:
         add('meta_equals_title', u, 'meta description is the title again')
+    # orphans, click depth, EN/AR hreflang sets, boilerplate, link previews, headings, generic anchors, URL variants
+    step('site structure: orphans, click depth, hreflang sets, boilerplate, link previews, headings, URL variants')
+    structure = site_checks.run(ok, data, home_host, site, reg, extra)
+    report['site_structure'] = structure['report']
+    for i in structure['issues']:
+        add(i['check'], i['url'], i['detail'], i['sev'], i['recheck'])
     for g in report['links']['broken_targets']:
         if g.get('internal') or g['sitewide']:
             for u in g['sources']:
@@ -881,6 +895,23 @@ def findings_md(f):
         a = g['arabic_queries']
         L.append(f"- Arabic searches: {a['count']} queries, {a['impressions']} impressions, {a['clicks']} clicks")
     L.append('')
+    ss = r.get('site_structure')
+    if ss:
+        c = ss['counts']
+        L += ['## Site structure (every page)', '',
+              f"- Orphans (no internal link): {c['orphan_key_pages']} key pages, {c['orphan_pages']} other pages"
+              + ('' if ss['link_data'] else ' (no link data in crawl.json: not checked)'),
+              f"- Key pages more than {ss['thresholds']['max_click_depth']} clicks from the hotel's main page: "
+              f"{c['too_deep']}",
+              f"- hreflang sets incomplete (missing language, self-reference, x-default): {c['hreflang_incomplete']} "
+              f"pages; languages {ss['hreflang']['languages'] or 'none'}",
+              f"- Sentences shared by > {int(ss['thresholds']['boilerplate_share'] * 100)}% of a hotel's room / offer "
+              f"/ area pages: {c['boilerplate_sentences']}",
+              f"- Key pages without a working link preview (og:title / og:image): {c['link_previews_missing']}",
+              f"- Pages with skipped heading levels {c['heading_skips']}, with empty headings {c['heading_empty']}",
+              f"- Pages where generic anchors (\"Read more\") are > {int(ss['thresholds']['generic_anchor_share'] * 100)}"
+              f"% of in-content links: {c['generic_anchor_pages']}",
+              f"- Case / trailing-slash variants answering 200 without redirect or canonical: {c['url_duplicates']}", '']
 
     ai = r.get('ai_access') or {}
     if ai:
