@@ -268,7 +268,6 @@ def prepare_url_lists(doc, out_dir, file_stem, folder_id='', upload=True):
                 entry['sheet'] = res.get('webViewLink') or f"https://docs.google.com/spreadsheets/d/{res['id']}/edit"
             except Exception as e:  # noqa: BLE001 - the CSV is there either way
                 entry['sheet_error'] = f'{type(e).__name__}: {str(e)[:200]}'
-        where = entry.get('sheet') or f.name
         for b in sec.get('blocks', []):
             if 'note' in b and 'linked sheet' in b['note']:
                 b['note'] = (f"{len(pages)} pages in total: the first {URL_LIST_LIMIT} are shown above; every URL is in "

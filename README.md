@@ -219,10 +219,30 @@ single-hotel site (one hotel on its own domain, like abarhotels.com) is now kept
 the new run works in `<domain>/`, and the old `group/` and `hotels/` folders can be deleted afterwards. Add `SERPER_API`
 to `.env` for the monthly report's exact Google positions.
 
-**From 2.0.0 to 2.0.1:** the Audit Report / Build Plan / Web Team List and execute through `sites.csv` replace the
+**From 2.0.0 to 2.1.0:** the Audit Report / Build Plan / Web Team List and execute through `sites.csv` replace the
 Priority / Nice-to-Have lists again. Write, check, monitor, Business Profile, the Disparity / Best Rate calendar and the
-AI-crawler firewall test carry over. A daily monitor task you scheduled before keeps working (`hotel-seo-monitor`). Run
-`/hotel-seo init` to refresh the desktop app's copy and the Google sign-in (Business Profile).
+AI-crawler firewall test carry over. A daily monitor task you scheduled before keeps working (`hotel-seo-monitor`).
+New in 2.1.0:
+- **Reports you can trust:** findings from an agent that failed its check stay out ("not assessed"); a broken booking
+  path caps the Health Score at 59 (two: "Blocked"); the score shows how much of the site it measured. Older audit runs
+  rebuilt with 2.1.0 show their agents as "not assessed" (no status file): run the audit again.
+- **Writing:** `copy_check` (title width in pixels, prices in FAQ answers, vague openings, alt and button text, dated
+  words, size units, AI-sounding phrases), a source list for local facts (`save_claims`), room-fit lines.
+- **Site checks on every page:** pages nothing links to, key pages more than 3 clicks deep, EN/AR hreflang, sentences
+  copied across room pages, WhatsApp link previews, skipped headings, "read more" links, case / slash duplicate URLs.
+- **Keywords:** Google page 1 recorded (People Also Ask, booking sites vs hotels), rival-first Build Plan order, a
+  seasonal "publish by" date. Building the keyword map spends up to 12 Serper credits per hotel per 30 days.
+- **Monthly report:** AI-answer panel (ChatGPT, Perplexity, Google AI), a before/after readback of each change against
+  similar pages, last month's Google position, the Best Rate calendar (asked for before building), and Business Profile
+  numbers straight from Google.
+- **Business Profile:** `gbp_link` (once per hotel), hotel amenities and policies (`gbp_amenities`), photo check
+  (`gbp_photos`), review replies (`gbp_reviews_pending`), Business Profile fixes as an execute batch, monitor alerts
+  when Google or the public edits the listing.
+- **Questions for the Hotel:** a Business Profile sheet, name / address / phone conflicts, wrong facts from AI
+  assistants and unsourced local claims.
+
+Run `/hotel-seo init` (or `hotel-seo-auth`) once: the Google sign-in now includes Business Profile by default and tests
+each Business Profile API; enable the **My Business Lodging API** on the Cloud project if it says so.
 
 ## Troubleshooting
 
