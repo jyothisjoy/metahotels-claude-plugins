@@ -226,8 +226,10 @@ vertical (category, citations, schema).
    here page, `tel:` link).
 3. Citations: check presence (WebFetch) on Tripadvisor, Booking.com, Expedia / Hotels.com, Bing Places, Apple — say
    which could not be checked.
-4. `scores.local` 0-100 with claude-seo's dimension breakdown in the `.md`. Category `Local`. GBP changes are for the
-   hotel (`owner: "seo"`, `actions: []`, never executed).
+4. `scores.local` 0-100 with claude-seo's dimension breakdown in the `.md`. Category `Local`. Business Profile fixes
+   are `gbp` actions (`owner: "seo"`; `field` description / website / phone / regular_hours / special_hours /
+   additional_categories / attributes, `value` as gbp_propose takes it, confirmed facts only; never name, address or
+   primary category): execute's business-profile batch, made by MetaHotels after approval.
 """
 HOTEL['seo-maps'] = """
 ## Hotel-seo specifics
@@ -241,7 +243,8 @@ Scope: ONE hotel. Tier 0 (no DataForSEO): no geo-grid — redistribute its weigh
    mention (distances are approximate — label them, and [CONFIRM] before they go into copy).
 3. The GBP checklist from visible data (maps-gbp-checklist.md), including the booking link field.
 4. Cross-platform presence (Bing, Apple, OpenStreetMap — is the hotel a named node / way near its coordinates?).
-5. `scores.maps` 0-100 (Tier 0 weights). Category `Maps`. No actions on GBP (the hotel changes it).
+5. `scores.maps` 0-100 (Tier 0 weights). Category `Maps`. Profile fixes are `gbp` actions
+   (as in seo-local: field + value; never name, address or primary category), for execute's business-profile batch.
 """
 HOTEL['seo-flow'] = """
 ## Hotel-seo specifics

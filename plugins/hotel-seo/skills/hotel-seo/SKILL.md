@@ -368,7 +368,7 @@ writes the status record; an agent never validated is left out of the report).
    `run_execute_batch` refuses until it is recorded.
 3. For each batch in order — booking-path, hotel-answers (site text corrected to the hotel's answers: page, old
    text → new text), seo-fields, redirects, elementor-text, schema, alt-text, post-status, menus, new-pages, chrome,
-   site-settings, group — show the table (page, field, current → new) and ask the user. Only on a clear yes:
+   site-settings, business-profile, group — show the table (page, field, current → new) and ask the user. Only on a clear yes:
    `run_execute_batch(plan_file, batch, approved=true)`. Report what was written, what failed and the re-check result.
    A write the site accepted that the live page doesn't show is not done: say so and look at the element or template.
 4. **chrome** batch: do each listed step with Claude in Chrome in a new tab of the user's own logged-in browser (never
@@ -376,6 +376,13 @@ writes the status record; an agent never validated is left out of the report).
    `record_chrome_step(plan_file, item_id, done, note)` for each (done=false with the reason if it could not be done).
 5. **group** batch (group sites): site-wide settings and shared templates affect every hotel — list them all before
    asking. **site-settings** (single hotel): Rank Math templates and site-wide settings — say they apply site-wide.
+5b. **business-profile** batch (the hotel's live Google profile, made by MetaHotels, never the agency): findings'
+   `gbp` actions plus a website link the latest `gbp_report` flags (team UTM tags added). Each row is already a
+   `gbp_propose` change (field, now → after, change id); never name, address or primary category. Show the rows with
+   their change ids: the user's yes to this table is the approval of those ids. Then
+   `run_execute_batch(plan_file, "business-profile", approved=true)` sends them; "Pending Google review" is normal.
+   Proposals expire after 24 hours (and a client approval can take longer): `execute_gbp_refresh(plan_file)`, show
+   the new ids, ask again. No linked profile → the plan says so (`business_profile`): link it with `gbp_link`.
 6. **Before calling the run done:** `site_consistency_check(site, "<hotel dir>/execute-<date>",
    facts_file="<hotel dir>/hotel-facts.json")`. Every open row except DISTANCE (checked by hand) is fixed or listed as
    open.
@@ -386,11 +393,12 @@ writes the status record; an agent never validated is left out of the report).
      where in WordPress, for the SEO agency; new pages still to create; "checked, no action needed"; and the items
      that wait for the hotel (do not change yet). Developer items stay in the Web Team List.
    Finish with both file paths, the counts, failures and the undo command.
-8. `--undo <plan file>`: `undo_execute(plan_file)`.
+8. `--undo <plan file>`: `undo_execute(plan_file)`. Business Profile changes come back as proposals of their before
+   values (`business_profile`): show each preview; `gbp_apply` only after the user approves that id.
 
 Execute never touches prices, offers, discounts, member benefits, Web Team items, deletions, users, plugins / themes,
-another hotel's pages on a group site, or the Google Business Profile (that has its own path: **Business Profile
-changes**).
+another hotel's pages on a group site, or the Google Business Profile beyond its business-profile batch (anything
+else on the profile has its own path: **Business Profile changes**).
 
 ## /hotel-seo monthly <domain>
 
@@ -558,7 +566,8 @@ must hold up, and the list must say what not to search.
 Changes to a live Google profile reach guests directly, so they follow one path, every time:
 
 1. **Only on request.** Make a change only when the user asks for it (or accepts one you offered in a finish message).
-   Never as a side effect of a run, a re-check, execute or a monitor.
+   Never as a side effect of a run, a re-check or a monitor. Execute's business-profile batch is the same path: its
+   table carries the change ids the user approves.
 2. **Propose.** `gbp_propose(location, changes, "<hotel dir>/gbp/changes")`. Nothing is sent. Show the returned
    `preview` to the user word for word, with the change id, and stop there.
 3. **Wait for approval.** Call `gbp_apply(change_file, confirm=<change id>)` only after the user approves that change
@@ -574,9 +583,7 @@ Rules:
 - **Posts on a hotel profile:** updates and events only. Google's posts policy forbids Offer posts and any post that
   mentions or links to deals, promotions or discounts on hotel profiles; `gbp_propose` refuses them. Send offers to the
   website's offer pages instead.
-- **Review replies:** draft them in the hotel's voice: thank the guest, answer the specific point, no guest names, no
-  discounts or promises the hotel hasn't confirmed, no booking-site links. Every reply goes through its own preview,
-  and the user approves the wording.
+- **Review replies:** the routine below.
 - **Website link:** the hotel's homepage (or the hotel's section on a group site) with
   `?utm_source=google&utm_medium=organic&utm_campaign=gbp`, ending on a 200 without redirects.
 - **Wording** of descriptions, posts and replies follows [references/content-writing.md](references/content-writing.md);
@@ -593,6 +600,24 @@ Rules:
 - `gbp_history` shows what was changed from this machine, with the before values to restore from if something must be
   undone. Changes sent count as work done for the monthly report (`add_work_log`).
 
+### Review replies
+
+The user (MetaHotels, for the hotel) approves every reply before it goes out; nothing is sent without that yes.
+
+1. `gbp_reviews_pending("<domain>", slug)` (`since_days=30` for a monthly round): writes
+   `<hotel dir>/gbp/review-replies-<date>.json` / `.md` with every review that needs a reply.
+2. **1–2 star reviews first:** show them to the user (review, stars, date) before drafting and ask what the hotel
+   wants to say or has done about it. Don't guess at causes or fixes.
+3. **Draft** each `reply` in the JSON, per the file's rules and [references/content-writing.md](references/content-writing.md):
+   the hotel's voice (`voice.md`), 2–4 sentences, first name only when the review shows one, the guest's specific
+   point answered, no prices / offers / codes / links / booking details, never arguing; a complaint gets an apology
+   and the confirmed hotel email or phone listed under `contacts` (none listed → add it with `add_facts` first).
+   **Arabic reviews get a reply written in Arabic**, natively, not a translation of an English draft. Other
+   languages: English unless the user says otherwise. `"skip": true` leaves a review for later.
+4. `gbp_review_drafts_check(file)`: fix every `problems` line (they block sending), read each warning, check again.
+5. Show the user every reply (1–2 star ones first), then `gbp_propose(location, changes, out_dir)` with the returned
+   `changes` and show the preview word for word. `gbp_apply` only after the user approves that change id.
+
 ## Tools (hotel-seo-tools MCP server)
 
 Crawl and audit: `crawl_site`, `job_status`, `list_crawls`, `export_crawl`, `read_crawl_file`, `audit_site`,
@@ -602,11 +627,11 @@ Facts: `import_facts_sheet`, `bookingcom_extractor`, `import_bookingcom`, `cross
 `engine_corrections`, `booking_engine_snapshot`. Data: `mirai_reservations`, `rate_parity`, `import_parity_calendar`,
 `keyword_volumes`, `keyword_ideas`, `import_keyword_csv`, `build_keyword_map`, `assign_keyword_owners`, `geo_lookup`,
 `nearby_places`. Business Profile: `gbp_locations`, `gbp_link`, `gbp_api_check`, `gbp_report`, `gbp_amenities`, `gbp_photos`,
-`gbp_propose`, `gbp_apply`, `gbp_history`. Agents:
+`gbp_reviews_pending`, `gbp_review_drafts_check`, `gbp_propose`, `gbp_apply`, `gbp_history`. Agents:
 `seo_check`, `seo_check_list`, `content_scan`, `download_images`, `agent_preflight`, `validate_agent_output`. Reports:
 `build_audit_report`, `build_group_summary`, `presend_check`, `render_report`, `recheck_list`, `copy_check`. Sites:
 `sites_csv_status`, `site_mcp_status`, `site_mcp_read`, `execute_plan`, `record_client_approval`, `run_execute_batch`,
-`record_chrome_step`, `execute_reports`, `undo_execute`. Hotel questions: `hotel_questions`, `edit_hotel_questions`,
+`record_chrome_step`, `execute_gbp_refresh`, `execute_reports`, `undo_execute`. Hotel questions: `hotel_questions`, `edit_hotel_questions`,
 `import_hotel_answers`. Monthly: `monthly_collect`, `tracked_keywords`, `save_tracked_keywords`, `serp_ranks`,
 `import_monthly_manual`, `ai_prompts`, `add_work_log`, `save_monthly_narrative`, `build_monthly_report`, `build_monthly_group`.
 Monitor: `monitor_site`. Setup: `health_check`.

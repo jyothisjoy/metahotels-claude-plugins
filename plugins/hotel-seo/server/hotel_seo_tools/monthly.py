@@ -1245,7 +1245,7 @@ def _short_date(d, year=False):
         return d
 
 
-FIELD_LABELS = {'title': 'SEO titles updated', 'description': 'Meta descriptions updated', 'robots': 'Indexing settings fixed',
+FIELD_LABELS = {'business profile': 'Google Business Profile updated', 'title': 'SEO titles updated', 'description': 'Meta descriptions updated', 'robots': 'Indexing settings fixed',
                 'canonical': 'Canonical tags fixed', 'alt': 'Image alt text written', 'redirect': 'Redirects added',
                 'schema': 'Hotel information code (schema) updated', 'h1': 'Page headings (H1) fixed',
                 'status': 'Expired pages unpublished', 'menu': 'Menu links fixed', 'content': 'Page text updated'}

@@ -10,7 +10,12 @@
                                (no batch runs until it is recorded).
 
 Never: prices / offers / discounts / member benefits, anything [CONFIRM] or on hold, Web Team items, deleting posts,
-pages, media, users or menus, plugins / themes, other hotels' pages, Google Business Profile.
+pages, media, users or menus, plugins / themes, other hotels' pages.
+Google Business Profile: "gbp" actions (and a website link the latest gbp_report flags) become the hotel's own
+"business-profile" batch: one gbp_write proposal per field (description, website with the team UTM tags, phone, hours,
+special hours, additional categories, attributes; never name, address or primary category), sent with gbp_write.apply
+when the user approves the batch, logged in changes.json like site changes, undone by proposing the logged "before"
+values (which the user approves again). A hotel without a linked profile (gbp_link) gets no such batch.
 Group-wide changes (Rank Math settings, shared templates, sitewide snippets) only run in the group batch, from an
 execute without --hotel. Chrome steps are listed for Claude in Chrome and approved like any batch.
 """
@@ -28,7 +33,7 @@ from . import checks as chk, group as grp, paths, sites
 from .librecrawl import UA
 
 BATCH_ORDER = ['booking-path', 'hotel-answers', 'seo-fields', 'redirects', 'elementor-text', 'schema', 'alt-text', 'post-status',
-               'menus', 'new-pages', 'chrome', 'site-settings', 'group']
+               'menus', 'new-pages', 'chrome', 'site-settings', 'business-profile', 'group']
 TYPE_BATCH = {'seo_fields': 'seo-fields', 'redirect': 'redirects', 'elementor_text': 'elementor-text',
               'schema_snippet': 'schema', 'alt_text': 'alt-text', 'post_status': 'post-status',
               'post_content': 'elementor-text', 'menu': 'menus', 'page_create': 'new-pages', 'chrome': 'chrome',
@@ -216,7 +221,7 @@ def plan(group_dir, slug, only=None):
     hold_qs = {i.get('finding_id'): i['id'] for i in answers.values() if i.get('type') == 'hold'}
     rooms_answered = any(i['sheet'] == 'Rooms' and i.get('answer') for i in answers.values())
     rewording = []
-    planned, skipped = [], []
+    planned, skipped, gbp_acts = [], [], []
     n = 0
     for sec in report.get('sections', []):
         acts = sec.get('actions') or []
@@ -257,6 +262,11 @@ def plan(group_dir, slug, only=None):
             if PRICE.search(text):
                 skipped.append({'finding': fid, 'action': a['type'], 'act': a, 'reason': 'contains a price or discount: never changed'})
                 continue
+            if a['type'] == 'gbp':           # Business Profile: its own batch, planned below
+                gbp_acts.append({'finding': fid, 'title': sec.get('title'), 'category': sec.get('category'),
+                                 'action': a, **({'hotel_confirmed': item['hotel_confirmed']}
+                                                 if item.get('hotel_confirmed') else {})})
+                continue
             group_wide = a['type'] == 'rankmath_setting' or (a['type'] == 'elementor_text' and a.get('template')) or (
                 a['type'] == 'schema_snippet' and any('general' in c for c in a.get('conditions', [])))
             if group_wide and slug != 'group' and not single:
@@ -296,6 +306,14 @@ def plan(group_dir, slug, only=None):
                                 'reason': f'could not change it through MCP: {str(e)[:200]}'})
                 continue
             planned.append(item)
+    if slug != 'group' and not any(x['action'].get('field') == 'website' for x in gbp_acts):
+        hotel = next((h for h in reg['hotels'] if h['slug'] == slug), {})
+        hotel_url = site.rstrip('/') + ('/' if single else '/' + ((hotel.get('paths') or ['/'])[0]).lstrip('/'))
+        gbp_acts += [x for x in _gbp_report_actions(hdir, hotel_url)
+                     if not only or x['finding'] in only or x['category'] in only]
+    gbp_items, gbp_skipped, gbp_note, n = _gbp_plan(group_dir, slug, hdir, gbp_acts, n)
+    planned += gbp_items
+    skipped += gbp_skipped
     batches = defaultdict(list)
     for it in planned:
         batches[it['batch']].append(it)
@@ -304,23 +322,29 @@ def plan(group_dir, slug, only=None):
            'batches': {b: batches[b] for b in BATCH_ORDER if batches.get(b)}, 'skipped': skipped,
            'rewording': rewording, 'approved': [], 'done': [], 'recheck': {},
            'client_approval_required': bool(prefs.get('client_approval')), 'client_approval': None,
-           'units': prefs.get('units')}
+           'units': prefs.get('units'), **({'business_profile': gbp_note} if gbp_note else {})}
     ed = hdir / f'execute-{date.today().isoformat()}'
     ed.mkdir(parents=True, exist_ok=True)
     f = ed / 'plan.json'
     f.write_text(json.dumps(out, indent=1, ensure_ascii=False), encoding='utf-8')
     table = {b: [[it['id'], it.get('page') or it['action'].get('url') or it['action'].get('source', ''),
                   it.get('field', it['action']['type']), str(it.get('current'))[:120], str(it.get('new'))[:120]]
+                 + ([f"change {it['change_id']}"] if it.get('change_id') else [])
                  for it in items] for b, items in out['batches'].items()}
     return {'plan_file': str(f), 'batches': {b: len(v) for b, v in out['batches'].items()}, 'skipped': len(skipped),
             'rewording': rewording, 'client_approval_required': out['client_approval_required'],
             **({'units': out['units']} if out['units'] else {}),
             'skipped_reasons': skipped[:40], 'table': table,
+            **({'business_profile': gbp_note} if gbp_note else {}),
             'next': ('This hotel approves every change before it goes live (hotel.json preferences.client_approval): '
                      'send the client these tables first and record_client_approval(plan_file, by) once the user '
                      'confirms their yes. ' if out['client_approval_required'] else '')
                     + 'Show each batch as a table (page, field, current -> new) and ask the user to approve it; then '
-                    'run_execute_batch(plan_file, batch). Nothing has been written.'}
+                    'run_execute_batch(plan_file, batch). Nothing has been written.'
+                    + (f' The {GBP_BATCH} batch changes the live Google profile: show its rows with their change ids; '
+                       'the user\'s yes to that table approves those ids (proposals expire after 24 hours: '
+                       'execute_gbp_refresh(plan_file) proposes them again with new ids).'
+                       if out['batches'].get(GBP_BATCH) else '')}
 
 
 DRY_RUN_TOOLS = {'seo-update-posts', 'seo-update-settings'}
@@ -545,6 +569,8 @@ def run_batch(plan_file, batch, approved=False):
     items = pl['batches'].get(batch)
     if not items:
         raise LookupError(f'no batch {batch} in the plan')
+    if batch == GBP_BATCH:
+        return _run_gbp(pf, pl, batch, items)
     if batch == 'chrome':
         return {'batch': batch, 'via': 'chrome', 'steps': [{'id': it['id'], 'where': it['page'], 'steps': it['new'],
                                                             'note': it.get('note')} for it in items],
@@ -749,12 +775,20 @@ def undo(plan_file):
     pl = json.loads(pf.read_text(encoding='utf-8'))
     before = json.loads((pf.parent / 'before.json').read_text(encoding='utf-8'))
     changes = json.loads((pf.parent / 'changes.json').read_text(encoding='utf-8'))
-    s = Site(pl['site'])
-    restored, problems = [], []
+    s = None
+    restored, problems, gbp_undo = [], [], []
     for ch in reversed(changes):
         b = before.get(ch['id'], {})
         u = b.get('undo')
+        if u == 'gbp-reverse' or ch.get('via') == 'business_profile':
+            try:     # the live profile is only changed back after the user approves the reverse proposal
+                gbp_undo.append(dict(_gbp_undo(ch, pf.parent.parent / 'gbp' / 'changes'), id=ch['id'],
+                                     field=ch.get('field')))
+            except Exception as e:  # noqa: BLE001
+                problems.append({'id': ch['id'], 'error': str(e)[:300]})
+            continue
         try:
+            s = s or Site(pl['site'])
             if isinstance(u, list):
                 for tool, args in u:
                     s.write(tool, args)
@@ -768,14 +802,22 @@ def undo(plan_file):
             restored.append(ch['id'])
         except Exception as e:  # noqa: BLE001
             problems.append({'id': ch['id'], 'error': str(e)[:300]})
-    if 'purge-cache' in s.tools and restored:
+    if s and 'purge-cache' in s.tools and restored:
         try:
             s.write('purge-cache', {})
         except Exception:  # noqa: BLE001
             pass
     (pf.parent / 'undo.json').write_text(json.dumps({'restored': restored, 'problems': problems,
-                                                     'at': time.strftime('%Y-%m-%d %H:%M')}, indent=1), encoding='utf-8')
-    return {'restored': len(restored), 'problems': problems}
+                                                     'business_profile_proposed': gbp_undo,
+                                                     'at': time.strftime('%Y-%m-%d %H:%M')}, indent=1,
+                                                    ensure_ascii=False), encoding='utf-8')
+    out = {'restored': len(restored), 'problems': problems}
+    if gbp_undo:
+        out['business_profile'] = gbp_undo
+        out['next'] = ('Business Profile changes are NOT undone yet: each was proposed back to its logged before value. '
+                       'Show each preview word for word; gbp_apply(change_file, confirm=change_id) only after the user '
+                       'approves that id in a later message.')
+    return out
 
 
 def record_chrome_step(plan_file, item_id, done=True, note=''):
@@ -797,3 +839,287 @@ def record_chrome_step(plan_file, item_id, done=True, note=''):
         changes_f.write_text(json.dumps(changes, indent=1, ensure_ascii=False), encoding='utf-8')
     pf.write_text(json.dumps(pl, indent=1, ensure_ascii=False), encoding='utf-8')
     return {'recorded': item_id, 'done': bool(done)}
+
+
+# ---------------------------------------------------------------- Google Business Profile batch
+
+GBP_BATCH = 'business-profile'
+# the fields execute changes, with the label used in changes.json / reports (no word the monthly report maps to a
+# site field: "description" would read as a meta description)
+GBP_FIELDS = {'description': 'profile text', 'website': 'website link', 'phone': 'phone number',
+              'regular_hours': 'opening hours', 'special_hours': 'special hours',
+              'additional_categories': 'extra categories', 'attributes': 'amenities (attributes)'}
+GBP_LOCKED = {'title', 'name', 'business_name', 'address', 'primary_category'}
+GBP_UTM = 'utm_source=google&utm_medium=organic&utm_campaign=gbp'      # the team's link (SKILL.md, Business Profile)
+
+
+def gbp_url_with_utm(url):
+    """The profile's website link with the team's UTM tags (kept as is when it already has UTM tags)."""
+    url = str(url or '').strip()
+    if not url or 'utm_' in url:
+        return url
+    base, _, frag = url.partition('#')
+    return base + ('&' if '?' in base else '?') + GBP_UTM + (f'#{frag}' if frag else '')
+
+
+def _gbp_change(a):
+    """(key, value) for gbp_write.propose from one "gbp" action; ValueError when execute never makes it."""
+    field = str(a.get('field', '')).strip()
+    if field in GBP_LOCKED:
+        raise ValueError(f'Business Profile {field} is locked (it can send the profile back to verification): '
+                         'never through execute; only as its own Business Profile change when the user asks for it')
+    if field not in GBP_FIELDS:
+        raise ValueError(f'"{field}" is not a Business Profile fix execute makes (only {", ".join(GBP_FIELDS)}); '
+                         'posts, photos and review replies have their own path')
+    v = a.get('value')
+    if v is None or v == '':
+        raise ValueError(f'Business Profile {field}: no value')
+    return field, (gbp_url_with_utm(v) if field == 'website' else v)
+
+
+def _gbp_report_actions(hdir, hotel_url):
+    """A website-link fix from the hotel's latest gbp_report (<hotel dir>/gbp/gbp-<date>.json) when it lists
+    problems with the link (redirects, another host, no UTM tags, not a 200)."""
+    reps = sorted((hdir / 'gbp').glob('gbp-2*.json'))
+    if not reps or not hotel_url:
+        return []
+    try:
+        rep = json.loads(reps[-1].read_text(encoding='utf-8'))
+    except (ValueError, OSError):
+        return []
+    w = (rep.get('vs_website') or {}).get('website') or {}
+    probs, uri, final = w.get('problems') or [], w.get('website_uri', ''), w.get('final_url') or ''
+
+    def host(u):
+        return re.sub(r'^www\.', '', urlparse(u).netloc.lower())
+    if not probs:
+        return []
+    base = re.split(r'[?#]', final)[0] if w.get('status') == 200 and final and host(final) == host(hotel_url) \
+        else hotel_url
+    new = gbp_url_with_utm(base)
+    if new == uri:
+        return []
+    return [{'finding': 'gbp-website-link', 'category': 'Local',
+             'title': f"Business Profile website link (gbp_report {rep.get('generated', '')}): " + '; '.join(probs),
+             'action': {'type': 'gbp', 'field': 'website', 'value': new}}]
+
+
+def _gbp_propose(item, out_dir):
+    """One gbp_write proposal for one plan item: fills change_id / change_file / current / new. Sends nothing."""
+    from . import gbp_write
+    res = gbp_write.propose(item['location'], {item['gbp_key']: item['gbp_value']}, out_dir=str(out_dir))
+    if not res.get('checked'):
+        raise RuntimeError(res.get('reason') or 'the proposal failed')
+    c = json.loads(paths.resolve(res['change_file']).read_text(encoding='utf-8'))
+    rows = [r for op in c.get('ops', []) for r in op.get('rows', [])]
+    one = len(rows) == 1
+    item.update(change_id=res['change_id'], change_file=res['change_file'], expires=c.get('expires'),
+                current=rows[0][1] if one else {r[0]: r[1] for r in rows},
+                new=rows[0][2] if one else {r[0]: r[2] for r in rows}, warnings=c.get('warnings', []))
+    return item
+
+
+def _gbp_plan(group_dir, slug, hdir, acts, n):
+    """The business-profile batch: (items, skipped, note, n). One proposal (change id) per field."""
+    from . import gbp
+    if not acts:
+        return [], [], None, n
+
+    def skip_all(reason):
+        return [], [{'finding': x['finding'], 'action': 'gbp', 'act': x['action'], 'reason': reason}
+                    for x in acts], {'status': 'skipped', 'reason': reason}, n
+    if slug == 'group':
+        return skip_all('Business Profile changes are per hotel: run execute_plan for each hotel')
+    loc = gbp.hotel_location(group_dir, slug).get('location')
+    if not loc:
+        return skip_all(f'Business Profile batch skipped: hotel "{slug}" has no linked Business Profile. Link it with '
+                        f'gbp_link("<domain>", "{slug}", "locations/<id>") (gbp_locations lists them), then '
+                        'execute_plan again')
+    ok, why = gbp.configured()
+    if not ok:
+        return skip_all(f'Business Profile batch skipped: {why}')
+    items, skipped, seen = [], [], set()
+    out_dir = hdir / 'gbp' / 'changes'
+    for x in acts:
+        try:
+            key, val = _gbp_change(x['action'])
+            if key in seen:
+                raise ValueError(f'another finding already changes the Business Profile {key} in this plan')
+        except ValueError as e:
+            skipped.append({'finding': x['finding'], 'action': 'gbp', 'act': x['action'], 'reason': str(e)})
+            continue
+        seen.add(key)
+        n += 1
+        it = {'id': f'a{n}', 'finding': x['finding'], 'title': x.get('title'), 'category': x.get('category'),
+              'action': x['action'], 'batch': GBP_BATCH, 'via': 'business_profile', 'page': 'Google Business Profile',
+              'field': f'Business Profile: {GBP_FIELDS[key]}', 'gbp_key': key, 'gbp_value': val, 'location': loc,
+              'checks': [], **({'hotel_confirmed': x['hotel_confirmed']} if x.get('hotel_confirmed') else {})}
+        try:
+            items.append(_gbp_propose(it, out_dir))
+        except Exception as e:  # noqa: BLE001 - Google's validation or sign-in: skip this field, say why
+            n -= 1           # the id is reused by the next item
+            skipped.append({'finding': x['finding'], 'action': 'gbp', 'act': x['action'],
+                            'reason': f'Business Profile rejected it in the dry run: {str(e)[:300]}'})
+    return items, skipped, {'status': 'planned' if items else 'nothing to change', 'location': loc,
+                            'items': len(items)}, n
+
+
+def propose_gbp_batch(plan_file):
+    """Propose the plan's not-yet-sent Business Profile items again (new change ids), e.g. after the 24-hour expiry
+    or after the client's approval. The user approves the new ids before run_execute_batch."""
+    pf = paths.resolve(plan_file)
+    pl = json.loads(pf.read_text(encoding='utf-8'))
+    items = pl.get('batches', {}).get(GBP_BATCH) or []
+    if not items:
+        raise LookupError(f'no {GBP_BATCH} batch in the plan')
+    out_dir, rows, problems = pf.parent.parent / 'gbp' / 'changes', [], []
+    for it in items:
+        if it['id'] in pl.get('done', []):
+            continue
+        try:
+            _gbp_propose(it, out_dir)
+            rows.append([it['id'], it['field'], str(it.get('current'))[:120], str(it.get('new'))[:120],
+                         f"change {it['change_id']}"])
+        except Exception as e:  # noqa: BLE001
+            problems.append({'id': it['id'], 'error': str(e)[:300]})
+    pf.write_text(json.dumps(pl, indent=1, ensure_ascii=False), encoding='utf-8')
+    return {'plan_file': str(pf), 'table': rows, 'problems': problems,
+            'next': 'Show the table with the new change ids and ask the user; then run_execute_batch(plan_file, '
+                    f'"{GBP_BATCH}", approved=true).'}
+
+
+def _run_gbp(pf, pl, batch, items):
+    """Send the approved Business Profile proposals (gbp_write.apply), stop at the first that isn't applied, and log
+    each in changes.json / before.json like a site change."""
+    from . import gbp_write
+    before_f, changes_f = pf.parent / 'before.json', pf.parent / 'changes.json'
+    before = json.loads(before_f.read_text(encoding='utf-8')) if before_f.exists() else {}
+    changes = json.loads(changes_f.read_text(encoding='utf-8')) if changes_f.exists() else []
+    done, failed, rechecked = [], None, []
+    for it in items:
+        if it['id'] in pl.get('done', []):
+            continue
+        if not it.get('change_file'):
+            failed = {'id': it['id'], 'finding': it['finding'], 'error': 'no proposal: execute_gbp_refresh(plan_file)'}
+            break
+        res = gbp_write.apply(it['change_file'], it['change_id'])
+        if not res.get('checked') or res.get('status') != 'applied':
+            why = res.get('reason') or '; '.join(f"{r.get('what')}: {r.get('result')} {r.get('why', '')}".strip()
+                                                 for r in res.get('results', []))
+            if 'expired' in why or 'changed since' in why or 'propose again' in why:
+                why += ('. Run execute_gbp_refresh(plan_file), show the new change ids and ask the user again')
+            failed = {'id': it['id'], 'finding': it['finding'], 'error': why[:500]}
+            break
+        read_back = next((r.get('read_back') for r in res.get('results', []) if r.get('read_back')), '')
+        status = 'Done' if read_back == 'live now' else 'Pending Google review' if read_back else 'Sent'
+        before[it['id']] = {'current': it.get('current'), 'undo': 'gbp-reverse', 'action': it['action'],
+                            'gbp': {'change_file': it['change_file'], 'change_id': it['change_id'],
+                                    'location': it.get('location')}}
+        # page '' : not a page of the site (the monthly readback compares site pages in Search Console)
+        changes.append({'id': it['id'], 'finding': it['finding'], 'page': '', 'field': it.get('field'),
+                        'old': it.get('current'), 'new': it.get('new'), 'at': time.strftime('%Y-%m-%d %H:%M:%S'),
+                        'via': 'business_profile', 'location': it.get('location'), 'change_id': it['change_id'],
+                        'change_file': it['change_file'], 'read_back': read_back or 'sent'})
+        before_f.write_text(json.dumps(before, indent=1, ensure_ascii=False), encoding='utf-8')
+        changes_f.write_text(json.dumps(changes, indent=1, ensure_ascii=False), encoding='utf-8')
+        pl.setdefault('done', []).append(it['id'])
+        done.append(it['id'])
+        rechecked.append({'finding': it['finding'], 'status': status, 'passed': int(status == 'Done'), 'checks': 1,
+                          'via': 'business_profile', 'read_back': read_back or 'sent'})
+    pl.setdefault('approved', []).append({'batch': batch, 'at': time.strftime('%Y-%m-%d %H:%M')})
+    for r in rechecked:
+        pl.setdefault('recheck', {})[r['finding']] = dict(r, at=time.strftime('%Y-%m-%d %H:%M'))
+    if failed:
+        pl.setdefault('failed', []).append(dict(failed, batch=batch))
+    pf.write_text(json.dumps(pl, indent=1, ensure_ascii=False), encoding='utf-8')
+    return {'batch': batch, 'done': len(done), 'of': len(items), 'failed': failed, 'recheck': rechecked,
+            'changes_file': str(changes_f), 'before_file': str(before_f), 'log': str(gbp_write.LOG),
+            'note': '"Pending Google review" is normal: Google checks most profile edits before they show.',
+            'undo': f'undo_execute("{pf}") proposes the before values again (the user approves them)'}
+
+
+def _hm(t):
+    t = t or {}
+    return f"{int(t.get('hours', 0)):02d}:{int(t.get('minutes', 0)):02d}"
+
+
+def _ymd(d):
+    return f"{int(d['year']):04d}-{int(d['month']):02d}-{int(d['day']):02d}"
+
+
+def _attr_back(a):
+    if not a:
+        return None
+    if a.get('uriValues'):
+        return a['uriValues'][0].get('uri')
+    if a.get('repeatedEnumValue'):
+        return list(a['repeatedEnumValue'].get('setValues') or [])
+    vals = a.get('values')
+    if vals is None:
+        return None
+    return vals[0] if len(vals) == 1 else vals
+
+
+def reverse_changes(change_file):
+    """(location, changes, notes): the gbp_write.propose `changes` that put back the logged "before" values of an
+    applied change file (only the operations that were sent)."""
+    c = json.loads(paths.resolve(change_file).read_text(encoding='utf-8'))
+    results = c.get('results') or []
+    rev, notes = {}, []
+    for i, op in enumerate(c.get('ops', [])):
+        if results and (i >= len(results) or results[i].get('result') != 'sent'):
+            continue
+        b = op.get('before')
+        if op.get('kind') == 'listing':
+            for k, v in (b or {}).items():
+                if k == 'websiteUri':
+                    if v:
+                        rev['website'] = v
+                    else:
+                        notes.append('the website link was empty before: remove it in the profile by hand')
+                elif k == 'phoneNumbers':
+                    if (v or {}).get('primaryPhone'):
+                        rev['phone'] = v['primaryPhone']
+                    else:
+                        notes.append('the phone was empty before: remove it in the profile by hand')
+                elif k == 'profile':
+                    rev['description'] = (v or {}).get('description', '')
+                elif k == 'regularHours':
+                    rev['regular_hours'] = [{'day': p.get('openDay'), 'open': _hm(p.get('openTime')),
+                                             'close': _hm(p.get('closeTime')), 'close_day': p.get('closeDay') or
+                                             p.get('openDay')} for p in (v or {}).get('periods', [])]
+                elif k == 'specialHours':
+                    rows = []
+                    for p in (v or {}).get('specialHourPeriods', []):
+                        r = {'date': _ymd(p['startDate'])}
+                        if p.get('endDate'):
+                            r['end_date'] = _ymd(p['endDate'])
+                        if p.get('closed'):
+                            r['closed'] = True
+                        else:
+                            r.update(open=_hm(p.get('openTime')), close=_hm(p.get('closeTime')))
+                        rows.append(r)
+                    rev['special_hours'] = rows
+                elif k == 'categories':
+                    rev['additional_categories'] = [x['name'] for x in (v or {}).get('additionalCategories', [])
+                                                    if x.get('name')]
+                else:
+                    notes.append(f'{k} is not put back by execute (locked field): restore it by hand')
+        elif op.get('kind') == 'attributes':
+            rev.setdefault('attributes', {}).update({k: _attr_back(a) for k, a in (b or {}).items()})
+        else:
+            notes.append(f"{op.get('kind')} is not undone by execute")
+    return c.get('location', ''), rev, notes
+
+
+def _gbp_undo(ch, out_dir):
+    """Propose the reverse of one applied Business Profile change. Sends nothing."""
+    from . import gbp_write
+    loc, rev, notes = reverse_changes(ch['change_file'])
+    if not rev:
+        raise ValueError('nothing to put back' + (f": {'; '.join(notes)}" if notes else ''))
+    res = gbp_write.propose(loc or ch.get('location'), rev, out_dir=str(out_dir))
+    if not res.get('checked'):
+        raise RuntimeError(res.get('reason') or 'the reverse proposal failed')
+    return {'change_id': res['change_id'], 'change_file': res['change_file'], 'preview': res.get('preview', ''),
+            'changes': rev, 'notes': notes}

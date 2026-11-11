@@ -615,6 +615,32 @@ def gbp_photos(domain: str, slug: str, location: str = '') -> dict:
 
 
 @mcp.tool()
+def gbp_reviews_pending(domain: str, slug: str, location: str = '', since_days: int = 0) -> dict:
+    """Google reviews of one hotel that need a reply (no reply yet, or edited by the guest after the reply);
+    since_days > 0 keeps only those written or edited in the last since_days days. Each with stars, date, the
+    reviewer's display name and first name, language (en / ar / other), the review text (and Google's translation)
+    and any existing reply. Writes <hotel dir>/gbp/review-replies-<date>.json (+ .md) for you to fill: one "reply" per
+    review in the review's language, in the hotel's voice (rules in the file), or "skip": true. location defaults to
+    the hotel's linked profile (gbp_link). Read-only: nothing is sent."""
+    from . import gbp_reviews
+    return _off_loop(gbp_reviews.pending, domain, slug, location, since_days)
+
+
+@mcp.tool()
+def gbp_review_drafts_check(file: str) -> dict:
+    """Lint every reply in a review-replies drafts file: language matches the review, at most 600 characters, no
+    prices / offers / codes / links, no surnames, booking or room numbers or other personal data, no arguing, an
+    apology and a confirmed hotel email or phone (hotel-facts.json) for 1-2 star reviews, no AI tells or keyword
+    stuffing. Problems block sending; when there are none it returns `changes` ({"review_replies": [...]}), `location`
+    and `out_dir` for gbp_propose. Show the user the 1-2 star ones first (show_user_first)."""
+    from . import gbp_reviews
+    try:
+        return gbp_reviews.check_drafts(file)
+    except (FileNotFoundError, ValueError) as e:
+        return {'ready': False, 'error': str(e)}
+
+
+@mcp.tool()
 def bing_report(site: str, out_dir: str = '') -> dict:
     """Bing Webmaster Tools: pages with incoming links and their link counts, who links to the top
     pages (with anchor text), and Bing's sitemap status (replaces the Search Console Links export and
@@ -978,7 +1004,9 @@ def site_mcp_read(site: str, tool: str, args: dict | None = None) -> dict:
 def execute_plan(group_dir: str, slug: str, only: list[str] | None = None) -> dict:
     """/hotel-seo execute, step 1 (dry run, nothing written): resolve every action of the hotel's latest audit report
     (and Build Plan pages) to the site's MCP tools, read each current value, and group them into batches:
-    booking-path, seo-fields, redirects, elementor-text, schema, alt-text, post-status, menus, new-pages, chrome, group.
+    booking-path, seo-fields, redirects, elementor-text, schema, alt-text, post-status, menus, new-pages, chrome, group,
+    and business-profile (the hotel's Google profile: "gbp" actions and a website link the latest gbp_report flags,
+    each proposed with gbp_propose so its row carries a change id; skipped when the hotel has no linked profile).
     slug="group" plans the group batch (site-wide settings, shared templates). Skips Web Team items, holds,
     [CONFIRM], prices / discounts. Show each batch's table to the user before running it."""
     try:
@@ -994,6 +1022,16 @@ def run_execute_batch(plan_file: str, batch: str, approved: bool = False) -> dic
     try:
         return _off_loop(execute.run_batch, plan_file, batch, approved)
     except (PermissionError, LookupError, RuntimeError, ConnectionError) as e:
+        return {'error': str(e)}
+
+
+@mcp.tool()
+def execute_gbp_refresh(plan_file: str) -> dict:
+    """Propose an execute plan's unsent business-profile items again (new change ids), e.g. after the 24-hour expiry
+    or a client approval that took longer. Sends nothing; show the new table and ask before run_execute_batch."""
+    try:
+        return _off_loop(execute.propose_gbp_batch, plan_file)
+    except (LookupError, FileNotFoundError) as e:
         return {'error': str(e)}
 
 
@@ -1068,7 +1106,8 @@ def import_hotel_answers(group_dir: str, slug: str, xlsx_path: str) -> dict:
 @mcp.tool()
 def undo_execute(plan_file: str) -> dict:
     """Write back the before-values of an execute run, newest first (redirects it created are deleted, pages it
-    created go back to draft)."""
+    created go back to draft). Business Profile changes are proposed back to their before values (business_profile:
+    change ids + previews); they go live only with gbp_apply after the user approves each id."""
     return _off_loop(execute.undo, plan_file)
 
 
