@@ -102,7 +102,7 @@ Size comes from the job and the slot, never from a word count target (Google has
 
 **Facts and sources.** Hotel facts: `hotel-facts.json` or [CONFIRM]. Area facts (opening times, distances, prices of attractions, visa or transport rules): an official or primary source, current within the last 2 years for anything that changes, linked in the run notes; no aggregator lists, no competitor blogs, no AI summaries as sources.
 
-**The claim ledger** (any piece with an area fact). In the run notes, one line per fact that isn't about the hotel (a distance, a travel time, opening hours, visa or entry rules, an event date): the claim as written, its source (link), the date you checked it. A claim with no source is removed or marked [CONFIRM]. A hotel fact is never softened into vague wording to get past the guard ("a short walk" in place of an unconfirmed "3 minutes"): it keeps its number and gets [CONFIRM].
+**The claim ledger** (any piece with an area fact). In the run notes, one line per fact that isn't about the hotel (a distance, a travel time, opening hours, visa or entry rules, an event date): the claim as written, its source (link), the date you checked it; save the ledger with `save_claims` (SKILL.md, Write copy). A claim with no source is removed or marked [CONFIRM], and goes to the hotel in the Questions for the Hotel spreadsheet ("Don't know" from the hotel takes it out). A hotel fact is never softened into vague wording to get past the guard ("a short walk" in place of an unconfirmed "3 minutes"): it keeps its number and gets [CONFIRM].
 
 ---
 

@@ -121,6 +121,54 @@ NOT_FREE_RE = re.compile(r'\b(?:not (?:included|free|complimentary)|paid|extra c
                          r'aed|usd|dirhams?)\b|\$\s?\d', re.I)
 FREE_RE = re.compile(r'\b(?:free|included|complimentary|inclusive|no charge)\b', re.I)
 YES_RE = re.compile(r'^\s*(?:yes|y|available|allowed|offered|on request|provided)\b', re.I)
+# The lodging fields each topic fills (see _values), and the hotel-facts.json kind the questionnaire's Facts sheet asks
+# for them under: a Business Profile question on one of these fields goes to that Facts row, never a second row.
+TOPIC_FIELDS = {'checkin': ['policies.checkinTime'], 'checkout': ['policies.checkoutTime'], 'rooms': ['property.roomsCount'],
+                'breakfast': ['foodAndDrink.breakfastAvailable', 'foodAndDrink.freeBreakfast'],
+                'parking': ['parking.parkingAvailable', 'parking.freeParking'],
+                'pets': ['pets.petsAllowed', 'pets.petsAllowedFree'],
+                'airport': ['transportation.airportShuttle', 'transportation.freeAirportShuttle'],
+                'wifi': ['connectivity.wifiAvailable', 'connectivity.freeWifi']}
+FIELD_KIND = {p: next(iter(TOPICS[t]['kinds'])) for t, ps in TOPIC_FIELDS.items() for p in ps}
+# How a facility reads on Booking.com or on the website -> the lodging field it means ("yes" when it is mentioned).
+AMENITY_WORDS = {
+    'pools.pool': r'swimming pool|\bpool\b', 'wellness.fitnessCenter': r'fitness (?:centre|center|room)|\bgym\b',
+    'wellness.spa': r'\bspa\b', 'wellness.sauna': r'\bsauna\b', 'foodAndDrink.restaurant': r'\brestaurant\b',
+    'foodAndDrink.bar': r'\bbar\b(?!\s*code)', 'foodAndDrink.roomService': r'room service|in-room dining',
+    'services.twentyFourHourFrontDesk': r'24[- ]hour front desk|24/7 reception|24-hour reception',
+    'services.elevator': r'\belevator\b|\blift\b', 'services.fullServiceLaundry': r'laundry',
+    'services.baggageStorage': r'luggage storage|baggage storage', 'connectivity.freeWifi': r'free wi-?fi',
+    'parking.freeParking': r'free (?:private |public |on-site )?parking', 'parking.valetParkingAvailable': r'valet',
+    'transportation.airportShuttle': r'airport (?:shuttle|transfer)', 'families.kidsClub': r'kids\'? club',
+    'activities.privateBeach': r'private beach', 'activities.beachFront': r'beachfront|beach front',
+    'business.meetingRooms': r'meeting rooms?|conference', 'business.businessCenter': r'business cent(?:re|er)',
+    'accessibility.mobilityAccessible': r'wheelchair|accessible rooms?',
+}
+
+
+def mentions(text):
+    """{lodging field: "yes"} for every facility AMENITY_WORDS finds in a text (a Booking.com facility, a page)."""
+    return {p: 'yes' for p, rx in AMENITY_WORDS.items() if re.search(rx, str(text or ''), re.I)}
+
+
+def answer_value(path, text):
+    """A hotel's written answer for one lodging field -> its lodging value ("yes" / "no" / "15:00" / "12"), or None
+    when the answer doesn't give one ("don't know", a comment)."""
+    t = str(text if text is not None else '').strip()
+    if not t or re.match(r"^\s*(?:don'?t|do not|not sure|unsure|no idea|unknown|n/?a\b|\?)", t, re.I):
+        return None
+    typ = WRITABLE.get(path, ('',))[0] or ('time' if path.endswith('Time') else
+                                         'int' if re.search(r'(?:Count|Year)$', path) else 'bool')
+    if typ == 'time':
+        return _time(t) or (_time(t + ':00') if re.fullmatch(r'\d{1,2}', t) else None)
+    if typ == 'int':
+        m = re.search(r'\d+', t)
+        return str(int(m.group(0))) if m else None
+    if re.match(r'^\s*(?:yes|y|true|available|offered|allowed|provided|included|free)\b', t, re.I):
+        return 'yes'
+    if re.match(r'^\s*(?:no|n|false|not|none)\b', t, re.I):
+        return 'no'
+    return None
 
 
 # ---------- reading ----------
@@ -301,11 +349,17 @@ def confirmed_values(facts_file):
     for x in rows:
         if x.get('superseded') or not fx.is_confirmed_source(x.get('source')):
             continue
-        topic, text = _topic_of(x)
-        if not topic:
-            continue
         weight = 1 if fx.is_hotel_source(x.get('source')) else 0
-        for p, v in _values(topic, text).items():
+        if x.get('kind') == 'lodging' and x.get('subject'):
+            # the questionnaire's Business Profile sheet: one field, answered directly
+            v = answer_value(x['subject'], x.get('value'))
+            vals = {x['subject']: v} if v is not None else {}
+        else:
+            topic, text = _topic_of(x)
+            if not topic:
+                continue
+            vals = _values(topic, text)
+        for p, v in vals.items():
             rec = {'value': v, 'fact': x.get('fact', ''), 'source': x.get('source', ''), 'weight': weight}
             have = best.get(p)
             if have is None or weight > have['weight']:
@@ -332,6 +386,9 @@ def compare(lodging, facts_file):
             out['matches'].append(row)
             continue
         out['gaps' if 'value' not in (f.get(p) or {}) else 'mismatches'].append(row)
+        if p not in WRITABLE:
+            row['manual'] = True             # not changeable through the API: change it in the profile itself
+            continue
         typ = WRITABLE[p][0]
         out['changes'][p] = (rec['value'] == 'yes') if typ == 'bool' else int(rec['value']) if typ == 'int' else rec['value']
     for p, recs in sorted(conflicts.items()):
@@ -349,8 +406,24 @@ def _facts_file(group_dir, slug):
 
 
 @_safe
-def amenities(location, facts_file=''):
-    """The lodging table, what Google changed itself, the comparison with confirmed facts and a ready `changes`."""
+def amenities(location, facts_file='', out_dir=''):
+    """The lodging table, what Google changed itself, the comparison with confirmed facts and a ready `changes`.
+    out_dir (the hotel's gbp folder): also saved as amenities-<date>.json, with the raw lodging record, for
+    hotel_questions (it compares that record with the facts again at each build)."""
+    out = _amenities(location, facts_file)
+    if out_dir:
+        from datetime import date
+        d = paths.resolve(out_dir)
+        d.mkdir(parents=True, exist_ok=True)
+        f = d / f'amenities-{date.today().isoformat()}.json'
+        f.write_text(json.dumps(dict(out, saved=date.today().isoformat()), indent=1, ensure_ascii=False),
+                     encoding='utf-8')
+        out['file'] = str(f)
+    out.pop('lodging', None)                 # the raw record is in the file; the reply keeps the table
+    return out
+
+
+def _amenities(location, facts_file=''):
     name = _loc_name(location)
     lodging = fetch(name)
     try:
@@ -378,6 +451,7 @@ def amenities(location, facts_file=''):
         **{k: cmp_[k] for k in ('mismatches', 'gaps', 'matches', 'conflicting_facts', 'unconfirmed')},
         'facts_file': facts_file,
         'changes': changes,
+        'lodging': lodging,
         'next': ('Show the mismatches and gaps; with the user\'s go-ahead, gbp_propose(location, changes, '
                  '"<hotel dir>/gbp/changes"). Unconfirmed values stay as they are; ask the hotel about them if they '
                  'look wrong (add the answer with add_facts).') if changes else

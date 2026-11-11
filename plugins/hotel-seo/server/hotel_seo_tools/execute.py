@@ -135,7 +135,7 @@ def _latest(d, prefix):
     return found[-1] if found else None
 
 
-QREF = re.compile(r'\[CONFIRM ([QRDF]\d+)')
+QREF = re.compile(r'\[CONFIRM ([QRDFB]\d+)')
 
 
 def _answer_state(qid, item, text):

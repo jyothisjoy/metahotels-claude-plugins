@@ -206,7 +206,8 @@ Fully automatic apart from **one intake round** (step 3). Anything you can't get
    - **Business Profile** per hotel: `gbp_locations("<hotel name or domain>")`, then `gbp_report("locations/<id>",
      "<hotel dir>/gbp", crawl_dir, site)`. Several profiles for one hotel, or none: say so and ask. Not set up on this
      machine → **Business Profile** under Missing inputs. Once the hotel is linked (`gbp_link`), also
-     `gbp_amenities(domain, slug)` (hotel details vs confirmed facts) and `gbp_photos(domain, slug)` (missing or stale
+     `gbp_amenities(domain, slug)` (hotel details vs confirmed facts; saved to `gbp/amenities-<date>.json` for the
+     hotel's questions) and `gbp_photos(domain, slug)` (missing or stale
      photo categories); their mismatches, gaps and flags go to the finish message as Business Profile changes to offer.
 6. **Keyword map per hotel:** `build_keyword_map("<domain>", slug, crawl_dir, countries=[<hotel country + feeder
    markets from Search Console / GA4 / Mirai>], languages=["en", "ar", <guest languages>], competitor_urls=[<3–5 nearby
@@ -217,7 +218,8 @@ Fully automatic apart from **one intake round** (step 3). Anything you can't get
 7. **Code checks per hotel:** `content_scan(crawl_dir, "<hotel dir>/audit-<date>/code", "<domain>", slug)` and
    `site_consistency_check("https://<domain>", "<hotel dir>/audit-<date>/code", facts_file="<hotel dir>/hotel-facts.json",
    room_path=<the hotel's room-page path on a group site>)`: one fact must read the same on every page (room guests,
-   room sizes, landmark distances, metas, titles, room schema, FAQ blocks copied across pages, internal nofollow).
+   room sizes, landmark distances, metas, titles, room schema, FAQ blocks copied across pages, internal nofollow, the
+   business schema's name / address / phone; each page's name, address and phone are saved for step 13).
    Every DISTANCE row is checked by hand against its quoted text (two figures can be two places).
 8. **Agent preflight:** `agent_preflight("<domain>", crawl_dir)`. Keep the table; a blocked agent is not started and is
    reported as not assessed with its reason.
@@ -262,12 +264,30 @@ Fully automatic apart from **one intake round** (step 3). Anything you can't get
     to content-writing.md (a unit brief, then the copy, then the edit pass), in the hotel's `voice.md` (make it once
     when a hotel needs more than titles and metas).
 13. **Questions for the hotel** (after the Build Plan, before rendering): `hotel_questions("<domain>", slug)`. It
-    collects every [CONFIRM] and held item, room sizes / guests / beds (site vs booking engine vs Booking.com),
-    distances and unconfirmed basic facts into `Reports/NN - <Hotel> Questions for the Hotel (<date>).xlsx`, and renumbers
-    the reports' markers to `[CONFIRM Q7]` / `[CONFIRM R2]`. Then read `<hotel dir>/audit-<date>/hotel-questions.json`
+    writes everything the hotel must confirm into `Reports/NN - <Hotel> Questions for the Hotel (<date>).xlsx`
+    and renumbers the reports' markers to `[CONFIRM Q7]` / `[CONFIRM R2]`. Sheets and sources:
+    - **Questions** (Q): every [CONFIRM] in the Audit Report, Build Plan and Web Team List and every held item; wrong
+      facts AI assistants gave in the latest monthly AI answer check (`monthly-<YYYY-MM>/manual.json` `ai_panel`; one
+      question per fact across engines; a fact already confirmed is a fix, not a question); area facts in new copy
+      with no source (`copy/claims-<date>.json`, from `save_claims`), other than distances.
+    - **Rooms** (R): size, guests, beds per room type (site vs booking engine vs Booking.com).
+    - **Distances** (D): distances on the site, Booking.com's nearby list, the keyword map's landmarks, and distance /
+      travel-time claims from new copy (in the same place's row).
+    - **Facts** (F): basic facts not yet confirmed; name, address, phone and website with every source's value when
+      they disagree (website: `audit-<date>/code/consistency.json` `nap`, Business Profile: `gbp/gbp-<date>.json`,
+      Booking.com facts).
+    - **Business Profile** (B): from the latest `gbp/amenities-<date>.json` (saved by `gbp_amenities`): values Google
+      shows that no fact backs, gaps and mismatches whose fact isn't the hotel's own, conflicting facts. Fields the
+      Facts sheet already asks (check-in / out, rooms, parking, breakfast, pets, airport transfer, Wi-Fi) are shown in
+      that Facts row, never twice.
+    Every item records where it is used (`refs` in `hotel-questions.json`). Ids stay the same and imported answers are
+    kept when it is re-run: run it again after a monthly AI answer check or a write session that saved claims. Then
+    read `<hotel dir>/audit-<date>/hotel-questions.json`
     and call `edit_hotel_questions` once: rewrite every Questions-sheet item as one clear ask for hotel staff (plain
     words, what format: "Write the check-in time, e.g. 14:00"; "now" = what the site / booking engine shows, short),
-    `drop` anything that is not a question for the hotel (reminders, notes to the agency), `merge_into` repeats.
+    `drop` anything that is not a question for the hotel (reminders, notes to the agency; a dropped item is not asked
+    again), `merge_into` repeats. Business Profile rows take `question` / `why` / `drop` too. Area facts are asked so
+    that "Don't know" is a fine answer (it takes the claim out of the copy).
     The Audit Report already has the "Keywords we chose, and why" chapter (from the keyword map).
 14. **Pre-send diff:** `presend_check(<audit-report.json>, crawl_dir)`; render the `-presend.json` it writes. Also read
     `checks_missing` (URLs and rows a re-check couldn't prove: add the checks and run again), `not_on_any_list` (audit
@@ -354,7 +374,11 @@ writes the status record; an agent never validated is left out of the report).
    reported, in plain words). A hotel needs a built audit report.
    **Hotel answers:** ask once whether the hotel returned the Questions for the Hotel spreadsheet. If yes:
    `import_hotel_answers("<domain>", slug, <xlsx path>)` (answers become confirmed facts; site text that contradicts
-   them becomes corrections). Unanswered questions keep their items out of execute.
+   them becomes corrections: room sizes / guests, distances, and the phone, address or name where the old text is on
+   the page). Unanswered questions keep their items out of execute. `remove_from_copy`: area claims the hotel doesn't
+   know or says are wrong; take them out of the copy they came from (`where`) before it is published. `business_profile`
+   in the result: run `gbp_amenities(domain, slug)` and offer the changes the answers give (**Business Profile
+   changes**).
 2. `execute_plan("<domain>", slug)` per hotel. Group site without `--hotel`: also `execute_plan("<domain>", "group")`
    for group-wide settings. A single hotel has no group batch: its site-wide settings are in its own plan (batch
    `site-settings`). It reads every current value, asks the site to validate where it can (dry run), and skips
@@ -448,6 +472,8 @@ report; a group gets one per hotel plus a Group Monthly Summary.
    named), `description_correct` and `errors` (each wrong fact vs hotel-facts.json, e.g. "says check-in 14:00; fact:
    15:00"). Then `import_monthly_manual(..., {"ai_panel": {"checked": "<today>", "results": [...], "not_run": {...}}})`.
    Desktop chat or a run without the Chrome tools: skip the panel and say so; the report shows "not run", never zeros.
+   Wrong facts whose right value isn't confirmed yet: re-run `hotel_questions("<domain>", slug)` (it keeps the
+   answers and ids) so they reach the hotel in the Questions for the Hotel spreadsheet.
 4c. **Best Rate calendar (parity and bookings, per hotel, optional):** the month's
    `disparity-calendar-<hotel>-<YYYY-MM>.csv` (Date, Weekday, Hotel, Parity Status, Bookings, Day Type). Look in
    `<hotel dir>/parity/`, the hotel folder and the work folder first; if it isn't there, ask the user once, before
@@ -514,6 +540,11 @@ post on things to do in Fujairah in winter", "reply to this review".
 4. **Check it:** `copy_check(units=[{kind, text, where}], hotel=<hotel name>, main_phrase=<the page's main search
    phrase>, hotel_dir=<hotel dir>)` (or `json_path` for a list / Build Plan). Fix every `problems` line; read each
    `warnings` line and fix it unless it is right as written.
+   **Claim ledger:** any area fact in the copy (a distance, a travel time, opening hours, visa or entry rules, an event
+   date; content-writing.md § claim ledger) goes to `save_claims("<domain>", slug, [{claim, kind, place, source,
+   checked, where}])` (`<hotel dir>/copy/claims-<date>.json`). A claim with no source stays [CONFIRM] in the copy;
+   re-run `hotel_questions` (if the hotel has an audit) and it reaches the hotel in the Questions for the Hotel
+   spreadsheet (distances on the Distances sheet). "Don't know" from the hotel means the claim comes out.
 5. **Hand over paste-ready:** for each unit, where it goes (field and page, by full URL), the current text and the new
    text, any [CONFIRM] questions for the hotel, and the checks a re-check would run. Every title, meta and alt line
    shows its count from `copy_check` `lengths`: `58/60, 512/580 px` for a title (characters, then Google's pixel
@@ -632,7 +663,7 @@ Facts: `import_facts_sheet`, `bookingcom_extractor`, `import_bookingcom`, `cross
 `build_audit_report`, `build_group_summary`, `presend_check`, `render_report`, `recheck_list`, `copy_check`. Sites:
 `sites_csv_status`, `site_mcp_status`, `site_mcp_read`, `execute_plan`, `record_client_approval`, `run_execute_batch`,
 `record_chrome_step`, `execute_gbp_refresh`, `execute_reports`, `undo_execute`. Hotel questions: `hotel_questions`, `edit_hotel_questions`,
-`import_hotel_answers`. Monthly: `monthly_collect`, `tracked_keywords`, `save_tracked_keywords`, `serp_ranks`,
+`import_hotel_answers`, `save_claims`. Monthly: `monthly_collect`, `tracked_keywords`, `save_tracked_keywords`, `serp_ranks`,
 `import_monthly_manual`, `ai_prompts`, `add_work_log`, `save_monthly_narrative`, `build_monthly_report`, `build_monthly_group`.
 Monitor: `monitor_site`. Setup: `health_check`.
 Also **hotel-seo-gsc** (Search Console, read-only: never add, delete or submit anything; if `health_check` shows the

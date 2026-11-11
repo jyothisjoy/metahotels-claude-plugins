@@ -214,8 +214,10 @@ def site_consistency_check(site: str, out_dir: str = '', facts_file: str = '', l
     """One fact must read the same on every page: reads every sitemap page live and reports room guests (body vs
     meta), room sizes (title/meta vs body), landmark distances (across pages and vs facts_file), long / missing
     metas, titles over 60, WordPress default titles, old years in titles, room pages without room schema, FAQPage
-    blocks copied across pages or several on one page, and internal links marked nofollow. Writes nothing to the
-    site; writes consistency.json in out_dir. Every DISTANCE row is checked by hand against its quoted text."""
+    blocks copied across pages or several on one page, internal links marked nofollow, and a business schema name /
+    address / telephone that differs across pages (NAP). Writes nothing to the site; writes consistency.json in out_dir
+    (with "nap": the name, address and phone each page states, for hotel_questions). Every DISTANCE row is checked by
+    hand against its quoted text."""
     from . import consistency
     job = _start_job('consistency', consistency.run, site, out_dir, facts_file=facts_file, landmarks=landmarks,
                      room_path=room_path)
@@ -589,13 +591,16 @@ def gbp_amenities(domain: str, slug: str, location: str = '') -> dict:
     (field -> "yes" / "no" / "15:00" / a number, "exception: <reason>" or "not set"), fields Google changed itself,
     and the comparison with the hotel's confirmed facts (<hotel dir>/hotel-facts.json; Booking.com alone never counts):
     mismatches, gaps (fact known, profile unset), matches, conflicting facts, and "unconfirmed" profile values no fact
-    backs (left alone). `changes` is ready for gbp_propose (confirmed facts only); propose only when the user asks."""
+    backs (left alone). `changes` is ready for gbp_propose (confirmed facts only); propose only when the user asks.
+    Saved as <hotel dir>/gbp/amenities-<date>.json: hotel_questions turns what only the hotel can settle (unconfirmed
+    values, unconfirmed gaps / mismatches, conflicting facts) into its Business Profile sheet."""
     from . import gbp_lodging
     try:
         loc = gbp.resolve_hotel(domain, slug, location)
     except gbp.GbpError as e:
         return {'checked': False, 'reason': str(e)}
-    return _off_loop(gbp_lodging.amenities, loc, facts_file=gbp_lodging._facts_file(domain, slug))
+    return _off_loop(gbp_lodging.amenities, loc, facts_file=gbp_lodging._facts_file(domain, slug),
+                     out_dir=str(group.hotel_dir(domain, slug) / 'gbp'))
 
 
 @mcp.tool()
@@ -1073,10 +1078,15 @@ def execute_reports(group_dir: str, slug: str, plan_file: str = '') -> dict:
 @mcp.tool()
 def hotel_questions(group_dir: str, slug: str) -> dict:
     """Questions for the hotel (run after build_audit_report and the Build Plan, before rendering): every [CONFIRM]
-    and held item, room sizes / guests / beds (site vs booking engine vs Booking.com), distances, and basic facts
-    not yet confirmed, as an xlsx for the hotel to fill (Reports/NN - <Hotel> Questions for the Hotel (date).xlsx).
-    The reports' markers become [CONFIRM Q7] / [CONFIRM R2] so each gap points at its row. Then read
-    hotel-questions.json and call edit_hotel_questions to word the questions for hotel staff."""
+    and held item, room sizes / guests / beds (site vs booking engine vs Booking.com), distances, basic facts not yet
+    confirmed (name / address / phone / website with every source's value where they disagree: site, Business
+    Profile, Booking.com), Business Profile amenities and policies only the hotel can settle (the latest
+    gbp/amenities-<date>.json), wrong facts AI assistants gave (the latest monthly AI answer check) and unsourced area
+    facts in new copy (copy/claims-<date>.json from save_claims), as an xlsx for the hotel to fill
+    (Reports/NN - <Hotel> Questions for the Hotel (date).xlsx). The reports' markers become [CONFIRM Q7] /
+    [CONFIRM R2] so each gap points at its row. Ids and imported answers are kept on a re-run (after a monthly AI
+    check or a write session). Then read hotel-questions.json and call edit_hotel_questions to word the questions for
+    hotel staff."""
     try:
         return questions.build(group_dir, slug)
     except (FileNotFoundError, StopIteration) as e:
@@ -1087,16 +1097,32 @@ def hotel_questions(group_dir: str, slug: str) -> dict:
 def edit_hotel_questions(group_dir: str, slug: str, edits: list[dict]) -> dict:
     """Word the Questions sheet for hotel staff: [{"id": "Q4", "question": "<one clear ask>", "now": "<what the
     site / booking engine shows>"}], {"id": "Q9", "drop": true} for anything that is not a question for the hotel
-    (its markers are removed from the reports), {"id": "Q12", "merge_into": "Q3"} for the same ask twice.
-    Rewrites the xlsx."""
+    (its markers are removed from the reports; a dropped item is not asked again), {"id": "Q12", "merge_into": "Q3"}
+    for the same ask twice. Business Profile rows (B..) take "question" / "why" / "drop". Rewrites the xlsx."""
     return questions.edit(group_dir, slug, edits)
+
+
+@mcp.tool()
+def save_claims(group_dir: str, slug: str, claims: list[dict]) -> dict:
+    """Write mode's claim ledger (content-writing.md): one row per fact in the copy that isn't about the hotel.
+    claims: [{"claim": "<as written>", "kind": "distance" | "travel_time" | "opening_hours" | "visa" | "event_date" |
+    "other", "place": "<the place, for a distance or travel time>", "source": "<link; empty when there is none>",
+    "checked": "YYYY-MM-DD", "where": "<page URL or content file>"}]. Saved to <hotel dir>/copy/claims-<date>.json
+    (merged with today's file). Unsourced claims go to the hotel with the next hotel_questions (Distances sheet for
+    distances and travel times, Questions sheet for the rest); "Don't know" from the hotel takes a claim out."""
+    try:
+        return questions.save_claims(group_dir, slug, claims)
+    except (FileNotFoundError, StopIteration) as e:
+        return {'error': str(e) or 'unknown hotel'}
 
 
 @mcp.tool()
 def import_hotel_answers(group_dir: str, slug: str, xlsx_path: str) -> dict:
     """Read the filled-in Questions for the Hotel xlsx: answers saved, confirmed facts added to hotel-facts.json
-    (source "hotel questionnaire, <date>, <who>"), and the site text that contradicts the answers listed as
-    corrections. execute_plan then includes the answered items and a "hotel-answers" batch."""
+    (source "hotel questionnaire, <date>, <who>"; Business Profile answers as kind "lodging" so gbp_amenities proposes
+    from them), and the site text that contradicts the answers (rooms, distances, phone, address, name) listed as
+    corrections. remove_from_copy: area claims the hotel doesn't know or says are wrong, to take out of the copy.
+    execute_plan then includes the answered items and a "hotel-answers" batch."""
     try:
         return questions.import_answers(group_dir, slug, xlsx_path)
     except FileNotFoundError as e:

@@ -12,7 +12,9 @@ So a distance belongs to the longest known place name it follows, stops at the e
 reported under its full name, and figures are compared with hotel-facts.json.
 
 run(site, out_dir, facts_file, landmarks) reads every sitemap page, writes nothing to the site, and returns one row
-per problem. Every DISTANCE row is checked by hand against its quoted text.
+per problem. Every DISTANCE row is checked by hand against its quoted text. consistency.json also keeps "nap": the
+name, address and phone each page states (tel: links, business schema), which hotel_questions compares with the
+Business Profile and Booking.com.
 """
 import html
 import json
@@ -196,6 +198,60 @@ def faq_sets(h):
     return sets
 
 
+def nap(h):
+    """Name, address and phone one page states: its tel: links and its Hotel / LodgingBusiness schema.
+    {"phone": set, "name": set, "address": set, "schema_phone": set}."""
+    from .analysis import BUSINESS_TYPES
+    out = {'phone': set(), 'name': set(), 'address': set(), 'schema_phone': set()}
+    for t in re.findall(r'href=["\']tel:([^"\']+)["\']', h, re.I):
+        t = re.sub(r'\s+', ' ', html.unescape(t)).strip()
+        if len(re.sub(r'\D', '', t)) >= 7:
+            out['phone'].add(t)
+    for b in re.findall(r'<script[^>]+application/ld\+json[^>]*>(.*?)</script>', h, re.S | re.I):
+        try:
+            d = json.loads(b)
+        except ValueError:
+            continue
+        stack = [d]
+        while stack:
+            o = stack.pop()
+            if isinstance(o, list):
+                stack.extend(o)
+                continue
+            if not isinstance(o, dict):
+                continue
+            stack.extend(v for v in o.values() if isinstance(v, (list, dict)))
+            t = o.get('@type')
+            if not set(t if isinstance(t, list) else [t]) & BUSINESS_TYPES:
+                continue
+            if isinstance(o.get('name'), str) and o['name'].strip():
+                out['name'].add(o['name'].strip())
+            tel = o.get('telephone')
+            for x in (tel if isinstance(tel, list) else [tel]):
+                if isinstance(x, str) and x.strip():
+                    out['schema_phone'].add(x.strip())
+            a = o.get('address')
+            if isinstance(a, dict):
+                a = ', '.join(str(a[k]).strip() for k in ('streetAddress', 'addressLocality', 'addressRegion',
+                                                           'addressCountry') if isinstance(a.get(k), str) and a[k].strip())
+            if isinstance(a, str) and a.strip():
+                out['address'].add(a.strip())
+    return out
+
+
+def _nap_problems(nap_pages):
+    """A business schema should give one name, one address and one phone across the site."""
+    out = []
+    for field, label in (('name', 'name'), ('address', 'address'), ('schema_phone', 'telephone')):
+        vals = nap_pages.get(field) or {}
+        key = (lambda v: re.sub(r'\D', '', v)[-9:]) if field == 'schema_phone' else \
+            (lambda v: re.sub(r'[^a-z0-9]+', ' ', v.lower()).strip())
+        if len({key(v) for v in vals}) > 1:
+            out.append(f'business schema {label} differs across pages: ' +
+                       '; '.join(f'"{v}" on {len(p)} page(s) e.g. {p[0]}' for v, p in sorted(vals.items())))
+    return out
+
+
 def run(site, out_dir='', facts_file='', landmarks=None, room_path='', progress=None):
     site = ('https://' + site if '//' not in site else site).rstrip('/')
     host = urlparse(site).netloc.replace('www.', '')
@@ -205,6 +261,7 @@ def run(site, out_dir='', facts_file='', landmarks=None, room_path='', progress=
     s.headers['User-Agent'] = UA
     urls, warn = _sitemap_urls(s, site)
     problems, texts, faq_pages = [], {}, defaultdict(list)
+    nap_pages = defaultdict(lambda: defaultdict(list))      # field -> value -> pages (full URLs)
 
     def add(kind, page, detail):
         problems.append({'type': kind, 'page': page, 'detail': detail})
@@ -222,6 +279,9 @@ def run(site, out_dir='', facts_file='', landmarks=None, room_path='', progress=
             re.search(r'<meta[^>]+content=["\']([^"\']*)["\'][^>]+name=["\']description["\']', h, re.I)
         meta = html.unescape(m.group(1)) if m else ''
         txt = texts[url] = _text(h)
+        for field, vals in nap(h).items():
+            for v in vals:
+                nap_pages[field][v].append(url)
         if re.search(r' [-–] [^|]+$', title) and '|' not in title:
             add('TITLE-DEFAULT', path, f"'{title}' (WordPress default; use the site's title format)")
         if re.search(rf'\b({old_years})\b', title):
@@ -262,10 +322,15 @@ def run(site, out_dir='', facts_file='', landmarks=None, room_path='', progress=
                                                      'only where they belong')
     for row in distance_rows(texts, facts_file, host.split('.')[0], landmarks):
         add('DISTANCE', row['landmark'], row['detail'])
+    for d in _nap_problems(nap_pages):
+        add('NAP', 'site', d)
     out = {'site': site, 'checked_on': date.today().isoformat(), 'pages': len(urls), 'warnings': warn,
            'problems': problems,
            'counts': {k: sum(p['type'] == k for p in problems) for k in sorted({p['type'] for p in problems})},
            'facts_file': facts_file or None, 'known_distances': len(fact_places(facts_file)),
+           # name / address / phone as the pages state them (tel: links, business schema): hotel_questions compares
+           # them with the Business Profile and Booking.com
+           'nap': {f: {v: sorted(set(us)) for v, us in vals.items()} for f, vals in nap_pages.items()},
            'note': 'Check every DISTANCE row by hand against its quoted text: two figures can be two different places '
                    '(a gate vs a building). TITLE-LONG is fix-if-cheap. Work is not done while any other row is open.'}
     if out_dir:
