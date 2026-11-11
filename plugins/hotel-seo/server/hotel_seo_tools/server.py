@@ -666,7 +666,9 @@ def monitor_site(site: str, gsc_property: str = '', out_dir: str = '', add_to_sc
     tags that stopped firing on the rendered homepage, a homepage noindex / canonical / status change, the ~40 key
     pages the homepage links to (noindex, 4xx/5xx, canonical, lost H1, lost Hotel / Offer / Breadcrumb schema),
     robots.txt newly blocking Googlebot or AI search crawlers, defacement text, new WordPress users and REST (MCP)
-    routes that answer without login. The first run saves the baseline (~/.metahotels-seo/monitor/<host>.json).
+    routes that answer without login; for hotels linked with gbp_link, Business Profile fields Google changed, listing
+    changes not in the gbp_apply log, new 1-2 star reviews and reviews unanswered for 7+ days ([High] / [Medium]).
+    The first run saves the baseline (~/.metahotels-seo/monitor/<host>.json).
     Report: out_dir, else <domain>/monitor/ (single hotel) or <domain>/group/monitor/ (group) in the work folder,
     else ~/.metahotels-seo/monitor/reports. add_to_schedule: also add the site to the list the scheduled
     hotel-seo-monitor command runs daily. Read-only. Background job."""
@@ -1091,7 +1093,9 @@ def _collect_all(group_dir, month, hotels, progress=None):
 def monthly_collect(group_dir: str, month: str = '', hotels: list[str] | None = None, wait_seconds: int = 45) -> dict:
     """/hotel-seo monthly, step 1: every number for the calendar month (YYYY-MM; default: last month) per hotel:
     Search Console (clicks, brand / non-brand, main-page position, countries, queries), GA4 (Google visits,
-    engagement, AI-assistant visits), Mirai direct bookings, rate parity, pages in Google (URL Inspection), work done
+    engagement, AI-assistant visits), Mirai direct bookings, rate parity, pages in Google (URL Inspection), Business
+    Profile (API, when the hotel is linked with gbp_link: views, calls, directions, website clicks, reviews, search
+    terms), work done
     (execute logs + work-log.csv); each for the month, the month before and the same month last year. Writes
     <hotel dir>/monthly-<month>/data.json. Runs in the background (job_status). "provisional" = run within 3 days
     of the month's end (Search Console not final yet)."""

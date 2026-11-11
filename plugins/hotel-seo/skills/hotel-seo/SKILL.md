@@ -411,15 +411,22 @@ report; a group gets one per hotel plus a Group Monthly Summary.
 3. **Rankings:** `serp_ranks("<domain>", slug, month)` shows the most Serper credits it can use; then
    `serp_ranks(..., confirm=true)`. No `SERPER_API` in `.env` → skip; the report shows Search Console positions only.
 4. **Business Profile and Search Console security (per hotel):**
-   - Business Profile for the month: `gbp_report("locations/<id>", "<hotel dir>/gbp", months=2)` when Business Profile
-     is set up (performance by month, rating, reviews); otherwise in Chrome (business.google.com → the hotel →
-     Performance, a new tab of the user's logged-in browser, never typing a password; needs Manager access for
+   - Business Profile, API first: collect already read it (`data.json` "gbp", status ok) when the hotel's profile is
+     linked and Business Profile is set up: views (Search / Maps, mobile / desktop), calls, directions, website
+     clicks, Reserve with Google (only when not 0; not hotel bookings), rating and reviews now and at the month end,
+     the month's new reviews (replied, unanswered, average stars) and the search terms that showed the profile, for
+     the month, the month before and a year ago. Not linked yet: `gbp_link("<domain>", slug, "<locations/id, website
+     or name>")` once (`gbp_locations` lists them), then re-run collect for that hotel. Only when the API can't be used
+     (no Business Profile sign-in, no access, status "not available"): Chrome as before (business.google.com → the
+     hotel → Performance, a new tab of the user's logged-in browser, never typing a password; needs Manager access for
      metahotels.m@gmail.com): rating, reviews, profile views, searches, calls, direction requests, website and booking
-     clicks, and the period the page shows.
+     clicks, and the period the page shows. Booking clicks have no API equivalent: add them from Chrome only if the
+     user wants them; the API numbers win for every other field.
    - Search Console → Security & Manual actions → "Security issues" and "Manual actions" in Chrome (write "None" when it
-     says so).
-   - `import_monthly_manual("<domain>", slug, month, {"gbp": {...}, "security": {...}})`, with the numbers exactly as the
-     tool or page shows them. Unattended run or no access: skip; the report says "not checked this month".
+     says so). This stays in Chrome.
+   - `import_monthly_manual("<domain>", slug, month, {"security": {...}})` (plus `"gbp": {...}` only for what was read
+     in Chrome), with the numbers exactly as the page shows them. Unattended run or no access: skip; the report says
+     "not checked this month".
 4b. **AI-answer panel (per hotel, Claude in Chrome):** `ai_prompts("<domain>", slug)` returns the hotel's fixed
    questions (`ai-prompts.json`; the first time it proposes ~10 from the keyword map: show them, apply the user's
    edits, save with `ai_prompts(..., prompts=[...])`; keep them the same every month) and the hotel facts to check
@@ -464,8 +471,12 @@ report; a group gets one per hotel plus a Group Monthly Summary.
   (`~/.metahotels-seo/monitor/<host>.json`). It compares the homepage and the ~40 key pages it links to (status,
   noindex, canonical, H1, Hotel / Offer / Breadcrumb schema), robots.txt (Googlebot or AI search crawlers newly
   blocked), booking links, suspicious posts, new WordPress users, REST / MCP routes open without login, spam searches
-  in Search Console and the tags that fire. Report alerts first (they need action today; security alerts go to the
-  MetaHotels team the same day), then changes, then the report path. Reports go to the site folder's `monitor/`
+  in Search Console and the tags that fire. For each hotel linked to its Business Profile (`gbp_link`) it also checks
+  the profile: fields Google changed itself (name, phone, website, hours: [High]; categories, address: [Medium]),
+  listing changes not in our `gbp_apply` log (same severities), edits waiting for Google review that we didn't send,
+  new 1–2 star reviews ([High]) and reviews unanswered for more than 7 days ([Medium]); a profile's first check is
+  its baseline. Report alerts first (they need action today; security alerts go to the MetaHotels team the same
+  day), then changes, then the report path. Reports go to the site folder's `monitor/`
   (`<domain>/monitor/` for a single hotel, `<domain>/group/monitor/` for a group) when that folder exists in the work
   folder, else `~/.metahotels-seo/monitor/reports/`.
 - `monitor add <domain>`: `monitor_site(..., add_to_schedule=true)` (adds it to `~/.metahotels-seo/monitor/sites.json`),
