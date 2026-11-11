@@ -67,7 +67,9 @@ MAIN_PHRASE_MAX_IN_INTRO = 2        # 3+ uses of the main phrase in the intro ->
 BANNED_BUTTONS = {'read more', 'click here', 'view more', 'learn more', 'submit', 'see more', 'more', 'click',
                   'here', 'more info', 'details'}
 ALT_GENERIC_START = re.compile(r'^\s*(?:an? )?(?:image|photo|picture|photograph|pic|graphic) (?:of|showing)\b', re.I)
-PRICE = re.compile(r'\b(?:AED|USD|EUR|GBP|SAR|QAR|OMR|INR|Dhs?|dirhams?)\b|درهم|[$€£₹]\s?\d|\d\s?%|'
+PRICE = re.compile(r'\b(?:AED|USD|EUR|GBP|SAR|QAR|OMR|INR|Dhs?|dirhams?)\b|درهم|[$€£₹]\s?\d|'
+                   # a percentage only when it is a discount ("20% off", "save 15%"), not "100% non-smoking"
+                   r'(?:\bsave\s+(?:up\s+to\s+)?|\bup\s+to\s+)\d+\s?%|\d+\s?%\s*(?:off|discount|savings?|cheaper|less)\b|'
                    r'\bfrom\s+\d[\d,]*(?![\d,])(?!\s*(?:[:.]\d|a\.?m\b|p\.?m\b|hours?|hrs?\b|h\b|minutes?|mins?\b|'
                    r'km\b|kilomet|met(?:re|er)s?\b|m\b|miles?\b|years?\b|yrs?\b|months?\b|weeks?\b|days?\b|'
                    r'nights?\b|guests?\b|people\b|persons?\b|adults?\b|child|kids?\b|floors?\b|rooms?\b|beds?\b|'

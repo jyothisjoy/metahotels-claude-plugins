@@ -58,8 +58,12 @@ def test_faq_answer_price_is_problem():
     for answer in ('Parking costs AED 50 a day.', 'Rooms from 450 per night.', 'Members save 10%.'):
         assert has(units(('faq_answer', answer))['problems'], 'FAQ answer with a price'), answer
     clean = units(('faq_answer', 'Check-in is from 2 pm and check-out is until 12:00.'),
-                  ('faq_answer', 'The airport is from 20 minutes away by taxi.'))
+                  ('faq_answer', 'The airport is from 20 minutes away by taxi.'),
+                  ('faq_answer', 'The hotel is 100% non-smoking.'),
+                  ('faq_answer', 'All rooms run on 100 % renewable power.'))
     assert not has(clean['problems'], 'price')
+    for answer in ('Book direct for 15% off.', 'Save up to 20% on suites.', 'Get a 10 % discount.'):
+        assert has(units(('faq_answer', answer))['problems'], 'FAQ answer with a price'), answer
 
 
 def test_faq_in_paste_block_and_table():
