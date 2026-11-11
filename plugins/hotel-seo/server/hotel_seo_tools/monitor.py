@@ -7,6 +7,9 @@ Each run takes a snapshot and compares it with the previous one (~/.metahotels-s
   - tags that fire on the rendered homepage: GTM / GA4 / Ads IDs added or gone
   - homepage: status, title, noindex, canonical; defacement text
   - REST routes (MCP / site control) that answer without logging in
+  - Business Profile, for each hotel linked with gbp_link: fields Google changed itself (hours, phone, website,
+    categories, address, name), listing changes not in our gbp_apply log, edits waiting for Google review, new 1-2
+    star reviews, reviews unanswered for more than 7 days. Alerts start with [High] / [Medium].
 The first run is the baseline (kept per machine in ~/.metahotels-seo/monitor/<host>.json). Reports go to <out_dir>,
 by default the site folder of the work folder: <domain>/monitor/ for a single hotel, <domain>/group/monitor/ for a
 group (paths.py / group.py layout); ~/.metahotels-seo/monitor/reports when the work folder has no <domain>/ folder
@@ -19,7 +22,7 @@ import argparse
 import hashlib
 import json
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -148,11 +151,232 @@ def snapshot(site, gsc_property=''):
     except Exception as e:  # noqa: BLE001
         snap['tags'] = None
         snap['tags_reason'] = str(e)[:200]
+    try:
+        snap['gbp'], why = gbp_snapshot(site)
+    except Exception as e:  # noqa: BLE001
+        snap['gbp'], why = {}, f'{type(e).__name__}: {str(e)[:200]}'
+    if why:
+        snap['gbp_reason'] = why
     return snap
 
 
-def compare(old, new):
-    """Alerts (need action) and changes (worth knowing) between two snapshots."""
+# ---------------------------------------------------------------- Google Business Profile
+
+GBP_FIELDS = ('title', 'phone', 'website', 'hours', 'categories', 'address')
+GBP_HIGH = {'title', 'phone', 'website', 'hours'}         # the rest are Medium
+GBP_LABELS = {'title': 'business name', 'phone': 'phone', 'website': 'website link', 'hours': 'opening hours',
+              'categories': 'categories', 'address': 'address'}
+GBP_LOW_STARS = 2               # a new review with this many stars or fewer: High
+GBP_UNANSWERED_DAYS = 7         # an unanswered review older than this: Medium
+GBP_REVIEWS_READ = 100
+# Business Information API field paths (diffMask / pendingMask) -> the fields above
+_GBP_MASK = (('title', 'title'), ('phoneNumbers', 'phone'), ('websiteUri', 'website'), ('regularHours', 'hours'),
+             ('specialHours', 'hours'), ('moreHours', 'hours'), ('categories', 'categories'),
+             ('storefrontAddress', 'address'), ('latlng', 'address'), ('serviceArea', 'address'))
+# gbp_apply log labels ("Website link", "Opening hours", "BUSINESS NAME (risky)" ...) -> the fields above
+_GBP_LOG = (('website', 'website'), ('phone', 'phone'), ('hours', 'hours'), ('categor', 'categories'),
+            ('address', 'address'), ('name', 'title'), ('title', 'title'))
+
+
+def _gbp_hours(h):
+    def t(x):
+        x = x or {}
+        return f"{x.get('hours', 0):02d}:{x.get('minutes', 0):02d}"
+    return '; '.join(f"{p.get('openDay', '')[:3]} {t(p.get('openTime'))}-"
+                     f"{(p.get('closeDay', '')[:3] + ' ') if p.get('closeDay') != p.get('openDay') else ''}"
+                     f"{t(p.get('closeTime'))}" for p in (h or {}).get('periods', []))
+
+
+def _gbp_fields(loc):
+    """The watched listing fields as plain strings (so snapshots compare with ==)."""
+    from .gbp import _addr
+    ph = loc.get('phoneNumbers') or {}
+    cat = loc.get('categories') or {}
+    return {'title': loc.get('title', ''),
+            'phone': ', '.join(x for x in [ph.get('primaryPhone', ''), *ph.get('additionalPhones', [])] if x),
+            'website': loc.get('websiteUri', ''), 'hours': _gbp_hours(loc.get('regularHours')),
+            'categories': ' | '.join(x for x in [(cat.get('primaryCategory') or {}).get('displayName', '')]
+                                     + [c.get('displayName', '') for c in cat.get('additionalCategories', [])] if x),
+            'address': _addr(loc)}
+
+
+def _gbp_mask(mask):
+    out = []
+    for part in (mask or '').split(','):
+        f = next((v for k, v in _GBP_MASK if part.strip().startswith(k)), None)
+        if f and f not in out:
+            out.append(f)
+    return out
+
+
+def gbp_state(loc, google_updated, reviews, today=None):
+    """One hotel's Business Profile state for the monitor: watched fields, fields Google changed (with Google's
+    value), pending edits, and the newest reviews (no reviewer names)."""
+    today = today or date.today()
+    md = loc.get('metadata') or {}
+    gu = google_updated or {}
+    gfields = _gbp_fields(gu.get('location') or {}) if gu.get('location') else {}
+    changed = _gbp_mask(gu.get('diffMask')) if md.get('hasGoogleUpdated') or gu.get('diffMask') else []
+    cutoff = (today - timedelta(days=GBP_UNANSWERED_DAYS)).isoformat()
+    revs = [{'id': r.get('review_id', ''), 'stars': r.get('stars'), 'date': r.get('date', ''),
+             'replied': bool(r.get('replied')), 'comment': (r.get('comment') or '')[:160]}
+            for r in (reviews or {}).get('reviews', [])]
+    return {'location': loc.get('name', ''), 'title': loc.get('title', ''), 'fields': _gbp_fields(loc),
+            'google_updated': {f: gfields.get(f, '') for f in changed},
+            'pending_edits': bool(md.get('hasPendingEdits')), 'pending_fields': _gbp_mask(gu.get('pendingMask')),
+            'reviews': revs,
+            'unanswered_old': sorted(r['id'] for r in revs if not r['replied'] and r['date'] and r['date'] < cutoff),
+            'rating': (reviews or {}).get('average_rating'), 'review_count': (reviews or {}).get('total')}
+
+
+def gbp_snapshot(site):
+    """{slug: gbp_state} for every hotel of the site whose Business Profile is linked (gbp_link), and a reason when
+    none is checked. A hotel whose read fails gets {"error": ...}."""
+    from . import gbp
+    from . import group as grp
+    host = _host(site)
+    d = paths.resolve(host)
+    reg = grp.load(d) if d.is_dir() else None
+    if not reg:
+        return {}, 'no site.json for this site in the work folder'
+    linked = {h['slug']: gbp.hotel_location(host, h['slug']) for h in reg.get('hotels', [])}
+    linked = {k: v for k, v in linked.items() if v.get('location')}
+    if not linked:
+        return {}, 'no hotel linked to its Business Profile (gbp_link)'
+    ok, why = gbp.configured()
+    if not ok:
+        return {}, why
+    out = {}
+    for slug, link in linked.items():
+        name = link['location']
+        try:
+            loc = gbp._get(f'{gbp.INFO}/{name}', {'readMask': gbp.READ_MASK})
+            md = loc.get('metadata') or {}
+            gu = gbp._get(f'{gbp.INFO}/{name}:getGoogleUpdated', {'readMask': gbp.READ_MASK}) \
+                if md.get('hasGoogleUpdated') or md.get('hasPendingEdits') else {}
+            account = link.get('account') or gbp._find(name)[0]
+            revs = gbp._reviews(account, name, GBP_REVIEWS_READ)
+            out[slug] = gbp_state(loc, gu, revs)
+        except Exception as e:  # noqa: BLE001 - one profile failing must not stop the monitor
+            out[slug] = {'error': f'{type(e).__name__}: {str(e)[:300]}'}
+    return out, ''
+
+
+def gbp_log(path=None):
+    """Our applied Business Profile changes (gbp_apply's ~/.metahotels-seo/gbp-changes.jsonl)."""
+    if path is None:
+        from .gbp_write import LOG as path
+    if not path.exists():
+        return []
+    rows = []
+    for line in path.read_text(encoding='utf-8').splitlines():
+        try:
+            rows.append(json.loads(line))
+        except ValueError:
+            continue
+    return rows
+
+
+def _when(s):
+    try:
+        d = datetime.fromisoformat(str(s).replace('Z', '+00:00'))
+    except ValueError:
+        return None
+    return d if d.tzinfo else d.astimezone()      # a naive time is this machine's local time
+
+
+def _ours(log, location, field, since):
+    """The gbp_apply change that set this field on this profile after `since`, or None."""
+    lid = str(location).split('/')[-1]
+    t0 = _when(since)
+    for r in reversed(log):
+        if str(r.get('location', '')).split('/')[-1] != lid or r.get('status') == 'failed':
+            continue
+        t = _when(r.get('when'))
+        if t0 and t and t < t0:
+            continue
+        for c in r.get('changes', []):
+            what = str(c.get('what', '')).lower()
+            if next((f for k, f in _GBP_LOG if k in what), None) == field:
+                return r
+    return None
+
+
+def _any_ours(log, location, since):
+    lid, t0 = str(location).split('/')[-1], _when(since)
+    return any(str(r.get('location', '')).split('/')[-1] == lid and r.get('status') != 'failed'
+               and not (t0 and _when(r.get('when')) and _when(r.get('when')) < t0) for r in log)
+
+
+def _sev(field):
+    return 'High' if field in GBP_HIGH else 'Medium'
+
+
+def compare_gbp(old, new, log, since):
+    """Business Profile alerts and changes for one site: {slug: gbp_state} then and now. A hotel seen for the first
+    time is a baseline: no alerts. Alerts start with their severity: [High] / [Medium]."""
+    alerts, changes = [], []
+    for slug, n in sorted((new or {}).items()):
+        if n.get('error'):
+            changes.append(f"Business Profile ({slug}) not checked: {n['error']}")
+            continue
+        o = (old or {}).get(slug)
+        who = f"Business Profile ({n.get('title') or slug})"
+        if not o or o.get('error'):
+            changes.append(f"{who}: baseline saved" + (
+                f"; Google's own changes waiting: {', '.join(GBP_LABELS[f] for f in n['google_updated'])}"
+                if n.get('google_updated') else '') + '.')
+            continue
+        for f in GBP_FIELDS:                              # fields Google changed itself
+            if f in n.get('google_updated', {}) and f not in (o.get('google_updated') or {}):
+                alerts.append(f"[{_sev(f)}] {who}: Google changed the {GBP_LABELS[f]} to "
+                              f"\"{n['google_updated'][f]}\" (listing: \"{n['fields'].get(f, '')}\"). Accept or "
+                              'reject it in the profile.')
+        for f in GBP_FIELDS:                              # changed since the last run
+            a, b = (o.get('fields') or {}).get(f), (n.get('fields') or {}).get(f)
+            if a is None or a == b:
+                continue
+            mine = _ours(log, n.get('location') or o.get('location', ''), f, since)
+            if mine:
+                changes.append(f"{who}: {GBP_LABELS[f]} changed by our change {mine.get('id', '')} "
+                               f"(\"{a}\" → \"{b}\").")
+            else:
+                alerts.append(f"[{_sev(f)}] {who}: {GBP_LABELS[f]} changed outside our changes (not in the gbp_apply "
+                              f"log): \"{a}\" → \"{b}\".")
+        if n.get('pending_edits') and not o.get('pending_edits'):
+            fs = n.get('pending_fields') or []
+            ours = all(_ours(log, n.get('location', ''), f, since) for f in fs) if fs else \
+                _any_ours(log, n.get('location', ''), since)
+            (changes if ours else alerts).append(
+                ('' if ours else '[Medium] ') + f"{who}: edits waiting for Google review"
+                + (f" ({', '.join(GBP_LABELS[f] for f in fs)})" if fs else '')
+                + ('' if ours else ', not sent by us') + '.')
+        seen = {r['id'] for r in o.get('reviews') or []}
+        day0 = (str(since)[:10]) if since else ''
+        for r in n.get('reviews') or []:
+            if r['id'] in seen or not r.get('stars') or r['stars'] > GBP_LOW_STARS:
+                continue
+            if day0 and r.get('date') and r['date'] < (date.fromisoformat(day0) - timedelta(days=1)).isoformat():
+                continue                                  # an old review that moved into the newest ones read
+            alerts.append(f"[High] {who}: new {r['stars']}-star review ({r.get('date')})"
+                          + (f": \"{r['comment']}\"" if r.get('comment') else '') + '. Reply today.')
+        aged = sorted(set(n.get('unanswered_old') or []) - set(o.get('unanswered_old') or []))
+        if aged:
+            dates = {r['id']: r for r in n.get('reviews') or []}
+            alerts.append(f"[Medium] {who}: {len(aged)} review(s) unanswered for more than {GBP_UNANSWERED_DAYS} days: "
+                          + '; '.join(f"{(dates.get(i) or {}).get('stars', '?')}★ {(dates.get(i) or {}).get('date', '')}"
+                                      for i in aged[:8]) + '.')
+        still = len(set(n.get('unanswered_old') or []) & set(o.get('unanswered_old') or []))
+        if still:
+            changes.append(f"{who}: {still} older review(s) still unanswered.")
+        if n.get('rating') is not None and o.get('rating') is not None and n['rating'] != o['rating']:
+            changes.append(f"{who}: rating {o['rating']} → {n['rating']} ({n.get('review_count')} reviews).")
+    return alerts, changes
+
+
+def compare(old, new, gbp_changes=None):
+    """Alerts (need action) and changes (worth knowing) between two snapshots. gbp_changes: our applied Business
+    Profile changes (default: read from the gbp_apply log when the snapshot has Business Profile data)."""
     alerts, changes = [], []
     if not old:
         return alerts, ['First run: baseline saved; changes show from the next run.']
@@ -229,6 +453,11 @@ def compare(old, new):
                 changes.append(f"New {k.upper()} tag firing: {came}")
         if ot.get('meta_pixel') and not nt.get('meta_pixel'):
             alerts.append('Meta pixel stopped firing on the homepage')
+    if new.get('gbp'):
+        ga, gc = compare_gbp(old.get('gbp'), new['gbp'], gbp_log() if gbp_changes is None else gbp_changes,
+                             old.get('taken'))
+        alerts += ga
+        changes += gc
     return alerts, changes
 
 
@@ -239,6 +468,9 @@ def run(site, gsc_property='', out_dir=''):
     old = json.loads(state.read_text(encoding='utf-8')) if state.exists() else None
     new = snapshot(site, gsc_property)
     alerts, changes = compare(old, new)
+    for slug, g in (new.get('gbp') or {}).items():      # a failed read keeps the last good state as the baseline
+        if g.get('error') and ((old or {}).get('gbp') or {}).get(slug) and not old['gbp'][slug].get('error'):
+            new['gbp'][slug] = {**old['gbp'][slug], 'last_error': g['error']}
     state.write_text(json.dumps(new, indent=1, ensure_ascii=False), encoding='utf-8')
     out = paths.resolve(out_dir) if out_dir else report_dir(site)
     out.mkdir(parents=True, exist_ok=True)
@@ -249,7 +481,9 @@ def run(site, gsc_property='', out_dir=''):
     lines += [f"Checked: homepage, {new.get('booking_links_checked', 0)} booking links, "
               f"{(new.get('posts') or {}).get('total', 'n/a')} posts, Search Console spam terms "
               f"{'(not checked: ' + str(new.get('spam_queries_reason')) + ')' if new.get('spam_queries') is None else ''}, "
-              f"rendered tags {'(not checked)' if new.get('tags') is None else ''}"]
+              f"rendered tags {'(not checked)' if new.get('tags') is None else ''}, "
+              f"Business Profile: {len(new.get('gbp') or {})} linked profile(s)"
+              f"{' (not checked: ' + new['gbp_reason'] + ')' if new.get('gbp_reason') else ''}"]
     report = out / f'monitor-{host}-{stamp}.md'
     report.write_text('\n'.join(lines) + '\n', encoding='utf-8')
     return {'site': host, 'alerts': alerts, 'changes': changes, 'report': str(report), 'baseline': old is None}

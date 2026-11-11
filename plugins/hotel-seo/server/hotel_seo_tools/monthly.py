@@ -8,12 +8,14 @@ Folders, per hotel folder (a single-hotel site: <domain>/ itself; a group: <doma
   <hotel dir>/ai-prompts.json                the fixed AI-answer questions (monthly_proof; manual.json "ai_panel")
   <hotel dir>/monthly-<YYYY-MM>/data.json    every number for the month (collect)
   <hotel dir>/monthly-<YYYY-MM>/serp.json    Serper positions (serp.run)
-  <hotel dir>/monthly-<YYYY-MM>/manual.json  what Claude read in Chrome (Business Profile, Search Console security)
+  <hotel dir>/monthly-<YYYY-MM>/manual.json  what Claude read in Chrome (Search Console security; Business Profile only
+                                               when the hotel's profile isn't linked for the Business Profile API)
   <hotel dir>/monthly-<YYYY-MM>/narrative.json  Claude's plain-language lines (numbers checked against the data)
   <hotel dir>/monthly-<YYYY-MM>/monthly-report.json  the document (render_report)
   group/monthly-<YYYY-MM>/                     the group page (group sites only)
 
-Every number comes from code: Search Console, GA4, Mirai, rate parity, URL Inspection, Serper, execute logs.
+Every number comes from code: Search Console, GA4, Mirai, rate parity, URL Inspection, Business Profile API, Serper,
+execute logs.
 The period is a calendar month compared with the month before and the same month last year.
 """
 import calendar
@@ -443,6 +445,100 @@ def add_work_log(group_dir, slug, day, what, page='', who='MetaHotels'):
     return {'file': str(f), 'added': {'date': day, 'what': what, 'page': page, 'who': who}}
 
 
+# ---------------------------------------------------------------- Google Business Profile (API)
+
+GBP_TOP_TERMS = 25          # search terms kept in data.json (the page shows the first 10)
+GBP_REVIEWS_LIMIT = 300     # newest reviews read for the month's review numbers
+GBP_PERF_KEYS = ('views', 'views_search', 'views_maps', 'views_mobile', 'views_desktop', 'calls', 'directions',
+                 'website_clicks', 'reserve_with_google_bookings', 'website_click_rate_pct')
+
+
+def _gbp_perf(row):
+    """One month of Business Profile performance (gbp._daily row) -> the report's fields; None -> "–"."""
+    if not row:
+        return {'no_data': True, **dict.fromkeys(GBP_PERF_KEYS)}
+    out = {k: row.get(k) for k in GBP_PERF_KEYS if k != 'views_desktop'}
+    out['views_desktop'] = (row['views'] - row['views_mobile']) if row.get('views') is not None \
+        and row.get('views_mobile') is not None else None
+    return out
+
+
+def _gbp_reviews(revs, per, limit=GBP_REVIEWS_LIMIT):
+    """Rating and review count now and at the month end, and each period's new reviews (replied, unanswered, average
+    stars) from the newest reviews gbp._reviews read. A period older than the reviews read is None ("–"), not 0."""
+    rows = revs.get('reviews') or []
+    total, avg = revs.get('total'), revs.get('average_rating')
+    every = (total is not None and len(rows) >= total) or len(rows) < limit
+
+    def reaches(day):           # the reviews read go back past `day` (newest first, by update time)
+        return every or (len(rows) >= 10 and all(r.get('date') and r['date'] < day for r in rows[-10:]))
+
+    def stats(s, e):
+        if not reaches(str(s)):
+            return {'complete': False, 'new': None, 'replied': None, 'unanswered': None, 'avg_stars': None}
+        mine = [r for r in rows if str(s) <= (r.get('date') or '') <= str(e)]
+        stars = [r['stars'] for r in mine if r.get('stars')]
+        replied = sum(1 for r in mine if r.get('replied'))
+        return {'complete': True, 'new': len(mine), 'replied': replied, 'unanswered': len(mine) - replied,
+                'avg_stars': round(sum(stars) / len(stars), 2) if stars else None}
+    out = {'rating_now': avg, 'total_now': total, 'read': len(rows),
+           **{k: stats(s, e) for k, (s, e) in per.items()}}
+    end = str(per['current'][1])
+    after = [r for r in rows if (r.get('date') or '') > end]
+    if total is not None and avg is not None and reaches(end):
+        n = total - len(after)
+        out['total_month_end'] = n
+        if not after:
+            out['rating_month_end'], out['rating_month_end_approx'] = avg, False
+        elif n > 0:              # Google's average is rounded, so this is close, not exact
+            out['rating_month_end'] = round((avg * total - sum(r.get('stars') or 0 for r in after)) / n, 1)
+            out['rating_month_end_approx'] = True
+    return out
+
+
+def _gbp(ctx, per, today=None):
+    """The month's Business Profile numbers straight from the Business Profile API for the hotel's linked profile
+    (gbp_link): views, calls, directions, website clicks (month, previous month, same month last year), reviews and
+    the search terms that showed the profile. Not linked or not signed in -> "not available" (manual.json is used)."""
+    from . import gbp
+    link = gbp.hotel_location(ctx['group_dir'], ctx['hotel']['slug'])
+    if not link.get('location'):
+        return {'status': 'not available: no Business Profile linked to this hotel (gbp_link)'}
+    ok, why = gbp.configured()
+    if not ok:
+        return {'status': f'not available: {why}'}
+    loc = link['location']
+    today = today or date.today()
+    res = {'status': 'ok', 'source': 'Business Profile API', 'location': loc, 'title': link.get('title', ''),
+           'errors': {}}
+    for k, (s, e) in per.items():
+        e2 = min(e, today)
+        row = None
+        if s <= e2:
+            try:
+                row = next((r for r in gbp._daily(loc, s, e2) if r['month'] == f'{s:%Y-%m}'), None)
+            except Exception as ex:  # noqa: BLE001 - one period failing leaves the others
+                res['errors'][f'performance {k}'] = str(ex)[:300]
+        res[k] = {'from': str(s), 'to': str(e), **_gbp_perf(row)}
+    s = per['current'][0]
+    try:
+        kws = gbp._keywords(loc, s, s)
+        res['search_terms'] = {'month': f'{s:%Y-%m}', 'total': len(kws), 'rows': [
+            {**r, 'display': fmt(r['impressions']) if r.get('impressions') is not None
+             else (f"< {r['below']}" if r.get('below') is not None else '–')} for r in kws[:GBP_TOP_TERMS]]}
+    except Exception as ex:  # noqa: BLE001
+        res['errors']['search terms'] = str(ex)[:300]
+    try:
+        account = link.get('account') or gbp._find(loc)[0]
+        res['reviews'] = _gbp_reviews(gbp._reviews(account, loc, GBP_REVIEWS_LIMIT), per)
+    except Exception as ex:  # noqa: BLE001
+        res['errors']['reviews'] = str(ex)[:300]
+    if all(res[k].get('no_data') for k in per) and 'reviews' not in res and 'search_terms' not in res:
+        return {'status': 'not available: ' + '; '.join(f'{k}: {v}' for k, v in res['errors'].items())[:500],
+                'location': loc}
+    return res
+
+
 MANUAL_FIELDS = {
     'gbp': {'rating': float, 'reviews': int, 'calls': int, 'directions': int, 'website_clicks': int,
             'booking_clicks': int, 'profile_views': int, 'searches': int, 'period': str, 'source': str,
@@ -535,6 +631,11 @@ def collect(group_dir, slug, month='', progress=None):
         data['index'] = _index(ctx, month, out)
     except Exception as e:  # noqa: BLE001
         data['index'] = {'status': f'not available: {type(e).__name__}: {str(e)[:200]}'}
+    say('Business Profile')
+    try:
+        data['gbp'] = _gbp(ctx, per)
+    except Exception as e:  # noqa: BLE001
+        data['gbp'] = {'status': f'not available: {type(e).__name__}: {str(e)[:200]}'}
     data['work'] = _work(ctx, month)
     say('change readback (Search Console, changed pages vs similar pages)')
     try:
@@ -547,7 +648,7 @@ def collect(group_dir, slug, month='', progress=None):
     (out / 'data.json').write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding='utf-8')
     return {'file': str(out / 'data.json'), 'provisional': data['provisional'],
             'status': {k: (data[k].get('status') if isinstance(data.get(k), dict) else None)
-                       for k in ('gsc', 'ga4', 'mirai', 'parity', 'index', 'readback')},
+                       for k in ('gsc', 'ga4', 'mirai', 'parity', 'index', 'gbp', 'readback')},
             'work_items': len(data['work']['items']), 'tracked_keywords': len(data['tracked'].get('keywords', [])),
             'tracked_confirmed': bool(data['tracked'].get('confirmed')), 'notes': data['notes']}
 
@@ -918,7 +1019,9 @@ def _assemble(ctx, month, data, serp_d, manual, nar):
     # ---- 06 Google Maps & Business Profile
     comps, missing = [], []
     gbp = manual.get('gbp')
-    if gbp:
+    if _ok(data.get('gbp')):
+        comps += _gbp_components(data['gbp'], gbp or {}, mlabel, plabel, ylabel)
+    elif gbp:
         cards = []
         if gbp.get('rating') is not None:
             cards.append({'value': f"{gbp['rating']} ★", 'change': f"{fmt(gbp.get('reviews'))} Google reviews",
@@ -929,10 +1032,12 @@ def _assemble(ctx, month, data, serp_d, manual, nar):
             if gbp.get(k) is not None:
                 cards.append({'value': fmt(gbp[k]), 'change': '', 'dir': None, 'label': lab})
         comps.append({'cards': cards})
-        comps.append({'note': f"Google Business Profile, {gbp.get('period') or mlabel}; read on {_short_date(gbp.get('checked', ''), year=True)}."})
+        comps.append({'note': f"Google Business Profile, {gbp.get('period') or mlabel}; read in Chrome on "
+                              f"{_short_date(gbp.get('checked', ''), year=True)}."})
     else:
-        comps.append({'text': 'Business Profile numbers not checked this month (needs Manager access for '
-                              'metahotels.m@gmail.com and Chrome).'})
+        comps.append({'text': 'Business Profile numbers not checked this month (link the hotel\'s profile for the '
+                              'Business Profile API, or read it in Chrome with Manager access for '
+                              'metahotels.m@gmail.com).'})
         missing.append('Business Profile not checked')
     maps = (serp_d or {}).get('maps') or {}
     if maps:
@@ -1032,6 +1137,85 @@ def _calendar_block(ctx, month, mlabel, plabel):
             'table': {'columns': ['', 'Days', 'Direct bookings', 'Bookings per day'], 'align': ['l', 'r', 'r', 'r'],
                       'rows': rows},
             'text': ' '.join(lines)}
+
+
+def _gbp_components(api, man, mlabel, plabel, ylabel):
+    """Page 06 from the Business Profile API block (data.json "gbp"). Fields the API can't give (booking clicks)
+    come from manual.json "gbp" when Claude read them in Chrome, labelled as such."""
+    C, P, Y = 'current', 'previous', 'last_year'
+    cur, prv, ly = (api.get(k) or {} for k in (C, P, Y))
+    rv = api.get('reviews') or {}
+    cards, chrome = [], []
+    rating, total = rv.get('rating_now'), rv.get('total_now')
+    if rating is None and man.get('rating') is not None:
+        rating, total = man['rating'], man.get('reviews')
+        chrome.append('rating')
+    if rating is not None:
+        cards.append({'value': f'{rating} ★', 'change': f'{fmt(total)} Google reviews', 'dir': None,
+                      'label': 'Google rating'})
+    for k, lab in (('views', 'people viewed the Business Profile (Google Search and Maps)'),
+                   ('website_clicks', 'website clicks from the profile'), ('calls', 'calls from the profile'),
+                   ('directions', 'direction requests')):
+        cards.append({'value': fmt(cur.get(k)), **_chg(cur.get(k), prv.get(k)), 'label': lab})
+    rwg = any((b.get('reserve_with_google_bookings') or 0) > 0 for b in (cur, prv, ly))
+    if rwg:
+        cards.append({'value': fmt(cur.get('reserve_with_google_bookings')),
+                      **_chg(cur.get('reserve_with_google_bookings'), prv.get('reserve_with_google_bookings')),
+                      'label': 'Reserve with Google bookings (Google\'s own booking button, not the hotel\'s direct '
+                               'bookings)'})
+    if man.get('booking_clicks') is not None:      # no Business Profile API equivalent
+        cards.append({'value': fmt(man['booking_clicks']), 'change': '', 'dir': None,
+                      'label': 'booking clicks from the profile (read in Chrome)'})
+        chrome.append('booking clicks')
+    comps = [{'cards': cards}]
+    rows = [['Profile views'] + [fmt(b.get('views')) for b in (cur, prv, ly)],
+            ['· on Google Search'] + [fmt(b.get('views_search')) for b in (cur, prv, ly)],
+            ['· on Google Maps'] + [fmt(b.get('views_maps')) for b in (cur, prv, ly)],
+            ['· on mobile'] + [fmt(b.get('views_mobile')) for b in (cur, prv, ly)],
+            ['· on desktop'] + [fmt(b.get('views_desktop')) for b in (cur, prv, ly)],
+            ['Website clicks'] + [fmt(b.get('website_clicks')) for b in (cur, prv, ly)],
+            ['Calls'] + [fmt(b.get('calls')) for b in (cur, prv, ly)],
+            ['Direction requests'] + [fmt(b.get('directions')) for b in (cur, prv, ly)]]
+    if rwg:
+        rows.append(['Reserve with Google bookings (not hotel bookings)']
+                    + [fmt(b.get('reserve_with_google_bookings')) for b in (cur, prv, ly)])
+    if rv:
+        rows.append(['New Google reviews'] + [fmt((rv.get(k) or {}).get('new')) for k in (C, P, Y)])
+        rows.append(['Average stars of new reviews'] + [fmt((rv.get(k) or {}).get('avg_stars'), 1) for k in (C, P, Y)])
+    comps.append({'title': 'Business Profile: this month, last month and a year ago',
+                  'table': {'columns': ['', mlabel, plabel, ylabel], 'align': ['l', 'r', 'r', 'r'], 'rows': rows}})
+    st = api.get('search_terms') or {}
+    terms = {'title': 'Searches that showed the profile',
+             'table': {'columns': ['Search term', 'Times shown'], 'align': ['l', 'r'],
+                       'rows': [[r['keyword'], r['display']] for r in (st.get('rows') or [])[:10]]}} \
+        if st.get('rows') else {'title': 'Searches that showed the profile',
+                                'text': 'Not available this month.' if 'search terms' in (api.get('errors') or {})
+                                else 'Google listed no search terms for the month.'}
+    mc = rv.get(C) or {}
+    if mc.get('complete'):
+        lines = [f"**{fmt(mc['new'])} new review{'s' if mc['new'] != 1 else ''}** in {mlabel}"
+                 + (f", average {fmt(mc['avg_stars'], 1)} ★" if mc.get('avg_stars') is not None else '') + '.']
+        if mc['new']:
+            lines.append(f"{fmt(mc['replied'])} replied, {fmt(mc['unanswered'])} not answered yet.")
+        tone = 'bad' if mc.get('unanswered') else 'good' if mc['new'] else 'muted'
+    elif rv:
+        lines, tone = [f'New reviews in {mlabel}: not counted (more reviews since than could be read).'], 'muted'
+    else:
+        lines, tone = ['Reviews not available this month.'], 'muted'
+    if rv.get('rating_now') is not None:
+        lines.append(f"Rating now {rv['rating_now']} ★ from {fmt(rv.get('total_now'))} reviews"
+                     + (f"; at the end of {mlabel} {'about ' if rv.get('rating_month_end_approx') else ''}"
+                        f"{rv['rating_month_end']} ★ from {fmt(rv.get('total_month_end'))}"
+                        if rv.get('rating_month_end') is not None else '') + '.')
+    comps.append({'grid2': [terms, {'title': 'Google reviews', 'text': ' '.join(lines), 'tone': tone}]})
+    note = (f"Google Business Profile API, {mlabel} compared with {plabel} and {ylabel}. Views count people who saw the "
+            'profile on Google Search or Maps (once per person a day). A search shown as "< 15" was seen fewer than that '
+            'many times: Google hides small counts.')
+    if chrome:
+        note += (f" {', '.join(chrome).capitalize()} read in Chrome on "
+                 f"{_short_date(man.get('checked', ''), year=True)} (not in the API).")
+    comps.append({'note': note})
+    return comps
 
 
 def _prev_month_start(month):
