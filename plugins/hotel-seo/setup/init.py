@@ -261,7 +261,7 @@ def google_signin(no_browser=False):
     say('  Sign in as metahotels.m@gmail.com and allow every permission (Analytics, Search Console, Drive')
     say('  files, Google Ads, Business Profile). If Google shows "Google hasn\'t verified this app": click Advanced ->')
     say('  Go to MetaHotels SEO (unsafe) -> Continue. Waiting up to 10 minutes...')
-    cmd = [sys.executable, '-m', 'hotel_seo_tools.google_auth', '--with-ads', '--with-gbp'] + (['--no-browser'] if no_browser else [])
+    cmd = [sys.executable, '-m', 'hotel_seo_tools.google_auth'] + (['--no-browser'] if no_browser else [])
     run(cmd, cwd=str(SERVER_SRC))
 
 

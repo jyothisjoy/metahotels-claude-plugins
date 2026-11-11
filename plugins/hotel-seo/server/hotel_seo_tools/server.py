@@ -503,6 +503,25 @@ def gbp_locations(query: str = '') -> dict:
 
 
 @mcp.tool()
+def gbp_link(domain: str, slug: str, location: str) -> dict:
+    """domain: the site folder (as for monthly_collect). Link one hotel to its Google Business Profile once: location is "locations/<id>" from gbp_locations, or the
+    hotel's website / name if it matches exactly one profile. Saved in the hotel's hotel.json under "gbp"; every
+    Business Profile step for that hotel (report, monthly, amenities, reviews, photos, execute) then uses it."""
+    try:
+        return gbp.link_hotel(domain, slug, location)
+    except gbp.GbpError as e:
+        return {'linked': False, 'reason': str(e)}
+
+
+@mcp.tool()
+def gbp_api_check() -> dict:
+    """Try every Google Business Profile API the plugin uses (Account Management, Business Information,
+    Performance, reviews/posts/photos, Lodging for hotel amenities) once and say which work, with the link to enable
+    any that is switched off on the Cloud project. Read-only."""
+    return _off_loop(gbp.api_check)
+
+
+@mcp.tool()
 def gbp_report(location: str, out_dir: str = '', crawl_dir: str = '', site: str = '', months: int = 12,
                reviews_limit: int = 200) -> dict:
     """Google Business Profile report for one hotel. location: "locations/<id>" from gbp_locations, or the

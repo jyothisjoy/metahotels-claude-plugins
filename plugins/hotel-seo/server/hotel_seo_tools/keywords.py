@@ -1,7 +1,7 @@
 """Keyword Planner through the Google Ads API: search volumes, competition and bid ranges.
 
 Needs, once per machine:
-  - the Google sign-in (hotel-seo-auth --with-ads) to include the Ads permission; the signed-in
+  - the Google sign-in (hotel-seo-auth) to include the Ads permission; the signed-in
     account must have access to the MetaHotels Google Ads manager account
   - ~/.metahotels-seo/google/ads.json with the account IDs (not secret), written by
     `hotel-seo-ads-login`
@@ -41,7 +41,7 @@ def configured():
         return False, 'no Google sign-in: run hotel-seo-auth'
     adc = json.loads(paths.GA_CREDENTIALS.read_text())
     if ADS_SCOPE not in adc.get('scopes', []):
-        return False, 'the Google sign-in has no Ads permission: run hotel-seo-auth --with-ads'
+        return False, 'the Google sign-in has no Ads permission: run hotel-seo-auth'
     return True, ''
 
 
@@ -138,7 +138,7 @@ def _safe(fn):
                         '(Cloud console → Google Ads API → Overview); Explorer blocks it.')
             elif name == 'RefreshError' or 'PERMISSION' in up:
                 hint = (' The signed-in Google account needs access to the Ads manager account, and the sign-in '
-                        'must include Ads (run hotel-seo-auth --with-ads).')
+                        'must include Ads (run hotel-seo-auth).')
             return {'checked': False, 'reason': f'{name}: {msg[:400]}.{hint}'}
     wrap.__name__, wrap.__doc__ = fn.__name__, fn.__doc__
     return wrap
@@ -218,7 +218,7 @@ def login():
     paths.GOOGLE_DIR.mkdir(parents=True, exist_ok=True)
     ADS_CONFIG.write_text(json.dumps({'login_customer_id': mcc, 'customer_id': cid}, indent=2))
     print(f'Saved to {ADS_CONFIG}. If the Google sign-in has no Ads permission yet, run '
-          'hotel-seo-auth --with-ads once.')
+          'hotel-seo-auth once.')
 
 
 if __name__ == '__main__':

@@ -1,7 +1,7 @@
 """Google Business Profile: the hotel's listing, how guests find and use it, its reviews, and whether
 the listing matches the website.
 
-Needs, once per machine: the Google sign-in with Business Profile (hotel-seo-auth --with-gbp), as an
+Needs, once per machine: the Google sign-in with Business Profile (hotel-seo-auth), as an
 account that manages the hotel's profile (owner or manager), and these APIs enabled on the
 metahotels-analytics Cloud project, which Google has approved for Business Profile API access:
   My Business Account Management API, My Business Business Information API,
@@ -31,6 +31,7 @@ ACCOUNTS = 'https://mybusinessaccountmanagement.googleapis.com/v1'
 INFO = 'https://mybusinessbusinessinformation.googleapis.com/v1'
 PERF = 'https://businessprofileperformance.googleapis.com/v1'
 V4 = 'https://mybusiness.googleapis.com/v4'
+LODGING = 'https://mybusinesslodging.googleapis.com/v1'
 READ_MASK = ('name,title,storeCode,languageCode,phoneNumbers,categories,storefrontAddress,websiteUri,'
              'regularHours,specialHours,latlng,openInfo,metadata,profile,labels')
 DAILY_METRICS = {
@@ -52,14 +53,15 @@ APIS = {  # host -> (name in Cloud console, library id), for "enable this API" h
                                       'mybusinessbusinessinformation.googleapis.com'),
     'businessprofileperformance': ('Business Profile Performance API', 'businessprofileperformance.googleapis.com'),
     'mybusiness.': ('Google My Business API', 'mybusiness.googleapis.com'),
+    'mybusinesslodging': ('My Business Lodging API', 'mybusinesslodging.googleapis.com'),
 }
 
 
 def configured():
     if not paths.GA_CREDENTIALS.exists():
-        return False, 'no Google sign-in: run hotel-seo-auth --with-gbp'
+        return False, 'no Google sign-in: run hotel-seo-auth'
     if GBP_SCOPE not in json.loads(paths.GA_CREDENTIALS.read_text()).get('scopes', []):
-        return False, 'the Google sign-in has no Business Profile permission: run hotel-seo-auth --with-gbp'
+        return False, 'the Google sign-in has no Business Profile permission: run hotel-seo-auth'
     return True, ''
 
 
@@ -94,7 +96,7 @@ def _hint(url, status, body):
                 f'{paths.GCP_PROJECT} project (the approval is per project, not per account).')
     if status in (401, 403):
         return (' The signed-in account must be an owner or manager of the profile, and the sign-in must '
-                'include Business Profile (hotel-seo-auth --with-gbp).')
+                'include Business Profile (hotel-seo-auth).')
     return ''
 
 
@@ -194,6 +196,107 @@ def _find(location):
     names = [f"{l.get('title')} ({l['name']}, {l.get('websiteUri', '')})" for _, l in hits[:15]]
     raise GbpError(f'"{location}" matches {len(hits)} profiles' + (': ' + '; '.join(names) if names else '')
                    + '. Pass the exact "locations/<id>" from gbp_locations.')
+
+
+# ---------- are the APIs on? ----------
+
+def api_check():
+    """Try one cheap read on every Business Profile API this plugin uses and say which work. A disabled API comes
+    back with the console link to enable it; the per-location APIs are tried on the first profile the account
+    manages. One Google permission (business.manage) covers all of them."""
+    ok, why = configured()
+    if not ok:
+        return {'checked': False, 'reason': why}
+    res, first = {}, None
+
+    def probe(key, url, params=None):
+        name = next(v[0] for k, v in APIS.items() if k == key)
+        try:
+            _get(url, params)
+            res[name] = 'ok'
+        except GbpError as e:
+            msg = str(e)
+            # 404 = the API answered (e.g. no lodging data on that profile yet)
+            res[name] = 'ok' if msg.startswith('404 ') else 'not working: ' + msg[:300]
+        except Exception as e:  # noqa: BLE001
+            res[name] = f'not working: {type(e).__name__}: {str(e)[:200]}'
+
+    try:
+        accounts = _accounts()
+        res['My Business Account Management API'] = 'ok'
+    except GbpError as e:
+        return {'checked': True, 'apis': {'My Business Account Management API': 'not working: ' + str(e)[:300]},
+                'all_ok': False}
+    info = 'My Business Business Information API'
+    res[info] = 'not tried: the account has no Business Profile account'
+    try:
+        for acc in accounts:
+            locs = _get(f'{INFO}/{acc["name"]}/locations', {'readMask': 'name,title', 'pageSize': 1}).get('locations') or []
+            res[info] = 'ok'
+            if locs:
+                first = (acc['name'], locs[0]['name'])
+                break
+    except GbpError as e:
+        res[info] = 'not working: ' + str(e)[:300]
+    if first:
+        acc, loc = first
+        lid = loc.split('/')[-1]
+        d = date.today() - timedelta(days=10)
+        probe('businessprofileperformance', f'{PERF}/locations/{lid}:fetchMultiDailyMetricsTimeSeries',
+              [('dailyMetrics', 'WEBSITE_CLICKS')] + [(f'dailyRange.{k}.{p}', getattr(d, p))
+                                                      for k in ('startDate', 'endDate') for p in ('year', 'month', 'day')])
+        probe('mybusiness.', f'{V4}/{acc}/locations/{lid}/reviews', {'pageSize': 1})
+        probe('mybusinesslodging', f'{LODGING}/locations/{lid}/lodging', {'readMask': 'policies'})
+    else:
+        for key in ('businessprofileperformance', 'mybusiness.', 'mybusinesslodging'):
+            res[APIS[key][0]] = 'not tried: the account manages no profile yet'
+    return {'checked': True, 'apis': res, 'tried_on': first[1] if first else '',
+            'all_ok': all(v == 'ok' for v in res.values())}
+
+
+# ---------- which profile belongs to which hotel ----------
+
+def _hotel_file(group_dir, slug):
+    from . import group as grp
+    return grp.hotel_dir(group_dir, slug) / 'hotel.json'
+
+
+def hotel_location(group_dir, slug):
+    """The hotel's linked profile, {"location": "locations/<id>", "account", "title", "website", "linked"}, from
+    <hotel dir>/hotel.json; {} when the hotel isn't linked yet (link it with link_hotel)."""
+    f = _hotel_file(group_dir, slug)
+    if not f.exists():
+        return {}
+    try:
+        return dict(json.loads(f.read_text(encoding='utf-8')).get('gbp') or {})
+    except ValueError:
+        return {}
+
+
+def resolve_hotel(group_dir, slug, location=''):
+    """The "locations/<id>" to use: the one given, else the hotel's linked one. Raises GbpError when neither."""
+    if location:
+        return location
+    loc = hotel_location(group_dir, slug).get('location')
+    if not loc:
+        raise GbpError(f'hotel "{slug}" has no linked Business Profile: run gbp_link with its location '
+                       '(gbp_locations lists them)')
+    return loc
+
+
+def link_hotel(group_dir, slug, location):
+    """Find the profile (locations/<id>, website host or name) and save it as this hotel's in hotel.json under "gbp"
+    (other keys kept). Every Business Profile step for the hotel then finds it without a lookup."""
+    account, loc = _find(location)
+    f = _hotel_file(group_dir, slug)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    data = json.loads(f.read_text(encoding='utf-8')) if f.exists() else {}
+    data['gbp'] = {'location': loc['name'] if loc['name'].startswith('locations/') else f"locations/{loc['name'].split('/')[-1]}",
+                   'account': account,
+                   'title': loc.get('title', ''), 'website': loc.get('websiteUri', ''),
+                   'linked': date.today().isoformat()}
+    f.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding='utf-8')
+    return {'file': str(f), **data['gbp']}
 
 
 # ---------- performance ----------

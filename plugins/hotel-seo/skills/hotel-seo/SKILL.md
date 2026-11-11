@@ -115,9 +115,12 @@ The plugin root is two folders above this skill (`<plugin>/skills/hotel-seo` →
    use, ask the user to quit the Claude desktop app completely (tray icon → Quit) and run it again.
 3. **Google sign-in** (GA4, Search Console read-only, Docs, Keyword Planner, Business Profile): `uv run --quiet
    --project "<plugin>/server" hotel-seo-ads-login --manager 437-179-3247`, then start `uv run --quiet --project
-   "<plugin>/server" hotel-seo-auth --with-ads --with-gbp` in the background. The user signs in as
+   "<plugin>/server" hotel-seo-auth` in the background. The user signs in as
    **metahotels.m@gmail.com** and allows everything (unverified app: Advanced → Go to MetaHotels SEO). `--no-browser`
-   prints the link instead.
+   prints the link instead. When it finishes it prints any permission left unticked (`MISSING PERMISSIONS`: run it
+   again and tick every box) and one `BUSINESS PROFILE <API>: ok / not working` line per Business Profile API; for
+   each one not working, give the user the enable link it prints (project `metahotels-analytics`). `gbp_api_check`
+   repeats that test any time.
 4. **API keys for the agents** — the user adds them to the work folder's `.env` (same file as `MIRAI_USER`); never
    read, print or type a key. `health_check` shows each as set / working and where it came from.
    - `PAGESPEED_API_KEY=` (or `GOOGLE_API_KEY=`) — Cloud console, project `metahotels-analytics`: enable **PageSpeed Insights API** and

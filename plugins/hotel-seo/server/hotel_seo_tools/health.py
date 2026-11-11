@@ -72,11 +72,13 @@ def check_google():
     from . import gbp
     ok, why = gbp.configured()
     if ok:
-        res = gbp.locations()
-        rows.append(_row('Google Business Profile', res.get('checked'),
-                         f"{res.get('count')} profiles visible" if res.get('checked') else res.get('reason', ''),
-                         'See the reason above: enable the API it names, or sign in as an owner / manager of the '
-                         'hotel profiles (hotel-seo-auth --with-gbp).'))
+        res = gbp.api_check()
+        bad = {k: v for k, v in (res.get('apis') or {}).items() if v != 'ok'}
+        rows.append(_row('Google Business Profile', res.get('checked') and not bad,
+                         ('all APIs work' if not bad else '; '.join(f'{k}: {v}' for k, v in bad.items()))
+                         if res.get('checked') else res.get('reason', ''),
+                         'Enable each API named above (its link is in the message), or sign in as an owner / '
+                         'manager of the hotel profiles (hotel-seo-auth).'))
     else:
         rows.append(_row('Google Business Profile', True, f'optional, not set up: {why}'))
     from . import bing, mirai, parity
