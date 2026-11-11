@@ -37,7 +37,7 @@ def _session():
         return None
     from google.auth.transport.requests import AuthorizedSession
     from google.oauth2.credentials import Credentials
-    creds = Credentials.from_authorized_user_info(json.loads(paths.GSC_TOKEN.read_text()), paths.gsc_scopes())
+    creds = Credentials.from_authorized_user_info(json.loads(paths.GSC_TOKEN.read_text()), [paths.GSC_SCOPE])
     return AuthorizedSession(creds)
 
 
@@ -45,11 +45,11 @@ def _cache_file(prop):
     return CACHE_DIR / (re.sub(r'[^\w.-]', '_', prop) + '.json')
 
 
-def _sitemap_urls(site, limit=5000):
+def _sitemap_urls(site, limit=None):
     s = requests.Session()
     s.headers['User-Agent'] = 'Mozilla/5.0'
     todo, seen, urls = [urljoin(site, '/sitemap_index.xml'), urljoin(site, '/sitemap.xml')], set(), []
-    while todo and len(urls) < limit:
+    while todo and (limit is None or len(urls) < limit):
         sm = todo.pop(0)
         if sm in seen:
             continue

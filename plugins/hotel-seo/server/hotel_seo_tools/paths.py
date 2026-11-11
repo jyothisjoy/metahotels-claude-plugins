@@ -34,21 +34,7 @@ CLIENT_SECRET = _client_secret()
 
 GCP_PROJECT = 'metahotels-analytics'
 GA_SCOPE = 'https://www.googleapis.com/auth/analytics.readonly'
-# Search Console is read-only for this plugin, so new sign-ins ask for webmasters.readonly.
-# Google refuses to refresh a token with a scope it wasn't granted (invalid_scope), so code uses
-# whatever the saved token has: older tokens carry the read-write scope until hotel-seo-auth is rerun.
-GSC_SCOPE = 'https://www.googleapis.com/auth/webmasters.readonly'
-GSC_SCOPE_LEGACY = 'https://www.googleapis.com/auth/webmasters'
-
-
-def gsc_scopes():
-    """The Search Console scope the saved token was granted (read-only for sign-ins since 0.9.0)."""
-    import json
-    try:
-        granted = json.loads(GSC_TOKEN.read_text()).get('scopes') or []
-    except (OSError, ValueError):
-        granted = []
-    return [GSC_SCOPE_LEGACY] if GSC_SCOPE_LEGACY in granted and GSC_SCOPE not in granted else [GSC_SCOPE]
+GSC_SCOPE = 'https://www.googleapis.com/auth/webmasters'
 
 LIBRECRAWL_PORT = int(os.environ.get('LIBRECRAWL_PORT', '5057'))  # not 5000: macOS AirPlay uses it
 LIBRECRAWL_URL = f'http://127.0.0.1:{LIBRECRAWL_PORT}'

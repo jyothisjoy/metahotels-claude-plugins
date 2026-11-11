@@ -169,7 +169,10 @@ def compare(summary, site_pages):
     offer_pages = {u: p for u, p in site_pages.items() if p['type'] == 'offers'}
     heads = {u: f"{p['h1']} {p['title']}" for u, p in room_pages.items()}
     for r in summary['rooms']:
-        url, score = _match(r['name'], heads.values())
+        # "Deluxe King Room - Late Check-out 2pm" / "Deluxe Room – 36-Hour Staycation (…)": the room is the part
+        # before the rate name
+        base = re.split(r'\s+[-–(]\s*', r['name'])[0]
+        url, score = _match(base, heads.values(), need=0.5)
         url = next((u for u, h in heads.items() if h == url), None)
         row = {'room': r['name'], 'engine_size': r['size'], 'engine_max_occupancy': r['max_occupancy'],
                'site_page': url, 'match': score}
@@ -214,8 +217,9 @@ def _page_type(url):
     return 'other'
 
 
-def _site_urls(crawl_dir, site, limit=60):
-    """Room, offer and loyalty pages from the crawl (or just the homepage without one)."""
+def _site_urls(crawl_dir, site, only_urls=None):
+    """Room, offer and loyalty pages from the crawl (or just the homepage without one). only_urls: on a group site,
+    the hotel's own pages (partition.json), so another hotel's room pages are never compared with this engine."""
     if not crawl_dir:
         return [site.rstrip('/') + '/']
     from .librecrawl import is_page
@@ -223,12 +227,17 @@ def _site_urls(crawl_dir, site, limit=60):
     host = urlparse(site).netloc.replace('www.', '')
     urls = [u['url'] for u in data['urls'] if is_page(u) and urlparse(u['url']).netloc.replace('www.', '') == host
             and not urlparse(u['url']).query]
+    if only_urls:
+        mine = {u.rstrip('/') for u in only_urls}
+        urls = [u for u in urls if u.rstrip('/') in mine]
+        home = min(urls, key=len) if urls else site.rstrip('/') + '/'
+        return [home] + [u for u in urls if u != home and _page_type(u) != 'other']
     keep = [u for u in urls if _page_type(u) != 'other']
-    return [site.rstrip('/') + '/'] + keep[:limit]
+    return [site.rstrip('/') + '/'] + keep
 
 
 def snapshot(site, hotel_id, out_dir, stays=None, crawl_dir='', facts_file='', peak_month=12,
-             currency='', lang='en', progress=None):
+             currency='', lang='en', progress=None, only_urls=None):
     from playwright.sync_api import sync_playwright
     site = site if site.startswith('http') else 'https://' + site
     out = paths.resolve(out_dir)
@@ -280,7 +289,7 @@ def snapshot(site, hotel_id, out_dir, stays=None, crawl_dir='', facts_file='', p
             time.sleep(2)
 
         site_pages = {}
-        urls = _site_urls(crawl_dir, site)
+        urls = _site_urls(crawl_dir, site, only_urls)
         for n, u in enumerate(urls, 1):
             try:
                 page.goto(u, wait_until='domcontentloaded', timeout=45000)
@@ -312,9 +321,7 @@ def snapshot(site, hotel_id, out_dir, stays=None, crawl_dir='', facts_file='', p
     for c in summary['cancellation_options']:
         facts.append(f'Cancellation option: {c}')
     if facts_file:
-        merged = _merge_facts(facts_file, facts, f'booking engine, {today:%d %b %Y}')
-    else:
-        merged = {}
+        _merge_facts(facts_file, facts, f'booking engine, {today:%d %b %Y}')
 
     result = {'site': site, 'hotel_id': hotel_id, 'checked': today.isoformat(), 'stays': results,
               'summary': summary, 'calendar': cal, 'engine_settings': {
@@ -322,25 +329,21 @@ def snapshot(site, hotel_id, out_dir, stays=None, crawl_dir='', facts_file='', p
               'tracking_in_engine': {k: v for k, v in (engine_cfg.get('tracking') or {}).items()
                                      if isinstance(v, list) and v},
               'website_vs_engine': comparison, 'facts': facts, 'errors': errors,
-              'site_pages_rendered': len(site_pages),
-              'engine_corrections': merged.get('engine_corrections', [])}
+              'site_pages_rendered': len(site_pages)}
     (out / 'booking_engine.json').write_text(json.dumps(result, indent=1, ensure_ascii=False), encoding='utf-8')
     md = summary_md(result)
-    if result['engine_corrections']:
-        lines = [f"- {c['engine_sells']} → hotel says: {c['hotel_says']}" for c in result['engine_corrections']]
-        md += ('\n## Booking engine corrections (the hotel has answered; the engine sells something else)\n\n'
-               'A Mirai setting for whoever manages the engine, not a page edit. The site follows the hotel.\n\n'
-               + '\n'.join(lines) + '\n')
     (out / 'booking_engine.md').write_text(md, encoding='utf-8')
     return {'files': [str(out / 'booking_engine.json'), str(out / 'booking_engine.md')],
-            'errors': errors, 'engine_corrections': result['engine_corrections'], 'summary_md': md[:7000]}
+            'errors': errors, 'summary_md': md[:7000]}
 
 
 def _merge_facts(facts_file, facts, source):
-    # one value per fact: an engine figure that contradicts the hotel's own answer is stored superseded, and
-    # comes back as a booking engine correction (facts.add_facts)
-    from . import facts as fx
-    return fx.add_facts(facts_file, facts, source)
+    f = paths.resolve(facts_file)
+    doc = json.loads(f.read_text(encoding='utf-8')) if f.exists() else {'facts': []}
+    have = {x.get('fact') for x in doc.get('facts', [])}
+    doc.setdefault('facts', []).extend({'fact': x, 'source': source} for x in facts if x not in have)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps(doc, indent=1, ensure_ascii=False), encoding='utf-8')
 
 
 def summary_md(r):

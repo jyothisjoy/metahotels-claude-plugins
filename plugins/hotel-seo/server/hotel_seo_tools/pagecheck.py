@@ -43,22 +43,7 @@ PAGE_JS = """() => ({
   h1_hidden: [...document.querySelectorAll('h1')].filter(h => h.offsetParent === null).length,
   jsonld: [...document.querySelectorAll('script[type="application/ld+json"]')].map(s => s.textContent),
   consent: !!document.querySelector('[id*="cookie" i], [class*="cookie" i], [id*="consent" i], [class*="consent" i]'),
-  consent_mode: (window.dataLayer || []).filter(e => e && e[0] === 'consent')
-        .map(e => ({command: e[1], params: e[2] || {}})).slice(0, 6),
-  history_added: history.length - (window.__hsStart || history.length),
-  push_states: (window.__hsPush || []).slice(0, 10),
 })"""
-
-# Back-button hijacking (Google spam policy, enforced since 15 Jun 2026): scripts that add history entries
-# so Back doesn't leave the site. We never click, so any pushState during load and scrolling is the page's own.
-HISTORY_JS = """(() => {
-  window.__hsPush = []; window.__hsStart = history.length;
-  const wrap = name => { const orig = history[name].bind(history);
-    history[name] = function (state, title, url) {
-      if (name === 'pushState') window.__hsPush.push(String(url || location.href));
-      return orig(state, title, url); }; };
-  wrap('pushState');
-})();"""
 
 
 def _tags(requests_seen):
@@ -77,15 +62,6 @@ def _tags(requests_seen):
         if 'facebook.com' in p.netloc and p.path.startswith('/tr'):
             tags['meta_pixel'] = True
     return {k: sorted(v) if isinstance(v, set) else v for k, v in tags.items()}
-
-
-def _consent_states(requests_seen):
-    out = set()
-    for u in requests_seen:
-        p = urlparse(u)
-        if re.search(r'google-analytics\.com|analytics\.google\.com|googletagmanager\.com', p.netloc):
-            out.update(parse_qs(p.query).get('gcs', []))
-    return sorted(out)
 
 
 def _jsonld_types(blocks):
@@ -114,7 +90,6 @@ def inspect(urls, out_dir, viewports=('desktop', 'mobile'), wait_ms=4000):
         browser = p.chromium.launch()
         for vp in viewports:
             ctx = browser.new_context(**(MOBILE if vp == 'mobile' else DESKTOP))
-            ctx.add_init_script(HISTORY_JS)
             for url in urls:
                 page = ctx.new_page()
                 seen, errors = [], []
@@ -144,14 +119,6 @@ def inspect(urls, out_dir, viewports=('desktop', 'mobile'), wait_ms=4000):
                         'h1_visible': info['h1'], 'h1_hidden_count': info['h1_hidden'],
                         'jsonld_types': _jsonld_types(info['jsonld']),
                         'consent_banner': info['consent'],
-                        # gtag('consent', 'default' / 'update', ...) calls, and the consent state GA4 hits
-                        # carried (gcs G1xx: G100 = all denied, G111 = granted). No consent call at all on an
-                        # EEA-facing site = no Consent Mode v2.
-                        'consent_mode': info['consent_mode'],
-                        'ga4_consent_states': _consent_states(seen),
-                        # entries added to the history without a click: the back-button hijacking signal
-                        'history_entries_added': max(0, info['history_added']),
-                        'push_states_without_click': info['push_states'],
                         'overlays': page.evaluate(OVERLAY_JS),
                         'tags_fired': _tags(seen),
                         'console_errors': len(errors),

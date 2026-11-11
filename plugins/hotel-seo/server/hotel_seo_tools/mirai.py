@@ -9,7 +9,7 @@ Claude never reads or prints them; they only go into the Basic auth header.
 
 What the API gives (and what the spec gets wrong, checked against live responses, Oct 2026):
   - One call per 3 minutes and at most 31 days per call. The last call time is kept on disk, so the
-    limit holds across MCP server restarts and the scheduled monitor.
+    limit holds across MCP server restarts.
   - One login covers a whole chain: each response has a <bookings hotelId=...> group for every hotel
     the login can see (empty ones too), so one window serves every hotel and tells us whether a
     Mirai ID is covered at all.
@@ -143,8 +143,7 @@ def _failure(root):
         return ''
     comment = _text(f.find('comment'))
     first = next((ln.strip() for ln in comment.splitlines() if ln.strip()), '')
-    message = re.sub(r'^[\w.]+Exception:\s*', '', first)[:200]
-    return f"{f.get('type', 'failure')}: {message}"
+    return f"{f.get('type', 'failure')}: {re.sub(r'^[\w.]+Exception:\s*', '', first)[:200]}"
 
 
 def _booking(b, hotel_id):
@@ -250,55 +249,7 @@ def _call(params, progress=None):
         raise RuntimeError('Mirai rejected the login (401): check MIRAI_USER / MIRAI_PASS.')
     if r.status_code >= 400 and '<failure' not in r.text:
         raise RuntimeError(f'Mirai answered HTTP {r.status_code}.')
-    data = parse(r.text)
-    LAST_OK.write_text(str(time.time()))
-    return data
-
-
-LAST_OK = CACHE / 'last-ok'
-
-
-def test_login(user=None, pw=None, wait=False):
-    """One real authenticated call (bookings made yesterday..today): a saved login can still be
-    rejected (a saved file returned 401 on first use, Oct 2026). Returns (True/False/None, detail);
-    None = not tested because the 3-minute limit hasn't passed and wait=False."""
-    if user is None:
-        user, pw, where = credentials()
-        if not user:
-            return False, where
-    CACHE.mkdir(parents=True, exist_ok=True)
-    try:
-        last = float(LAST_CALL.read_text())
-    except (OSError, ValueError):
-        last = 0.0
-    left = MIN_GAP - (time.time() - last)
-    if left > 0 and not wait:
-        try:
-            ok_at = datetime.fromtimestamp(float(LAST_OK.read_text())).strftime('%Y-%m-%d %H:%M')
-        except (OSError, ValueError):
-            ok_at = 'never'
-        return None, (f'NOT TESTED: Mirai allows one call per 3 minutes; retry in {int(left) + 1}s '
-                      f'(last successful call: {ok_at})')
-    token = base64.b64encode(f'{user}:{pw}'.encode()).decode()
-    frm, to = date.today() - timedelta(days=1), date.today()
-    with _lock:
-        _wait_turn()
-        try:
-            r = requests.get(URL, params={'from': f'{frm}T00:00:00', 'to': f'{to}T23:59:59',
-                                          'modified_reservations': 'true'},
-                             headers={'Authorization': f'Basic {token}', 'Content-Type': 'text/xml'}, timeout=180)
-        except requests.RequestException as e:
-            return False, f'no answer from Mirai: {type(e).__name__}'
-        finally:
-            LAST_CALL.write_text(str(time.time()))
-    if r.status_code == 401:
-        return False, 'Mirai rejected the login (401)'
-    try:
-        hotels = parse(r.text)['hotels']
-    except Exception as e:  # noqa: BLE001 - any parse failure means the call didn't work
-        return False, f'HTTP {r.status_code}: {str(e)[:150]}'
-    LAST_OK.write_text(str(time.time()))
-    return True, f'login works ({len(hotels)} hotels on this login)'
+    return parse(r.text)
 
 
 def _window(by, frm, to, progress=None):
@@ -472,7 +423,7 @@ def reservations(hotel_id, date_from='', date_to='', by='booking', out_dir='', p
         # Mirai only lists hotels with some activity in the window, so a quiet hotel over a short range
         # looks the same as a hotel this login doesn't cover.
         out['warning'] = (f'Mirai returned nothing at all for hotel {hid} in this range ({len(hotels_seen)} other '
-                          'hotels had activity). Either the Mirai ID is wrong (check team.md or idtokenprovider in '
+                          'hotels had activity). Either the Mirai ID is wrong (check idtokenprovider in '
                           'the site\'s booking links), this login does not cover the hotel, or it had no bookings, '
                           'changes or cancellations in the range.')
     out.update(summarise(bookings))
@@ -501,15 +452,10 @@ def login():
     pw = getpass.getpass('Password: ')
     if not user or not pw:
         raise SystemExit('Nothing saved.')
-    print('Testing the login with one call (Mirai allows one call per 3 minutes, so this can take a while)...')
-    ok, detail = test_login(user, pw, wait=True)
-    if not ok:
-        raise SystemExit(f'Nothing saved: {detail}. Check the login and password and run this again.')
-    print(detail)
     paths.HOME.mkdir(parents=True, exist_ok=True)
     CREDS.write_text(json.dumps({'login': user, 'password': pw}), encoding='utf-8')
     try:
         CREDS.chmod(0o600)
     except OSError:
         pass
-    print('Saved and tested.')
+    print('Saved. Test with a short range: mirai_reservations(hotel_id, date_from=<7 days ago>).')

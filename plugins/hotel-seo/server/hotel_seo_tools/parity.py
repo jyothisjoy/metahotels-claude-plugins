@@ -6,7 +6,7 @@ The same files the 6am leak report and the Magic Parity dashboard ingest:
   Docs/metahotels_hotel_services_YYYYMMDD.csv   hotel roster: id_hotel, hotel_name, idtokenprovider (Mirai ID)
 
 Playbook: if the hotel's own site is dearer than the OTAs, page fixes won't win the booking, so a
-losing parity picture goes at the top of the Priority list.
+losing parity picture goes first in the executive summary.
 
 Connection: ~/.metahotels-seo/parity.json {"connection_string", "container"}, written by
 `hotel-seo-parity-login` (pasted, or read from a .env file with --from-env), or the
@@ -106,8 +106,9 @@ def _matches(row, hotel, hotel_id):
     return bool(words) and all(w in name for w in words)
 
 
-def report(hotel='', mirai_id='', days=7, source='web', out_dir=''):
-    """Parity for one hotel over the last `days` daily files: Beat / Meet / Lose share of the checks
+def report(hotel='', mirai_id='', days=7, source='web', out_dir='', date_from='', date_to=''):
+    """Parity for one hotel over the last `days` daily files (or the files dated date_from..date_to, YYYY-MM-DD,
+    for a calendar month): Beat / Meet / Lose share of the checks
     where the OTA showed a price, by OTA, device, guest country and lead time, the price gap, and
     the worst losing checks with screenshots. Feed conventions: `price` is the OTA's price,
     `price_customer` the hotel site's; a positive price_difference means the site is dearer (Lose).
@@ -124,9 +125,14 @@ def report(hotel='', mirai_id='', days=7, source='web', out_dir=''):
         if not hit:
             return {'checked': True, 'found': False, 'reason': f'Mirai ID {mirai_id} is not in the parity feed roster'}
         hotel_id, hotel = _clean(hit.get('id_hotel')), _clean(hit.get('hotel_name'))
-    files = _latest(c, source, days)
+    if date_from or date_to:
+        lo, hi = (date_from or '0000-00-00').replace('-', ''), (date_to or '9999-99-99').replace('-', '')
+        files = [f for f in _latest(c, source, 100000) if lo <= f[0] <= hi]
+    else:
+        files = _latest(c, source, days)
     if not files:
-        return {'checked': False, 'reason': f'no {source} parity files in the container'}
+        return {'checked': False, 'reason': f'no {source} parity files in the container' +
+                (f' between {date_from} and {date_to}' if date_from or date_to else '')}
     rows = []
     for d, name in files:
         for r in _read(c, name):
@@ -181,7 +187,7 @@ def report(hotel='', mirai_id='', days=7, source='web', out_dir=''):
     }
     lose = result['overall']['Lose']
     result['verdict'] = ('LOSING: the hotel site is dearer than an OTA on {}% of priced checks; put parity at the '
-                         'top of the Priority list'.format(lose) if lose >= 20 else
+                         'first item of the executive summary'.format(lose) if lose >= 20 else
                          'Mostly at parity ({}% of priced checks Lose)'.format(lose))
     if out_dir:
         out = paths.resolve(out_dir)

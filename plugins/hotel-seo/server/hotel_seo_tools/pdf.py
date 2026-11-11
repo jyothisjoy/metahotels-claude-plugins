@@ -1,6 +1,6 @@
-"""Render a list (Priority, Nice-to-Have, Web Team, Re-check) from JSON to an A4 PDF.
+"""Render a document (Audit Report, Build Plan, Web Team List, Group Summary, Execute Report, Re-check) to an A4 PDF.
 
-Claude writes the content as JSON following skills/hotel-seo/templates/lists.schema.json;
+The document JSON comes from report.py (audit, web team, group) or Claude (Build Plan, Re-check edits);
 this module owns the look, so every hotel's PDFs match (Playbook section 8).
 
 Text fields accept a small markdown subset:
@@ -24,11 +24,13 @@ REQUIRED = ('hotel', 'title', 'date', 'sections')
 STATUS = {'done': 'st-done', 'ok': 'st-done', 'partly': 'st-partly', 'partial': 'st-partly', 'open': 'st-open',
           'manual': 'st-partly', 'waiting': 'st-partly', 'fix': 'st-open'}
 BLOCKS = ('p', 'ol', 'ul', 'table', 'code', 'warning', 'note', 'paste', 'h3')
-TITLES = ('Priority SEO List', 'Nice-to-Have SEO List', 'Secondary SEO List', 'Web Team List', 'Re-check')
+TITLES = ('Audit Report', 'Build Plan', 'Web Team List', 'Group Summary', 'Execute Report', 'Re-check',
+          'Monthly Report', 'Group Monthly Summary', 'Agency Fix List')
+MONTHLY = ('Monthly Report', 'Group Monthly Summary')   # client look: monthly.html.j2
 DEFAULT_COLUMNS = ['#', 'Task', 'Time']
-DEFAULT_FOOTER = ('**When done:** LiteSpeed → Purge All → send MetaHotels the change list (mark items done only '
-                  'once they are live). We will re-crawl and check every item.')
-A4_CONTENT_PX = (297 - 14 - 16) / 25.4 * 96      # printable height per page at 96 dpi (list.css @page margins)
+DEFAULT_FOOTER = ('**When done:** purge the page cache and tell MetaHotels what changed. Every finding is re-checked '
+                  'on the live site (/hotel-seo recheck); fixes can also be applied with /hotel-seo execute in approved '
+                  'batches.')
 
 
 def rich(text):
@@ -65,38 +67,11 @@ def load(doc_or_path):
     return json.loads(p.read_text(encoding='utf-8'))
 
 
-ESCAPED = re.compile(r'\\u[0-9a-fA-F]{4}')
-
-
-def escaped_text(doc):
-    r"""Visible text holding a literal \uXXXX: Arabic (or any non-Latin text) that was escaped twice
-    and would print as codes (one hotel's Arabic came out this way)."""
-    hits = []
-
-    def walk(v, where):
-        if isinstance(v, str):
-            m = ESCAPED.search(v)
-            if m:
-                hits.append(f'{where}: ...{v[max(0, m.start() - 20):m.end() + 20]}...')
-        elif isinstance(v, dict):
-            for k, x in v.items():
-                if k != 'checks':
-                    walk(x, f'{where}.{k}' if where else k)
-        elif isinstance(v, list):
-            for i, x in enumerate(v):
-                walk(x, f'{where}[{i}]')
-    walk(doc, '')
-    return hits
-
-
 def validate(doc):
-    bad = escaped_text(doc)
-    if bad:
-        raise ValueError(r'Literal \uXXXX escapes in the list text (they would print as codes, not letters): '
-                         + '; '.join(bad[:5]) + '. Write the real characters (save the JSON as UTF-8).')
     missing = [k for k in REQUIRED if not doc.get(k)]
     if missing:
         raise ValueError(f'List JSON is missing: {", ".join(missing)}')
+    normalize(doc)
     for i, s in enumerate(doc['sections'], 1):
         if not s.get('title'):
             raise ValueError(f'Section {i} has no title')
@@ -114,9 +89,110 @@ def validate(doc):
         summary['show_header'] = summary['columns'] != DEFAULT_COLUMNS
     doc.setdefault('warnings_top', [])
     doc.setdefault('warnings_end', [])
-    if doc['title'] != 'Re-check':
+    if doc['title'] not in ('Re-check',) + MONTHLY:
         doc.setdefault('footer', DEFAULT_FOOTER)
     doc['name'] = list_name(doc)
+    return doc
+
+
+SEV_CLASS = {'critical': 'sev-critical', 'high': 'sev-high', 'medium': 'sev-medium', 'low': 'sev-low',
+             'info': 'sev-info'}
+
+
+def build_plan_page_sections(doc):
+    """Build Plan: one section per page spec in doc['pages'] (structure first, then each page's paste-ready spec)."""
+    pages = doc.get('pages') or []
+    if doc.get('title') != 'Build Plan' or not pages:
+        return []
+    out = [{'chapter': 'Page specs', 'title': 'Page specs', 'chapter_label': f'Page specs · {len(pages)} pages',
+            'blocks': []}]
+    for n, p in enumerate(pages, 1):
+        blocks = [{'table': {'columns': ['Field', 'Value'], 'rows': [
+            ['URL', f"`{p.get('url', '')}`"], ['Status', p.get('status', '')],
+            ['Target searches', ', '.join(p.get('keywords') or []) or p.get('cluster', '')],
+            ['Searches / month', p.get('volume', '')], ['Title (SEO)', f"`{p.get('seo_title', '')}`"],
+            ['Meta description', f"`{p.get('meta_description', '')}`"], ['H1', f"`{p.get('h1') or p.get('title', '')}`"]]}}]
+        if p.get('copy'):
+            blocks.append({'h3': 'Page copy (paste as is)'})
+            blocks.append({'paste': p['copy']})
+        if p.get('sections'):
+            blocks.append({'ul': [str(x) for x in p['sections']]})
+        if p.get('jsonld'):
+            blocks.append({'h3': 'Schema (JSON-LD)'})
+            blocks.append({'code': p['jsonld'] if isinstance(p['jsonld'], str) else json.dumps(p['jsonld'], indent=1,
+                                                                                                 ensure_ascii=False)})
+        links = [[f"`{x}`", 'links in'] for x in p.get('links_in') or []] + \
+                [[f"`{x}`", 'links out'] for x in p.get('links_out') or []]
+        if links:
+            blocks.append({'table': {'columns': ['Page', 'Direction'], 'rows': links}})
+        if p.get('images'):
+            blocks.append({'h3': 'Images'})
+            blocks.append({'ul': [str(x) for x in p['images']]})
+        if p.get('booking_cta'):
+            blocks.append({'note': '**Booking button:** ' + p['booking_cta']})
+        out.append({'number': f'P{n}', 'title': p.get('h1') or p.get('title') or p.get('url', ''), 'blocks': blocks,
+                    **({'hold': p['hold']} if p.get('hold') else {})})
+    return out
+
+
+def normalize(doc):
+    """Audit Report / Group Summary extras -> plain sections every renderer understands (idempotent):
+    a "Scores" section (Health Score, categories, separate scores, agent status) at the top."""
+    if doc.get('_normalized'):
+        return doc
+    doc['_normalized'] = True
+    sc = doc.get('scores')
+    pre = []
+    if sc and sc.get('categories'):
+        h = sc.get('health')
+        def _row(c):
+            na = c.get('score') is None
+            return [c['name'], f"{c['weight']}%" if c.get('weight') else 'separate',
+                    'not assessed' if na else c['score'],
+                    '–' if na else c.get('passed', 0), '–' if na else c.get('failed', 0),
+                    c.get('not_measured', 0) or ('–' if na else 0),
+                    (c.get('basis') or '').replace('not assessed: ', '')]
+        rows = [_row(c) for c in sc['categories']]
+        blocks = [{'p': f"**Health Score: {h if h is not None else 'not assessed'}/100**. Weighted average of the "
+                        'category scores; a category score is the share of its checks that pass, weighted by '
+                        'severity (Critical 4, High 3, Medium 2, Low 1). Categories not assessed are left out and the '
+                        'weights rescaled. Local, Maps and Backlinks are shown separately.' +
+                        (' Left out of this Health Score: ' + ', '.join(
+                            c['name'] for c in sc['categories'] if c.get('weight') and c.get('score') is None) + '.'
+                         if any(c.get('weight') and c.get('score') is None for c in sc['categories']) else '')},
+                  {'table': {'columns': ['Category', 'Weight', 'Score', 'Checks passed', 'Failed', 'Not measured',
+                                         'Based on'],
+                             'rows': rows}}]
+        sep = doc.get('separate_scores') or {}
+        if sep:
+            blocks.append({'h3': 'Separate scores'})
+            blocks.append({'table': {'columns': ['Score', 'Value', 'Status / note'],
+                                     'rows': [[k.replace('_', ' ').title(), str(v.get('score', '')),
+                                               ' '.join(str(x) for x in (v.get('status'), v.get('note')) if x)]
+                                              for k, v in sep.items()]}})
+        st = doc.get('agent_status') or {}
+        if st:
+            rows = []
+            for k, v in st.items():
+                if isinstance(v, dict) and not isinstance(v.get('status'), str):
+                    rows += [[f'{k}: {a}', (x.get('status') if isinstance(x, dict) else str(x))] for a, x in v.items()]
+                else:
+                    rows.append([k, v.get('status') if isinstance(v, dict) else str(v)])
+            blocks.append({'h3': 'Agent status'})
+            blocks.append({'table': {'columns': ['Agent', 'Status'], 'rows': rows}})
+        pre.append({'title': 'Scores', 'blocks': blocks, 'generated': True})
+    if doc.get('counts') and not doc.get('lead'):
+        c = doc['counts']
+        doc['lead'] = (f"**Health Score {sc.get('health') if sc else 'n/a'}/100** · {sum(c.values())} findings: "
+                       f"{c.get('Critical', 0)} Critical, {c.get('High', 0)} High, {c.get('Medium', 0)} Medium, "
+                       f"{c.get('Low', 0)} Low, {c.get('Info', 0)} Info.")
+    doc['sections'] = pre + doc['sections'] + build_plan_page_sections(doc)
+    for s in doc['sections']:
+        if s.get('severity'):
+            s['sev_class'] = SEV_CLASS.get(str(s['severity']).lower(), '')
+        if s.get('chapter') and not s.get('chapter_label'):
+            s['chapter_label'] = (f"{s['chapter']} · score {s['chapter_score']}/100"
+                                  if s.get('chapter_score') is not None else f"{s['chapter']} · not assessed")
     return doc
 
 
@@ -124,35 +200,44 @@ def build_html(doc):
     env = Environment(loader=FileSystemLoader(str(TEMPLATES)), autoescape=select_autoescape(['j2', 'html']))
     env.filters['rich'] = rich
     env.filters['status_class'] = status_class
+    if doc.get('title') in MONTHLY:
+        import base64
+        logo = lambda n: 'data:image/png;base64,' + base64.b64encode((TEMPLATES / 'assets' / n).read_bytes()).decode()
+        css = (TEMPLATES / 'monthly.css').read_text(encoding='utf-8')
+        return env.get_template('monthly.html.j2').render(doc=doc, css=Markup(css), logo=logo('metahotels-logo.png'),
+                                                          logo_on_dark=logo('metahotels-logo-on-dark.png'))
     css = (TEMPLATES / 'list.css').read_text(encoding='utf-8')
     return env.get_template('list.html.j2').render(doc=doc, css=Markup(css))
 
 
 def short_list(title):
-    """"Priority SEO List" -> "Priority", "Web Team List" -> "Web Team"."""
+    """"Web Team List" -> "Web Team", "Audit Report" -> "Audit Report"."""
     return re.sub(r'\s*(SEO )?List$', '', title or '').strip()
 
 
 def list_name(doc):
-    """The list's name in headers and file names: "Priority SEO List", "Priority Re-check 2",
-    "Priority Open Items after Re-check 2"."""
+    """The document's name in headers and file names: "Audit Report", "Audit Report Re-check 2",
+    "Audit Report Open Items after Re-check 2"."""
     if doc['title'] == 'Re-check':
         n = doc.get('recheck_round')
         return ' '.join(x for x in (short_list(doc.get('against')), 'Re-check', str(n) if n else '') if x)
+    is_group_name = str(doc.get('short_name') or doc['hotel']).strip().lower().endswith('group')
+    if doc['title'] in ('Group Summary', 'Group Monthly Summary') and is_group_name:
+        return doc['title'].replace('Group ', '')
     if doc.get('open_items_after'):
         return f"{short_list(doc['title'])} Open Items after Re-check {doc['open_items_after']}"
     return doc['title']
 
 
 def next_file_number():
-    """Running file number across all hotels in the work folder: highest "NN - ..." PDF + 1."""
-    nums = [int(m.group(1)) for f in paths.work_dir().glob('*/Reports/*.pdf')
+    """Running file number across all hotels in the work folder: highest "NN - ..." PDF or spreadsheet + 1."""
+    nums = [int(m.group(1)) for ext in ('pdf', 'xlsx') for f in paths.work_dir().glob(f'**/Reports/*.{ext}')
             for m in [re.match(r'(\d+) - ', f.name)] if m]
     return max(nums, default=0) + 1
 
 
 def file_name(doc, out_dir=None):
-    """"25 - Al Bahar Priority SEO List (14 Oct).pdf", "27 - Al Bahar Priority Re-check 2 (21 Oct).pdf":
+    """"31 - Rose Park Al Barsha Audit Report (24 Oct).pdf", "33 - Rose Park Al Barsha Audit Report Re-check 2 (30 Oct).pdf":
     the way the team numbers its files. "auto" re-uses the number of the same file already in out_dir
     (re-rendering after a fix keeps its number), else takes the next one."""
     short = doc.get('short_name') or doc['hotel']
@@ -182,28 +267,15 @@ def render(doc_or_path, out_dir, keep_html=False):
         page = browser.new_page()
         page.set_content(page_html, wait_until='load')
         page.emulate_media(media='print')
-        page.set_viewport_size({'width': 794 - 2 * 49, 'height': 1000})   # A4 width minus 13 mm margins
-        height = page.evaluate('document.documentElement.scrollHeight')
-        # bottom of the last real content (sections, end warnings), not the "When done" footer line
-        content_bottom = page.evaluate(
-            "Math.max(0, ...[...document.querySelectorAll('section, .warning, .working, .summary, .lead')]"
-            ".map(e => e.getBoundingClientRect().bottom + window.scrollY))")
-        pdf = page.pdf(format='A4', print_background=True, prefer_css_page_size=True,
-                       display_header_footer=True, header_template='<div></div>', footer_template=footer)
+        if doc['title'] in MONTHLY:     # page numbers and footer come from the template's @page rules
+            pdf = page.pdf(format='A4', print_background=True, prefer_css_page_size=True)
+        else:
+            pdf = page.pdf(format='A4', print_background=True, prefer_css_page_size=True,
+                           display_header_footer=True, header_template='<div></div>', footer_template=footer)
         browser.close()
     out.write_bytes(pdf)
     if keep_html:
         out.with_suffix('.html').write_text(page_html, encoding='utf-8')
     pages = len(re.findall(rb'/Type\s*/Page[^s]', pdf))
-    result = {'file': str(out), 'pages': pages, 'sections': len(doc['sections']),
-              'file_number': doc.get('file_number')}
-    last_fill = (height % A4_CONTENT_PX) / A4_CONTENT_PX
-    content_pages = int(content_bottom // A4_CONTENT_PX) + 1 if content_bottom else pages
-    if pages > 1 and content_pages < pages:
-        # e.g. a 5th page holding only the 214-character footer, which the fill check missed
-        result['warning'] = (f'The last page holds no list content, only the footer (content ends on page '
-                             f'{content_pages} of {pages}): tighten wording so the footer fits on the page before.')
-    elif pages > 1 and 0 < last_fill < 0.15:
-        result['warning'] = (f'The last page is nearly empty (about {round(last_fill * 100)}% used): tighten '
-                             'wording or merge a short section so the list ends on the page before.')
-    return result
+    return {'file': str(out), 'pages': pages, 'sections': len(doc['sections']),
+            'file_number': doc.get('file_number')}

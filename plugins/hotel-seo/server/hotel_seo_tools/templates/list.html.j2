@@ -39,25 +39,18 @@
 </section>
 {% endif %}
 
-{% if doc.parity %}
-<section>
-  <h2><span>{{ doc.parity.title or 'Rate parity (Best Rate calendar)' }}</span></h2>
-  <table class="grid">
-    <thead><tr>{% for c in doc.parity.columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
-    <tbody>{% for row in doc.parity.rows %}<tr>{% for cell in row %}<td>{{ cell | rich }}</td>{% endfor %}</tr>{% endfor %}</tbody>
-  </table>
-  {% if doc.parity.note %}<p class="why">{{ doc.parity.note | rich }}</p>{% endif %}
-</section>
-{% endif %}
-
 {% if doc.intro %}{% for p in doc.intro %}<p>{{ p | rich }}</p>{% endfor %}{% endif %}
 
 {% for s in doc.sections %}
+{% if s.chapter %}
+<div class="chapter"><span>{{ s.chapter_label }}</span></div>
+{% else %}
 <section>
-  <h2><span>{% if s.number %}{{ s.number }}. {% endif %}{{ s.title | rich }}{% if s.hold %} <span class="hold">[{{ s.hold }}]</span>{% endif %}</span>{% if s.time %}<span class="time">{{ s.time }}</span>{% endif %}</h2>
+  <h2><span>{% if s.number %}{{ s.number }}. {% endif %}{% if s.severity %}<span class="sev {{ s.sev_class }}">{{ s.severity }}</span> {% endif %}{{ s.title | rich }}{% if s.hold %} <span class="hold">[{{ s.hold }}]</span>{% endif %}</span>{% if s.time %}<span class="time">{{ s.time }}</span>{% endif %}</h2>
   {% if s.why %}<p class="why">{{ s.why | rich }}</p>{% endif %}
   {% for b in s.blocks %}{% include "block.html.j2" %}{% endfor %}
 </section>
+{% endif %}
 {% endfor %}
 
 {% for w in doc.warnings_end %}<div class="warning">{{ w | rich }}</div>{% endfor %}

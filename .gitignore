@@ -11,6 +11,13 @@ ads.json
 parity.json
 bing.json
 *.env
+
+# Site MCP logins (application passwords): sites.csv lives in the work folder, never in git
+sites.csv
+*sites*.csv
+
+# Work output when Claude is started in this repo
+.seo-check/
 .env
 
 # OS

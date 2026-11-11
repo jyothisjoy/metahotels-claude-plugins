@@ -154,45 +154,23 @@ def desktop_config_paths():
     return [Path.home() / '.config' / 'Claude' / 'claude_desktop_config.json']
 
 
-def stop_copy_processes(copy):
-    """The desktop app keeps hotel-seo-tools / gsc / ga4 running from the server copy, and on Windows
-    their open files can't be deleted. Stop them (the app restarts them when reopened)."""
-    if os.name != 'nt':
-        return []
-    ps = ("Get-CimInstance Win32_Process | Where-Object { ($_.ExecutablePath -and $_.ExecutablePath.StartsWith($env:HSC, "
-          "'OrdinalIgnoreCase')) -or ($_.CommandLine -and $_.CommandLine.IndexOf($env:HSC, "
-          "[StringComparison]::OrdinalIgnoreCase) -ge 0) } | Where-Object { $_.ProcessId -ne $PID } | "
-          "Select-Object -ExpandProperty ProcessId")
-    try:
-        out = subprocess.run(['powershell', '-NoProfile', '-Command', ps], capture_output=True, text=True,
-                             env={**os.environ, 'HSC': str(copy)}, timeout=60).stdout
-    except (OSError, subprocess.SubprocessError):
-        return []
-    pids = [p for p in out.split() if p.isdigit() and int(p) != os.getpid()]
-    for pid in pids:
-        subprocess.run(['taskkill', '/F', '/T', '/PID', pid], capture_output=True)
-    return pids
-
-
 def setup_desktop(uv):
     say('\n[3/5] Claude desktop app')
     copy = paths.HOME / 'server'
     if copy.exists():
-        stopped = stop_copy_processes(copy)
-        if stopped:
-            say(f'  stopped {len(stopped)} desktop-app server process(es) using the old copy; '
-                'quit and reopen the desktop app afterwards')
-            time.sleep(2)
-        try:
-            shutil.rmtree(copy)
-        except OSError as e:
-            sys.exit(f'  Could not replace {copy}: {e}\n  A program still has files open there (usually the Claude '
-                     'desktop app). Quit the desktop app completely (tray icon -> Quit) and run init again.')
+        shutil.rmtree(copy, ignore_errors=True)
     shutil.copytree(SERVER_SRC, copy, ignore=shutil.ignore_patterns('.venv', '__pycache__', '*.pyc'))
     paths.GOOGLE_DIR.mkdir(parents=True, exist_ok=True)
     shutil.copy2(PLUGIN_DIR / 'setup' / 'google' / 'client_secret.json', paths.GOOGLE_DIR / 'client_secret.json')
     run([uv, 'sync', '--project', copy, '--quiet'])
     say(f'  server copy at {copy}')
+    # The server reads the agent contract (templates/report.schema.json) and the FLOW prompts from the plugin's
+    # skills/ folder, which sits next to server/: give the copy the same layout.
+    for name, src in (('skills', PLUGIN_DIR / 'skills'), ('agents', PLUGIN_DIR / 'agents')):
+        dst = paths.HOME / name
+        if dst.exists():
+            shutil.rmtree(dst, ignore_errors=True)
+        shutil.copytree(src, dst)
 
     DESKTOP_WORK.mkdir(parents=True, exist_ok=True)
     common_env = {'HOTEL_SEO_HOME': str(DESKTOP_WORK), 'PYTHONUTF8': '1'}
@@ -223,15 +201,10 @@ def setup_desktop(uv):
         for f in SKILL_SRC.rglob('*'):
             if f.is_file():
                 z.write(f, Path('hotel-seo') / f.relative_to(SKILL_SRC))
+        # Desktop chat has no subagents: it follows each agent's file itself (SKILL.md, "Desktop chat").
+        for f in (PLUGIN_DIR / 'agents').glob('*.md'):
+            z.write(f, Path('hotel-seo') / 'agents' / f.name)
     say(f'  skill zip for the desktop app: {zip_path}')
-    copy_src = PLUGIN_DIR / 'skills' / 'copywriting-marketing'
-    if copy_src.is_dir():
-        copy_zip = paths.HOME / 'copywriting-marketing-skill.zip'
-        with zipfile.ZipFile(copy_zip, 'w', zipfile.ZIP_DEFLATED) as z:
-            for f in copy_src.rglob('*'):
-                if f.is_file():
-                    z.write(f, Path('copywriting-marketing') / f.relative_to(copy_src))
-        say(f'  copywriting skill zip for the desktop app: {copy_zip} (upload it the same way)')
     say('  -> In the desktop app: Settings -> Capabilities -> Skills -> Upload skill, pick that zip,')
     say('     then fully quit and reopen the app so it loads the three MCP servers.')
 
@@ -250,16 +223,15 @@ def google_signin(no_browser=False):
                                                    'customer_id': ADS_MANAGER_ID}, indent=2))
         say(f'  Keyword Planner: Google Ads manager {ADS_MANAGER_ID} saved to {keywords.ADS_CONFIG}')
     rows = health.check_google()
-    from hotel_seo_tools import gbp
-    if all(r['ok'] for r in rows) and keywords.configured()[0] and gbp.configured()[0]:
+    if all(r['ok'] for r in rows) and keywords.configured()[0]:
         for r in rows:
             say(f"  {r['check']}: {r['detail']}")
         say('  already signed in')
         return
     say('  Sign in as metahotels.m@gmail.com and allow every permission (Analytics, Search Console, Drive')
-    say('  files, Google Ads, Business Profile). If Google shows "Google hasn\'t verified this app": click Advanced ->')
+    say('  files, Google Ads). If Google shows "Google hasn\'t verified this app": click Advanced ->')
     say('  Go to MetaHotels SEO (unsafe) -> Continue. Waiting up to 10 minutes...')
-    cmd = [sys.executable, '-m', 'hotel_seo_tools.google_auth', '--with-ads', '--with-gbp'] + (['--no-browser'] if no_browser else [])
+    cmd = [sys.executable, '-m', 'hotel_seo_tools.google_auth', '--with-ads'] + (['--no-browser'] if no_browser else [])
     run(cmd, cwd=str(SERVER_SRC))
 
 
@@ -312,6 +284,13 @@ def main():
     ok = final_check()
     say('\nAll set. Give Claude a hotel website: /hotel-seo example-hotel.com' if ok
         else '\nSome checks failed; see the fix lines above.')
+    say('API keys for the agents: PAGESPEED_API_KEY, MOZ_API, GEOAPIFY_KEY (and SERPER_API for monthly rankings) in the work folder .env '
+        '(the Google sign-in does not cover PageSpeed / CrUX). '
+        'Site logins for /hotel-seo execute: sites.csv in the work folder.')
+    if os.name == 'nt':
+        r = subprocess.run(['schtasks', '/Query', '/TN', 'hotel-seo-monitor'], capture_output=True, text=True)
+        if r.returncode == 0:
+            say('The daily monitor was removed in 0.9.0: delete its task with  schtasks /Delete /TN hotel-seo-monitor /F')
     sys.exit(0 if ok else 1)
 
 

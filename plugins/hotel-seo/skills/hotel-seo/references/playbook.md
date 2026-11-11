@@ -1,43 +1,39 @@
-# SEO List Playbook — MetaHotels
+# Audit Playbook — MetaHotels
 
-How we turn one hotel's data into the **Priority List**, the **Nice-to-Have List** (called Secondary in older notes) and the **Web Team List**, and how we re-check the agency's work.
+How we turn a hotel website — or a hotel group's website, hotel by hotel — into a full **Audit Report**, a
+ground-up **Build Plan** and a **Web Team List**, how we re-check fixes, and how fixes are applied (execute).
 
-Built from the Nassima, Abar, Gevora, Khalidia, Al Bahar and Atana work (Oct 2026). The manual Al Bahar and Atana lists of 14 Oct are the reference for structure and depth.
+Built from the Nassima, Abar, Gevora, Khalidia, Al Bahar, Atana and Rose Hotels work (Oct 2026). The 11 specialist
+agents come from claude-seo (MIT); `hotel-addendum.md` holds the hotel rules every agent follows and
+`agent-contract.md` the output contract.
 
 ---
 
 ## 1. Ground rules
 
-1. **The goal is direct bookings, not SEO scores.** Every item needs a booking reason: credibility, the right page ranking for a money search, a working path to the booking engine, or tracking we can trust.
-2. **The SEO team (the external agency, on India time, Mon–Fri) must finish a Priority List in one working day.** Target about 3.5 hours per hotel, because the pace is now **2 hotels a day**.
-3. **Every item must be copy-paste ready.** Give the exact title, meta, H1, alt text, button text, redirect rule, schema and FAQ text, so the agency writes nothing themselves. If they'd have to think about it, it isn't finished.
-4. **Web team items go on a separate list.** Analytics setup, speed, templates, theme code, security and hidden broken files go to the web team, not the SEO team.
-5. **Never change offers or prices from what the site already says.** Take them from the live booking engine (Mirai), confirm with the hotel contact, and mark anything unconfirmed **[CONFIRM]**. Offers can be a "tomorrow" task.
-6. **Facts we can't verify stay [CONFIRM]:** airport distance, room count, occupancy, room service (including "24-hour"), check-in and check-out times, cancellation terms, loyalty tiers and benefits, prices and discounts. This holds **even when the site states them**: hotel sites contradict themselves on exactly these. Only facts in the hotel-confirmed `hotel-facts.json` go in without the tag. The PDF renderer enforces this.
-7. **Check findings on the live site, including the mobile view,** before putting them on a list. Crawls and AI summaries can be wrong; the Gevora "blank homepage" and the Khalidia "broken logo" both turned out to be false alarms.
-8. **Exact alt text only, written after looking at each image.** Never write generic alt text.
+1. **The goal is direct bookings, not SEO scores.** Every finding says why it matters for bookings: credibility, the right page ranking for a money search, a working path to the booking engine, or tracking we can trust.
+2. **No time, page or item limits.** Every issue found goes in, with every affected page and URL. Nothing is cut, merged away or shortened to fit a day, an hour budget or a page count.
+3. **Every fix must be copy-paste ready.** The exact title, meta, H1, alt text, button text, redirect rule, schema and page copy, so the agency (or execute) writes nothing themselves.
+4. **Web team items go on the separate Web Team List.** Analytics setup, speed engineering, templates, theme code, server headers, security and hidden broken files.
+5. **Never change offers or prices from what the site already says.** Take them from the live booking engine (Mirai), confirm with the hotel contact, and mark anything unconfirmed **[CONFIRM]**. Execute never changes them.
+6. **Facts we can't verify stay [CONFIRM]:** airport distance, room count, occupancy, room service (including "24-hour"), check-in and check-out times, cancellation terms, loyalty tiers and benefits, prices and discounts — **even when the site states them**. Confirmed sources in `hotel-facts.json`: the hotel information sheet, the hotel contact, the live booking engine, and Booking.com **only where the booking engine agrees**. The renderer enforces this.
+7. **Check findings on the live site, including the mobile view.** Crawls and AI summaries can be wrong; the Gevora "blank homepage" and the Khalidia "broken logo" both turned out to be false alarms.
+8. **Exact alt text only, written after looking at each image.**
 9. **Don't suggest removing a YouTube channel or other assets the hotel may want to keep.**
-10. **Numbers come from code.** Every count, page list and status in a list comes from a tool (`audit_site`, crawl files, `inspect_pages`, Search Console, GA4, Mirai), with the full count, never a sample ("24 posts named cache, last changed Jul–Oct 2026", not "junk posts"). The model writes the copy, not the numbers.
-11. **Treat the site as normal unless something is a red flag.** Don't ask the MetaHotels team for extra checks "just in case". Ask only when the data looks wrong, for example GA4 traffic that clearly belongs to another hotel.
+10. **Numbers come from code.** Every count, page list, score and status comes from a tool, with the full count, never a sample. The model writes the copy, not the numbers.
+11. **Treat the site as normal unless something is a red flag.**
+12. **Each hotel of a group is tracked separately**: its own facts, keyword map, findings, reports, re-checks and execute runs. Site-wide problems appear once, in the Group Summary.
 
 ---
 
-## 2. Daily rhythm
-
-Two hotels a day. Who does what and when is in [team.md](team.md).
-
----
-
-## 3. Analysis: what to look for in each source
-
-The full list of checks, with IDs, thresholds, severity, P0–P3 and how results are recorded, is the registry in [audit-checks.md](audit-checks.md). This section is the practical guide to each source; every run still gives every registry check a result.
+## 2. Analysis: what to look for in each source
 
 ### Search Console (last 3 months vs previous)
 `audit_site` with `gsc_property` computes the brand share (now vs before), non-brand searches at positions 4–20, pages by impressions, old http/www versions still getting clicks, booking pages in search, Arabic searches, spam queries and the live status of every submitted sitemap. Quote those; use the Search Console MCP for anything else.
-- **Brand vs non-brand.** Share of clicks from searches containing the hotel name. Above 80% brand means the site only catches people who already know the hotel, so non-brand pages are the opportunity. *Al Bahar: about 87% brand.*
-- **Money searches stuck at position 5–20.** For example "hotels in [area]", "[area] beach resort", "hotel with kitchenette dubai", "hotel near dubai airport" and Arabic versions. Show these as a table of impressions, position and clicks. Each one becomes a title, H1 or intro-text task.
+- **Brand vs non-brand.** Hotel traffic is almost all brand searches, which need no work. Non-brand demand comes from the keyword map (Keyword Planner + the hotel's facts and location + competitor URLs); Search Console only says where the site already shows up. *Al Bahar: about 87% brand.*
+- **Money searches stuck at position 5–20.** For example "hotels in [area]", "[area] beach resort", "hotel with kitchenette dubai", "hotel near dubai airport" and Arabic versions. They join the keyword map with their impressions and position; each becomes a title, H1 or copy fix on its target page.
 - **Searches that land on the wrong page.** A brand search landing on a blog post, or a dining search landing on the homepage.
-- **Versions of the same page.** http/https, www/non-www and trailing slashes all getting impressions. *Al Bahar: the old http://www homepage still gets 1,748 clicks.* This is a red flag and becomes a Priority redirect and canonical fix.
+- **Versions of the same page.** http/https, www/non-www and trailing slashes all getting impressions. *Al Bahar: the old http://www homepage still gets 1,748 clicks.* This is a red flag: a Critical redirect and canonical fix.
 - **Junk pages indexed.** /search/, ?facility= and other parameter pages, tag, author, feed and archive pages, booking-engine step URLs, "X Archive" titles.
 - **Page indexing:** `index_status` gives every crawled and sitemap URL's state (Google limits it to 2,000 URLs a day per site; rerun to continue). Old URLs only Google remembers need the 404 export or the server's access logs.
 - **Page indexing drilldowns:**
@@ -46,8 +42,6 @@ The full list of checks, with IDs, thresholds, severity, P0–P3 and how results
   - **"Google chose different canonical":** a canonical or duplicate problem.
   - **robots.txt patterns crawled as URLs** (`/*`, `/wp-content/*`): something prints them as links, usually llms.txt or a plugin. Find it and remove the links.
 - **Sitemaps.** Is it submitted? Remove dead or "Couldn't fetch" sitemaps. Is the discovered page count sensible?
-- **Impressions from 13 May 2025 to 27 Apr 2026 are inflated** (Google's logging error, not corrected). Compare clicks across that window, never impressions, CTR or position. Until May 2027, "same months last year" falls in it.
-- **Google Images.** `audit_site` reads the Image search type too (`gsc.image_search`): room, pool and view photos with many image impressions and few clicks get exact alt text (after viewing each one) and sit next to the text they show.
 - **Countries.** Growing feeder markets, such as Russia, the UK and Germany, can justify a later language or content angle.
 - **Links.** `bing_report`: the top linked pages and the sites linking to the hotel. Look for links from sister hotels or the old group site.
 - **Manual actions / Security.** Only matters if there's an issue.
@@ -69,23 +63,22 @@ The full list of checks, with IDs, thresholds, severity, P0–P3 and how results
   - Rooms not available
   - Cancellation terms
   Compare these with what the website and pop-ups claim. Any mismatch becomes a question for the hotel contact.
-- Known IDs are in [team.md](team.md); otherwise find the ID in the site's booking links.
+- The Mirai ID is in `<domain>/hotel.json` after the first run; otherwise find it as `idtokenprovider=` in the site's booking links.
 
 ### LibreCrawl crawl and audit (Claude runs both)
 Claude crawls with the `crawl_site` tool into `<domain>/crawl-<date>/`; LibreCrawl starts by itself. [librecrawl.md](librecrawl.md) covers the files, settings and gotchas. Then `audit_site` turns it into `findings.md` (read it first) and `findings.json` (every URL). Its sections map to list items:
 
-| findings.md section | Becomes |
+| findings.md section | Report category (agent that builds on it) |
 |---|---|
-| SEO plugin and sitemaps | Priority: turn the plugin back on, sitemap settings; Search Console sitemaps |
-| Canonicals that block indexing | Priority, first item: a canonical to a redirect or 404 means Google indexes neither address (*Atana: 9 blog posts, about 16,000 impressions*) |
-| Titles (suffix, WordPress defaults) | Priority titles item: the title **template** per post type first, then the per-page table |
-| Indexing (account pages, archives, thin groups, empty, odd slugs) | Priority noindex item; expired and junk pages item |
-| Schema (every distinct block) | Priority schema item: a table of every block with Delete / Keep / Homepage only |
-| Links (broken, sitewide, booking) | Priority: dead or outdated booking links and sitewide broken links. Nice-to-Have: links through redirects, using `replace_pairs.csv` |
-| Copy consistency | Priority quick fixes (wrong phone code, another city in a heading, empty page, company login as author); Nice-to-Have (seasonal wording, prices in FAQs, distances → [CONFIRM]) |
-| Blog → booking | Nice-to-Have: the booking paragraph on the busiest posts |
-| Languages | Nice-to-Have, for information: browser-side translation isn't indexed; Arabic search demand |
-| AI search access | Priority: an AI search crawler blocked in robots.txt, snippet blocks on key pages. Web Team: a firewall / CDN block (after it's confirmed in the host settings). Training bots and llms.txt: run notes only |
+| SEO plugin and sitemaps | Technical + sitemap (seo-technical, seo-sitemap) |
+| Canonicals that block indexing | Technical → Indexability, Critical (*Atana: 9 blog posts, about 16,000 impressions*) |
+| Titles (suffix, WordPress defaults) | On-Page: the title **template** per post type first, then per page (seo-content) |
+| Indexing (account pages, archives, thin groups, empty, odd slugs) | Technical → Indexability; Content → Thin |
+| Schema (every distinct block) | Schema: every block Keep / Fix / Delete / Homepage only (seo-schema) |
+| Links (broken, sitewide, booking) | Booking path & facts (booking links), Technical → Links (`replace_pairs.csv`) |
+| Copy consistency | Content → Credibility (phones also in Local) |
+| Blog → booking | Content: the booking paragraph on the busiest posts |
+| Languages | Technical → International; keyword map (Arabic demand) |
 
 The crawl files are for detail:
 - **`internal_all.csv`:** status codes, titles, metas and H1s (missing, duplicate, wrong hotel, misspelled), word count, indexability. Redirecting URLs show their first 3xx hop and final URL.
@@ -97,14 +90,14 @@ The crawl files are for detail:
 - **`images_missing_alt.csv`:** feeds the exact alt text table, written after viewing each image.
 - **`hreflang.csv`:** for multi-language sites only.
 - **`issues.csv` / `overview.md`:** LibreCrawl's own checks (title and meta length, slow pages). Duplicate Content and Thin Content are noisy on Elementor sites, so treat them as hints, not list items.
-- **Speed:** goes on the Web Team list only. LibreCrawl's PageSpeed is off for hotel crawls; `response_time_ms` shows slow server responses.
+- **Speed:** seo-performance measures it (PageSpeed Insights + CrUX field data); engineering fixes go to the Web Team List. `response_time_ms` shows slow server responses.
 
 ### Live booking engine (always)
 `booking_engine_snapshot` opens the hotel's search page in a browser for 3 sample stays and reads the engine's own data: offers and their discounts, the member discount, cancellation options, rooms with size and occupancy, and the price calendar. It also renders the site's room, offer and loyalty pages and compares them. Use `booking_engine.md`:
-- An offer on the site that the engine no longer sells (an expired "Summer Offer") → Priority expired pages.
-- A package the engine sells with no page on the site → Nice-to-Have new page, held **[waiting for hotel details]**.
-- A loyalty page that disagrees with the engine's member benefits → Nice-to-Have, held **[waiting for hotel confirmation]**.
-- Matches go in the "already working" table.
+- An offer on the site that the engine no longer sells (an expired "Summer Offer") → Booking path & facts, High.
+- A package the engine sells with no page on the site → a new page in the Build Plan, held **[waiting for hotel details]**.
+- A loyalty page that disagrees with the engine's member benefits → Booking path & facts, held **[waiting for hotel confirmation]**.
+- Matches go in "what works" for the Booking path chapter.
 
 Discounts and benefits read on the engine go into `hotel-facts.json` with source "booking engine, <date>".
 
@@ -118,185 +111,121 @@ Discounts and benefits read on the engine go into `hotel-facts.json` with source
 
 ---
 
-## 4. Priority List: standard items (in this order)
+## 3. Audit Report standards
 
-Order by risk to credibility and rankings first, then by the money-search gain. Leave out anything that doesn't apply. Items are **lettered** (A, B, B2, C…). Each item gets:
-- a time;
-- an italic line saying what is wrong now, with real numbers;
-- exact steps (Rank Math / WordPress paths) with exact text;
-- a **"Check:"** line the agency can verify themselves (e.g. "homepage, /rooms/ and any room page each have exactly one H1");
-- `checks` that prove it's done (see the list schema).
+**Categories and score.** Booking path & facts 15%, Technical 18.7%, Content 19.55%, On-Page 17%, Schema 8.5%,
+Performance 8.5%, AI Search 8.5%, Images 4.25% (claude-seo's weights scaled to 85%). A category score is the share of
+its checks that pass, weighted by severity (Critical 4, High 3, Medium 2, Low 1) — computed in code. Local, Maps and
+Backlinks are scored separately; Lighthouse Agentic Browsing is reported as X/N.
 
-**Severity rule:** a problem on the **homepage, room pages, offers, contact or the booking path** (booking links, booking engine, pop-ups that lead to it) always goes on the Priority list, however small. So do canonicals that block indexing and sitewide broken links. `audit_site` tags these as Priority in `findings.json`.
+**Severity.** Critical (blocks indexing, sends guests to the wrong place, security / penalty risk), High (significant
+ranking or booking impact), Medium (optimisation), Low (polish), Info (awareness only). **Floor:** anything on the
+homepage, room pages, offers, contact or the booking path is at least High; a canonical that blocks indexing, a
+sitewide broken link and a dead or wrong-hotel booking link are Critical.
 
-**Top of the list, before the items:**
-- **Rate parity table** (from the Disparity / Best Rate calendar): the `parity` block on the Priority list, after "What's already working": per month, best-rate days, disparity days, no-record days and direct bookings. A month with no disparity is also an "already working" row.
-- **Rate parity first.** When `rate_parity` shows the hotel's site losing on 20%+ of priced checks, that is the lead box and the first line of the hotel-contact message (OTAs, devices, markets, worst gaps with screenshots). It is a revenue action, never a page edit; the SEO list still goes ahead.
-- **Lead box** (`lead`): the single biggest issue in two or three sentences with real numbers, plus why timing matters. *Al Bahar, from Mirai: "last year November and December were the hotel's two biggest months for direct bookings (AED 216k and 258k)".*
-- **"What's already working (no action)"** (`working`): 4–6 rows of things checked and fine, such as redirects, canonicals, booking tracking with GA4 numbers, alt text, and the booking engine's rates and member discount. It stops the agency redoing them and shows the hotel what's right.
+**Every finding has:** a severity, evidence with numbers and the tool that produced them, **every** affected URL
+(25 shown, all in the linked sheet), the exact fix and where to make it (Rank Math path), the owner (SEO or web),
+the machine checks re-check runs, and the execute actions.
 
-| # | Item | Typical time | Notes / where |
-|---|---|---|---|
-| A | **Canonicals that block indexing / duplicate versions** | 15–40 min | Rank Math → Advanced → Canonical URL: empty it (self). List every post with its wrong canonical, then Search Console → URL Inspection → Request indexing. Sitewide http→https and www→non-www 301 (Web Team if the server can't). |
-| A | **SEO plugin off** (when it is) | 30 min | Activate Rank Math (or the plugin that has the data). Sitemap settings: include pages, rooms, offers, posts; exclude facilities, tags, categories, authors. Noindex tag / category / author / date archives. Set the separator. Local SEO name and logo, with its own Local Business schema **off** when we paste a Hotel block. Check: sitemap_index.xml opens and lists only those types. |
-| B | **Titles, metas, H1s** | 40–60 min | First the **title template per post type** (Global, Pages, Posts, Rooms, Offers…) as a small table, which fixes keyword-stuffed suffixes on every page at once. Then a table with exact text per main page, writing "keep" where it's fine. |
-| B2 | **Several H1s from cards / widgets** | 30 min | Room and facility cards set as H1 (24 on one homepage): change the loop template's heading tag to H3. One change fixes every page. |
-| C | **Schema** | 20 min | A table of **every** JSON-LD block found (type, name, what's in it) with an action each. **Delete:** self-written Review / AggregateRating, a duplicate LocalBusiness or Product with another name or location, Organization duplicates. **Keep, with edits:** the Hotel block (remove OTA lines from sameAs, fix the description). **Homepage only:** FAQPage. Check: Rich Results Test on the homepage and a room page. |
-| D | **Credibility fixes** | 15–30 min | A table of where → fix for: other hotels' names or text; another city in headings ("Fine Dining in Dubai" on a Fujairah hotel); a wrong phone country code; empty pages ("No Content Available"); the company login shown as blog author; false claims; cancellation wording that contradicts the booking engine. |
-| E | **Broken and outdated links** | 20–25 min | Dead "Book" links and old booking-step links first: replace with the standard booking link from team.md, plus a Regex redirect `^bookingstep1` → the rooms page. Then sitewide broken footer links, and broken menu PDFs and files (upload the file **[from the hotel]** or remove the link). A table: page → link text → change to. |
-| F | **Footer / menu links through a redirect** | 5 min | Sitewide links only (in `findings.md` as "Sitewide link through a redirect"). In-content ones are Nice-to-Have. |
-| G | **Noindex + merge list pages** | 15–20 min | Noindex only the pages that exist: search, checkout, my-booking, sign-in, sign-up, profile, thank-you; thin post types (facility, nearby) as a whole post type; category archives. 301 the archives to the real pages. Don't noindex a good archive page; redirect it. |
-| H | **Expired and junk pages** | 10 min | An offer the booking engine no longer sells: unpublish and 301 to /offers/. Pages made by mistake (/nearby/img/): delete and 301. |
-| I | **Redirects for old URLs** | 10–30 min | Rank Math → Redirections (or the Redirection plugin if that's the active one), 301. Regex for patterns, Exact for one-offs, "Starts with" to catch /page/2/. A table of source → destination. |
-| J | **Alt text** | 30–60 min | An exact table: file name → alt text, after viewing each image. Leave it out when every image already has good alt text, and say so in "already working". |
-| — | **AI search crawlers blocked** (when `findings.md` shows it) | 5 min | Goes near the top: a blocked crawler hides the whole site from that search. Rank Math → General Settings → Edit robots.txt: delete the group that disallows OAI-SearchBot, PerplexityBot, Claude-SearchBot or Bingbot (leave training bots such as GPTBot as they are; that's the owner's choice). If the block is in the firewall or CDN, not robots.txt, it's a Web Team item. Check: `robots.txt` has no `Disallow: /` under those agents. |
-| K | **Search Console + Bing** | 5–15 min | Remove dead or "Couldn't fetch" sitemaps by full URL, submit sitemap_index.xml (after the plugin item), request indexing for the canonical fixes, import into Bing. |
-| — | **Finish** | — | LiteSpeed (or other cache) → Purge All → send MetaHotels the change list (mark items done only once live). |
+**Executive summary:** rate parity first when the site loses on 20%+ of priced checks (a revenue action, outside the
+score); then direct bookings and revenue (Mirai), organic revenue (GA4), non-brand visibility, the finding counts, every
+Critical and High finding in one line, and what works.
 
-Letters follow the order used, so a list without a plugin problem starts canonicals at A, and so on.
+**Typical findings, by category** (from the hotels audited so far):
 
-**Warning box at the end** when offers or facts are involved: "Don't change offers or prices; we'll send the confirmed copy."
+| Category | Typical findings |
+|---|---|
+| Booking path & facts | Book Now opening another hotel's engine (*Rose Hotels: four hotels' room pages opened Rose Garden Bur Dubai*), dead / outdated booking links, expired offer pages, packages with no page, Booking.com vs engine vs site conflicts |
+| Technical | canonicals to redirects / 404s, SEO plugin off, noindex on key pages, indexable booking / account pages, sitewide broken links, redirect chains, security (spam posts, open MCP routes, spam searches) |
+| Content | other hotels' text, another city in headings, wrong phone codes, empty / thin pages, out-of-season wording, prices in FAQs, blog posts with no booking link |
+| On-Page | title templates and suffixes, missing / long titles and metas, several H1s from card widgets |
+| Schema | invalid JSON-LD, self-written reviews, duplicate LocalBusiness blocks, the corrected Hotel block per hotel |
+| Performance | LCP hero images, render-blocking scripts, CrUX field data trend |
+| AI Search | AI crawler access, citability of key pages, llms.txt leftovers, agent access to the booking button |
+| Images | missing alt text (written after viewing each image) |
 
 ### Copy standards
-
-The full writing standard, for every piece of copy from a title to a blog post, is [content-writing.md](content-writing.md): the unit brief (guest job, searches, facts, next step), sizes per unit, voice, the edit pass, and the hotel's `voice.md`. The lines below are the short version.
-
-- **Title:** about 60 characters or fewer (hard limit 62–66). Pattern: `[Keyword phrase] | [Hotel name]`. The homepage ends with "Official Site".
-- **Meta description:** 155 characters or fewer, with:
-  - location and landmark
-  - one concrete product fact (sizes, kitchenette, view)
-  - "Book direct" or the member benefit
-- **H1:** one per page, and it states what the page is (for example "Rooms & Suites with Kitchenette in Deira, Dubai").
-- **Hotel schema fields:**
-  - name, alternateName (including Arabic), url, description, logo, image[]
-  - telephone, email, address, geo, hasMap
-  - checkin and checkout times, starRating
-  - amenityFeature[]
-  - containsPlace (rooms, with floorSize and occupancy only where stated on the site)
-  - sameAs (Maps and the hotel's own socials, **not OTAs**)
-  - No priceRange unless confirmed. No room count unless confirmed.
-- **Alt text:** describes what's in the photo plus the hotel name. For example "King bed and Sheikh Zayed Road view in the Superior Room at Gevora Hotel Dubai". No "image of".
+- **Title:** about 60 characters or fewer (hard limit 62–66). Pattern: `[Keyword phrase] | [Hotel name]`. The homepage ends with "Official Site". The keyword phrase comes from the page's cluster in the keyword map.
+- **Meta description:** 155 characters or fewer, with the location and landmark, one concrete product fact (sizes, kitchenette, view) and "Book direct" or the member benefit.
+- **H1:** one per page, saying what the page is (for example "Rooms & Suites with Kitchenette in Deira, Dubai").
+- **Hotel schema fields:** see hotel-addendum.md.
+- **Alt text:** what's in the photo plus the hotel name ("King bed and Sheikh Zayed Road view in the Superior Room at Gevora Hotel Dubai"). No "image of".
 - **Button text:** "View Deluxe King Room", not "View More".
-- **Intros answer first.** The first two sentences of a room, offer, area or FAQ text say what it is, where, and who it suits, with one concrete fact, and still make sense quoted alone (name the hotel or room instead of "it" / "this"). That is what Google's AI features and ChatGPT lift. No warm-up ("Welcome to…", "Whether you're travelling for business or leisure…").
-- **Key facts in text.** Sizes, views, beds, what an offer includes: in the page text, not only in a photo, slider caption, tab or PDF.
-- **No invisible characters.** Text copied from chat tools or Word can carry zero-width spaces or soft hyphens: the title looks right and fails the re-check. `presend_check` and `render_lists_pdf` report them (`copy_problems` / `copy_warning`), along with AI tells. Arabic direction marks are fine.
-- **No AI tells in anything we hand over to paste.** Hotel copy is where they show most. Don't write: nestled, in the heart of, boasts (use "has"), vibrant, oasis, haven, unparalleled, seamless, elevate, unforgettable, tapestry, testament, curated, "whether you're … or …", "not just X but Y", "X rather than simply Y", "this matters", a reflex list of three adjectives, "serves as / stands as" (use "is"). Write plain, specific sentences: "The Deluxe King has a 32 m² room [CONFIRM size], a king bed and a view of the Creek." Guests trust copy less when it reads as AI, and the agency pastes ours word for word.
-
-### What we don't recommend (Google says)
-
-Agencies and SEO tools suggest these regularly. They never go on our lists, and `/hotel-seo check` labels them when someone else's report recommends them (registry rule 12):
-
-| Habit | Why not |
-|---|---|
-| llms.txt "to rank in Google" | Google's AI optimization guide: it neither helps nor hurts in Google Search. (A **leftover** one from a removed plugin is still a cleanup item.) |
-| A target word count | Google has no preferred word count; judge by what the guest needs. |
-| Keyword density, repeating the keyword | Keyword stuffing is against Google's spam policies. |
-| FAQ schema "for the rich result" | Google stopped showing FAQ rich results for almost all sites on 7 May 2026 (gov and health only since Aug 2023). FAQPage markup is still valid and read; a real FAQ still helps guests. It just won't earn a rich result. |
-| HowTo markup | Deprecated (Sept 2023). |
-| Special "AI schema", AI text files or an "AI version" of pages | Google: no extra requirements for AI Overviews / AI Mode beyond being indexed and eligible for a snippet. |
-| New date, no real change | Google lists faking freshness as a warning sign. Update the facts, then the date. |
-| Buying links, link swaps, PBNs | Link spam. |
-| Dozens of near-identical "hotel near <landmark>" pages | Scaled content abuse. A new area page needs its own purpose and real content (registry C03). |
-| Meta keywords | Google ignores the tag. |
-| "Submitted to Google through the Indexing API" (Rank Math Instant Indexing) | Google's Indexing API is only for job postings and livestreams; for hotel pages it does nothing. Request indexing in Search Console instead. (IndexNow for Bing is a different thing and fine.) |
-| A Lighthouse "agentic browsing" score, ai-catalog.json, `/.well-known` agent files, WebMCP | No search or answer engine is documented to use them; the score rises just by adding files. What matters for AI agents is that the booking button works (registry AI13). |
-| A minimum title or meta length, a keyword in the URL slug | Not Google rules. Changing slugs costs redirects. |
-| "Disavow all weak links" | Google ignores most spam links on its own; disavow only for a manual action or a known paid-link history. |
 
 ---
 
-## 5. Nice-to-Have List: standard items
+## 4. Build Plan standards
 
-Numbered items. Start only after **every** hotel's Priority List is done; the subtitle says so, with the day's file numbers (team.md). Everything is still exact copy-paste text. Items that wait on the hotel carry `hold` (e.g. "waiting for hotel details") and say exactly what is needed.
-
-1. **Internal links through redirects.** Install Better Search Replace, table `wp_posts`, dry run first, then remove the plugin. Give the search → replace pairs from `replace_pairs.csv`, grouping a common pattern (e.g. "add /blog after .com for these slugs") and putting the most general pattern last. Also list links to remove (keep the words): links to other hotels' sites or old articles that now redirect somewhere unrelated.
-2. **Blog posts with two H1s:** the full list of posts. Change the first heading block to H2.
-3. **Old years in blog titles:** a table of post → new title (keep the URL), with impressions for the busiest.
-4. **Blog → booking paragraph** (`paste` block) at the end of the busiest posts that link to neither rooms nor the booking engine. It names the hotel and links a room page and the standard booking link. Mention the member discount only if it's confirmed or read on the engine.
-5. **Small copy fixes:**
-   - seasonal wording out of season ("Unlock special winter offers…")
-   - fixed prices in FAQs (replace with "Rates change by date and room type…")
-   - the same landmark at two distances (one figure, **[CONFIRM with hotel which]**)
-   - "Hotel Apartments" for a hotel
-6. **Area searches:** a homepage intro and a 60–80 word rooms intro that name the area terms the data shows (e.g. Barsha Heights (TECOM), Al Barsha), each once, in normal sentences.
-7. **Room listing intro, "Good to know" boxes, FAQ** where the data shows a gap (kitchenette, family, sea view, near the airport). Unconfirmed answers are marked [CONFIRM].
-8. **New page for a package the booking engine sells with no page:** URL, title, H1, offer category, button, and the 301s from old deleted offer pages. Held **[waiting for hotel details]**.
-9. **Loyalty / Rewards page** when it disagrees with the booking engine: held **[waiting for hotel confirmation]**, no change until then.
-10. **Language versions:**
-    - Real language pages: the hreflang setup.
-    - Browser-side translation only (GTranslate): an information-only item with the Arabic search numbers. MetaHotels decides.
-
-End with: Purge cache → add to your change list.
-
-## 6. Web Team List: standard items
-
-0. **Back-button hijacking** (Google spam policy since 15 Jun 2026), when `findings.md` Security shows it: find the script that adds history entries (chat, popup, ad or booking widget) and remove or reconfigure it.
-1. **GA4 setup:**
-   - correct property and stream
-   - Consent Mode v2
-   - Mirai `purchase` events with revenue
-   - unwanted referrals (payment gateway, Wi-Fi portal)
-   - key events = `purchase` only
-   - internal and developer traffic filters
-2. **UTM / attribution** from site to booking engine.
-3. **Template-level fixes** the SEO team can't do: canonical in the theme, sitewide redirects, header and footer templates.
-4. **Speed:** server response time, page weight, Elementor bloat, image formats, caching and CDN.
-5. **Hidden broken assets** (old logos, dead scripts).
-5b. **AI search crawlers blocked by the firewall or CDN** (registry AI02), once confirmed: Cloudflare → AI Crawl Control → Search on Allow (choose "Disallow AI Training", never "Block", to stop training only); QUIC.cloud / LiteSpeed bot rules the same way. Optional: IndexNow (Rank Math has it) so Bing and Copilot hear about changed pages the same day.
-6. **Security, always first when present:** suspicious or backdated posts (full count, by month, latest date), spam search terms in Search Console, REST routes that answer without logging in (`audit_site` probes `mcp`, `wp-abilities`, `elementor-mcp-composer` read-only and says OPEN or requires login; OPEN goes first), a leftover `llms.txt` from an SEO plugin that is no longer active, public user lists. Name the immediate steps: find what creates the posts, check admin users, malware scan, rotate passwords.
+The target site for each hotel, ground up:
+1. **Structure:** every page a hotel site should have (home, rooms index, each room type, offers and each live package,
+   dining, spa / pool, meetings, location / getting here, gallery, contact, FAQ, guides), marked exists / fix / missing,
+   each with its keyword cluster and monthly searches.
+2. **Page specs:** URL, SEO title, meta, H1, **full paste-ready copy** (confirmed facts only; [CONFIRM] otherwise),
+   sections, JSON-LD, internal links in and out, the booking button with the standard booking link, images and alt needs.
+3. **Content plan:** guides from the informational clusters ("things to do near X", "getting from the airport"), with
+   briefs (FLOW Find / Win).
+4. **Local and AI search:** Google Business Profile changes for the hotel to make, citations, answer blocks, AI access.
+5. **Tracking plan** (also on the Web Team List): GA4 purchase with revenue, consent mode, UTM to the booking engine.
+6. **Steps in dependency order** (blockers first: indexing and booking path), no dates.
+7. **Baseline** for the next run: Health Score and category scores, non-brand impressions and clicks, CWV, indexed
+   pages, direct bookings.
 
 ---
 
-## 7. Re-check (after the agency says "done")
+## 5. Web Team List
 
-`/hotel-seo recheck <domain>` checks every item of the lists that were sent against the live site, using the `checks` written into each item.
+Developer items, per hotel; site-wide ones once in the Group Summary:
+1. **Security first:** suspicious or backdated posts (full count, by month, latest date), spam search terms, REST / MCP routes that answer without login, leftover llms.txt, public user lists. Immediate steps: find what creates the posts, check admin users, malware scan, rotate passwords.
+2. **GA4 setup:** correct property and stream, Consent Mode v2, Mirai `purchase` events with revenue, unwanted referrals (payment gateway, Wi-Fi portal), key events = `purchase` only, internal traffic filters.
+3. **UTM / attribution** from site to booking engine.
+4. **Performance engineering** with PageSpeed / CrUX evidence: LCP, page weight, Elementor bloat, image formats, caching and CDN.
+5. **Template / theme fixes** the SEO side can't do: canonical in the theme, sitewide redirects, headers.
+6. **Hidden broken assets** (old logos, dead scripts).
 
-**Inputs:**
-- **Claude:** a re-crawl into `<domain>/recheck-<date>/` with the same settings, `audit_site` on it, and `recheck_list` for each list sent (title, meta, H1, redirect, status, canonical, noindex, text and link removal, alt text and schema checks run automatically).
-- **Claude:** Search Console sitemaps through the MCP; `inspect_pages` for anything that needs the rendered page.
-- **From the user:** the agency's WhatsApp change list, the Bing Webmaster sitemap screenshot, and the hotel's answers to [CONFIRM] questions if they've arrived.
-
-**Output, in the same style as the morning list:**
-1. A short opening that thanks them and states what's live.
-2. A **status table** per item: **Done / Partly / Open** plus a one-line note (from `recheck_list`, never by eye). "Done" means the checks pass, not that nothing else changed: read `checks_missing` and, with `baseline_crawl_dir`, `changes_not_on_any_item`, and report unrequested changes and anything left half-done.
-3. **Lettered sections (A, B, C…)** for each unfinished item, with what the live site shows now and the exact fix still needed.
-4. The hotel's confirmed corrections (offers, occupancy) as their own lettered sections.
-5. What the agency said on WhatsApp, for example "redirects being reviewed tomorrow" or "Search Console waiting on dev".
-6. New Priority-type problems the re-crawl found, as their own lettered sections.
-
-Also re-issue the list with only the unfinished items (the open-items list), so the agency works from one current document.
-
-**Before sending any new list** (morning send included), run `presend_check` on it: items the agency already fixed since the crawl are dropped and partly-done ones are marked, so the list never asks for work that's live.
+Execute never applies Web Team items.
 
 ---
 
-## 8. PDF format
+## 6. Re-check (after fixes are done)
 
-Claude writes each list as JSON ([../templates/lists.schema.json](../templates/lists.schema.json)) and `render_lists_pdf` produces the PDF, a **Word file** (.docx, next to the PDF) **and a Google Doc** with the same content (the agency copies from the Doc; PDFs break their formatting). Docs live in Drive under "MetaHotels SEO Lists / <hotel>"; re-rendering a list updates the same Doc, so send its link once. The layout below is built in.
+`/hotel-seo recheck <domain>` checks every finding of the latest Audit Report (and Web Team List) against the live
+site with the checks stored on each finding: Done / Partly / Open / Manual / Waiting. The re-crawl's audit adds new
+Critical and High problems (anything the changes broke goes at the very top). The open-items document re-issues only
+what is unfinished.
 
-- **File name:** "25 - Al Bahar Priority SEO List (14 Oct).pdf" (and .docx). That is a running file number across hotels (`file_number`; "auto" takes the next free one, and re-rendering the same list keeps its number), then hotel, list, day and month. Re-checks carry their round: "27 - Al Bahar Priority Re-check 2 (21 Oct)" and the re-issued list "28 - Al Bahar Priority Open Items after Re-check 2 (21 Oct)".
-- **Header:** "[Hotel]: Priority SEO List — 14 Oct". Sub-line: "From MetaHotels · [site] · from [sources, with the crawl's page count] and live checks on [date] · about [total time] · [the order across hotels]".
-- **Lead box** (green): the biggest issue and its timing (Priority only).
-- **Item box:** letter or number, task, time, then a "Finish" row.
-- **"What's already working (no action)"** table (Priority only).
-- **Each section:**
-  - a navy bar with the title and time
-  - an italic line with real numbers
-  - steps with exact text in tables
-  - grey boxes for code and paths
-  - green boxes for prose to paste (`paste`, with links shown as __words__ [→ /path/])
-  - a "Check:" line
-- **Colours:** orange "[waiting for …]" for held items, red [CONFIRM] for unverified facts, a red box for the offers hold.
-- **Footer:** "When done: LiteSpeed → Purge All → send MetaHotels the change list (mark items done only once they are live). We will re-crawl and check every item."
-- **Length:** 3–4 A4 pages for a Priority list, 2–3 for Nice-to-Have. No near-empty last page: the renderer warns, then tighten wording or merge a short section.
-
-## 9. Message templates
-
-In [team.md](team.md).
+**Before sending any report**, `presend_check` drops findings already fixed live since the crawl and marks partly
+done ones.
 
 ---
 
-## 10. Lessons learned
+## 7. Execute (apply the fixes)
+
+`/hotel-seo execute` applies the `seo` findings through the site's WordPress MCP (logins from `sites.csv`) and Claude in
+Chrome where no tool exists (wp-admin screens, Search Console, Bing Webmaster):
+- dry run first (current → new for every change, validated by the site where the tool allows);
+- batches approved one at a time: booking-path, SEO fields, redirects, Elementor text, schema, alt text, post status,
+  menus, new pages, Chrome steps, and group-wide settings last (they affect every hotel);
+- before-values saved, stop at the first error, cache purged, every finding re-checked live; `--undo` restores;
+- never: prices, offers, discounts, member benefits, [CONFIRM] or held items, Web Team items, deletions, users,
+  plugins / themes, other hotels' pages, Google Business Profile.
+
+---
+
+## 8. Document format
+
+Each document is JSON rendered by `render_report` as PDF, Word and a Google Doc (re-rendering updates the same Doc and
+keeps the file number):
+- **File names:** "31 - Rose Park Al Barsha Audit Report (24 Oct).pdf", "Build Plan", "Web Team List", "Group Summary",
+  "Execute Report"; re-checks "Audit Report Re-check 2" and "Audit Report Open Items after Re-check 2". The running
+  number counts across all hotels in the work folder.
+- **Audit Report:** cover line with the Health Score, the scores table (categories, separate scores, agent status),
+  then one chapter per category (Booking path first) with findings Critical → Info, each with a severity badge.
+- **URL lists:** a finding with more than 25 URLs shows 25; every URL is in a CSV next to the report and a Google Sheet.
+- **Colours:** red [CONFIRM] for unverified facts, orange "[waiting for …]" for held items.
+
+---
+
+## 9. Lessons learned
 
 - Confirm the crawl is right before reporting. Check Search Console URL Inspection when the crawl and the live page disagree.
 - GA4 data can belong to another site. Only check when the numbers look wrong.
@@ -305,7 +234,7 @@ In [team.md](team.md).
 - Old-operator leftovers are common after a hotel changes management company (Gloria → Khalidia): site name, footer, other hotels' text, GA4, old URLs.
 - Blog posts returning 404 after a rebuild: list the exact URLs.
 - Search Console exports are attachment-heavy. Save files as they arrive and ask for screenshots where a CSV isn't needed.
-- Check which SEO plugin is actually live before writing Rank Math steps: look at `/wp-json/` namespaces and whether `/sitemap_index.xml` loads. *Al Bahar (Oct 2026): no SEO plugin was active, every meta description was gone and the submitted sitemap returned 404, so "install Rank Math and import the Yoast data" became Priority item 1.* If the site already uses the Redirection plugin, keep redirects there and leave Rank Math's Redirections module off.
+- Check which SEO plugin is actually live before writing Rank Math steps: look at `/wp-json/` namespaces and whether `/sitemap_index.xml` loads. *Al Bahar (Oct 2026): no SEO plugin was active, every meta description was gone and the submitted sitemap returned 404, so "install Rank Math and import the Yoast data" became the first Critical fix.* If the site already uses the Redirection plugin, keep redirects there and leave Rank Math's Redirections module off.
 - Read the JSON-LD in the live HTML of the homepage **and** one inner page. Hand-pasted schema can sit sitewide (Al Bahar had five blocks on every page, one with a self-written 5-star rating). `structured_data.csv` lists the types per page, which makes a sitewide block easy to spot.
 - A spam search term in Search Console queries (gambling, pharma) or empty posts with odd titles is a security red flag. It goes at the top of the Web Team list and is raised with the MetaHotels team the same day.
 - LibreCrawl stores a redirecting URL with the final page's 200 status and content. Count redirects by the first hop (the helper script does), or every old URL looks like a duplicate live page. *Al Bahar (Oct 2026): 41 redirects, against 39 in the earlier Screaming Frog crawl.*
@@ -315,7 +244,7 @@ In [team.md](team.md).
 - Spam posts come in families with old dates. *Al Bahar: 24 posts titled "cache" and 14 titled "x", all dated 2020-01-01 but last changed between July and October 2026, the latest on 12 Oct.* Report the full count, the trend and the latest date, never "2 junk posts".
 - A site's own claims are not confirmation. *Al Bahar: "24-hour in-room dining" (schema) and "3 loyalty tiers" (FAQ) went into a list untagged, and the tiers answer contradicted the Rewards item.* The renderer now blocks these categories unless the hotel confirmed them.
 - A canonical pointing to an old address that redirects back blocks both addresses from Google. *Atana (Oct 2026): 9 blog posts kept their pre-/blog/ canonical after the move, together about 16,000 impressions, and one had a typo (/ssuperyacht…).* `audit_site` reports these as `canonical_broken`.
-- Card and loop widgets often use H1 for every card. *Atana: 24 H1s on the homepage and a second H1 ("Airport Pickup") on every room page.* One template change fixes them all, so it's one Priority item, not one per page.
+- Card and loop widgets often use H1 for every card. *Atana: 24 H1s on the homepage and a second H1 ("Airport Pickup") on every room page.* One template change fixes them all, so it's one finding, not one per page.
 - Old booking-engine links survive in blog posts and old content: `bookingstep1.en.html` with a 2023 date in Indian rupees, now 404. `audit_site` lists them as `booking_link_outdated`. Replace them with the standard booking link and add a Regex redirect for the ones Google still has.
 - LibreCrawl's link `placement` (navigation / footer / body) is unreliable on Elementor sites. "Sitewide" in `findings.md` means linked from at least 80% of pages, counted.
 - The booking engine sells things the site doesn't show. *Al Bahar: "Stay & Splash" water-sports packages had 6 bookings since July and no page, while the old water-sports offer pages 404.* Check Mirai rate plans against the offer pages on every run.
@@ -326,26 +255,5 @@ In [team.md](team.md).
 - A leftover `llms.txt` from a removed SEO plugin keeps describing the site to AI crawlers with stale pages. *Al Bahar: Yoast's llms.txt still served after the switch to Rank Math.* `audit_site` flags it.
 - WordPress MCP / abilities plugins expose site control under `/wp-json/` (`mcp`, `wp-abilities`, `elementor-mcp-composer`). Check they require authentication before using them across hotels.
 - The Mirai XML API spec and the live API disagree. *Oct 2026: amounts come with a dot (`1306.96`), not the comma the spec shows; reading them the spec's way made revenue 100× too high.* Offer and room names are only in the booking's `distributor` comments. One login covers the whole chain (29 hotels), and cancellations are a big share of daily events (21 of 44 in one day), so always quote the cancellation rate next to bookings. `mirai_reservations` handles all of this.
-- Check whether the agency is already working on a list before a fresh run. *Al Bahar (14 Oct 2026): lists 25–27 were issued by hand that morning (outside `<domain>/lists/`); the automated run re-issued half of list 25 and found two regressions its in-progress work had caused (52 canonicals, `/contact-us/` noindex), seen only by reading the manual PDFs.* Step 1 now looks for lists from the last 7 days and runs a recheck plus delta.
-- Brand terms from the site title can invert the brand share. *Atana (Oct 2026): the title "Hotels in Barsha Heights, 4-star hotel…" gave barsha/heights/star and 3% brand share; "atana" queries were 71% of clicks. Pearl Marina: "marina" made "hotel apartments in dubai marina" a brand search (95% instead of 64%).* `audit_site` seeds brand terms from the domain name and the hotel's schema name and prints them with their source: read that line before quoting brand share.
-- The phone check used to join digit strings into numbers. *Pearl Marina: +212, +220 and +420 "on 109 pages", in no tel: link; every tel: link was +971.* Odd codes are now judged from tel: links; text-only ones are listed to check by eye.
-- On a domain with several hotels, resolve every metric and ID to the hotel at page level. *Oct 2026, a group domain with about 11 hotels: a sister's exact brand query was listed as the target hotel's opportunity (the sister's page ranked 3.4 with 4× the clicks); a hotel's Mirai ID was "not found" though its room pages used one ID and its Rooms & Suites button another, shared with a sister (a wrong-hotel booking link while the list said "Booking tracking OK"); a reused audit had another hotel's city.* Pass `hotel_path`; Search Console by query and page; one audit per hotel with its own `hotel_city`.
-- Right-to-left text doesn't survive a terminal copy. *Two Egyptian hotels (Oct 2026): every Arabic keyword reached Keyword Planner reversed and returned no data, though the user followed the steps exactly.* Hand over RTL text in a UTF-8 file. Arabic in one hotel's PDFs also printed as `\uXXXX` codes; the renderer now refuses that.
-- A check only proves what it covers. *Oct 2026: a booking-links item was marked Done while one of the 12 blog posts its own text named still had a past-dated link; the checks covered room and offer pages only. The audit's indexable registration page (437 impressions), 11 gambling searches and a rooms archive with no H1 reached no list at all.* One check per URL and row; `presend_check` reports missing checks and Priority findings on no list.
-- A tool default that silently fills in context must say so. *Oct 2026: without `hotel_city`, `audit_site` took the city from the shared domain's schema and audited two Egyptian hotels as Fujairah (161–195 false "other city" flags, 74 false phone flags, one on a Priority list, while a real phone error went unnoticed). The first feedback blamed the operator.* The inferred city and its source now head `findings.md`, with a warning when it doesn't match the domain's country; always pass `hotel_city`.
-- A re-check "Done" doesn't mean nothing else changed. *Gewan Cairo / White Beach (18 Oct 2026): a duplicate LocalBusiness block the item said to delete was still live; a "replace with this block" was pasted as a merge (six old fields kept, AED on an Egyptian hotel, sameAs dropped); blog Book Now links were pasted as `/search/? idtokenprovider=…` (the space breaks the engine); and a duplicate H1 on two posts and a CTA on three were added without being asked.* `schema_block_equals`, `scope`, malformed-link detection and `baseline_crawl_dir` catch these. *Pearl Marina (19 Oct): the agency put title changes in the Yoast SEO title, not the post title:* check both `h1` and `title`.
-- A list someone will search live in front of the client must come with what not to search. *An Egyptian hotel (Oct 2026): almost every page-one ranking was its brand, an old name or a misspelling; generic city searches sat on page 2 or lower.* See "Showcase keywords" in SKILL.md.
-- A health check must test, not look for a file. *18 Oct 2026: `init --check` said "all good" with no Mirai row while a saved Mirai login returned 401 on first use.* The Mirai row now makes one real call, and `hotel-seo-mirai-login` tests before saving.
-- Search Console impressions can be wrong for a whole year. *Google over-reported impressions from 13 May 2025 to 27 Apr 2026 and won't correct the history (clicks were fine).* A year-on-year impressions or CTR "drop" across that window is the bug ending, not a problem on the site. `audit_site` warns when its windows overlap it; compare clicks.
-- A site can be invisible to ChatGPT search without anyone deciding it. *Nov 2026 review of the WordRocket SEO skills:* a robots.txt `Disallow: /` for OAI-SearchBot, or a CDN's "block AI bots" switch, removes the hotel from ChatGPT's answers, and Cloudflare's "Block" also stops Googlebot and Bingbot. `audit_site` now reads robots.txt per crawler and tests the firewall (AI01–AI03).
-- Search Console query rows leave out rare (anonymised) searches. *Nov 2026 review of the claude-seo toolkit:* we added up query rows for site totals, which undercounts clicks on small hotel sites and overstates brand share. Totals now come from the property itself; brand share says it's a share of query-attributed clicks.
-- Hotels can't post offers on their Google profile. Google's posts policy: no Offer posts on hotel profiles, and no post that mentions or links to deals or discounts. `gbp_propose` refuses them.
-- A 'captcha' on a page isn't a firewall. Most hotel homepages load reCAPTCHA for the contact form; only a vendor challenge page the browser didn't get counts as a block (AI02).
-- A run isn't done until the live site shows it the same way everywhere. *Abar (handoff, 31 Oct 2026): a reviewer found within an hour of "done": guest numbers fixed in a room page's body but not its meta, one apartment at three sizes, one landmark at 0.9 / 1 / 1.6 km, long metas, default titles, an old year in a blog title, no room schema, two internal links marked nofollow.* `site_consistency_check` runs in every full run and re-check.
-- A figure next to a landmark can belong to another place. *Abar (9 Nov 2026): a second reviewer's four distance "conflicts" were The Market Mall in Green Community, Dubai Exhibition Centre, The Els Club and three different "Emirates" places; four of that list's five items were false alarms.* The matcher gives a figure to the longest place name before it, within the clause, and every DISTANCE row is read by hand.
-- Hotel answers go into `hotel-facts.json` the day they arrive. *Abar: capacities approved by email on 6 Nov were only in a notes file; a later list followed the booking engine (Two-Bedroom "up to 5") instead of the hotel (4 adults + 4 children).* The engine is then a setting to correct, not the site.
-- On a group domain, name pages by full URL. *Rose (Nov 2026): every hotel had `/about-us/`, `/rooms/` and `/contact-us/`; looking pages up by the last slug aimed about 130 changes at the wrong hotel.*
-- Some searches belong to the hotel's other websites. *Abar: restaurant and iftar searches are gulcafe.com's.* `hotel.json` `other_sites` leaves them out of the hotel's opportunities.
-- A search and its target page must be in the same language. *Rose: English searches were aimed at the /ar/ homepage, which had no impressions in 90 days.*
-- Some hotels approve every change before it goes live and write sizes in sq ft (Abar). `hotel.json` `preferences`; the renderer reminds until the approval is recorded.
-- Read-only must be enforced by the permission, not the instructions. The Search Console sign-in asked for read-write access across 76 properties. New sign-ins are read-only; `health_check` flags old ones.
+- Group sites need a per-hotel booking check. *Rose Hotels (Oct 2026): the Book Now buttons on the room pages of Rose Plaza, Rose Park, Rose Executive and Rose Garden Al Barsha all opened Rose Garden Bur Dubai's engine (Mirai 100377547).* `audit_site` with `group_dir` checks each hotel's pages against its own Mirai ID.
+- Several hotel sites' LiteSpeed firewalls return 403 to the default python-requests / httpx user agents: the MCP client names itself (`hotel-seo-mcp-client`).

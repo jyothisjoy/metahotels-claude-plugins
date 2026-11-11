@@ -58,12 +58,40 @@ def _client():
     }), str(cfg.get('customer_id') or cfg['login_customer_id']).replace('-', '')
 
 
-def _targets(client, req, countries, language):
-    geo = client.get_service('GeoTargetConstantService')
+_GEO_CACHE = {}
+
+
+def geo_id(client, place, country_code=''):
+    """Google Ads geo target constant id for a country code (AE), a numeric id, or a place name (Dubai, Al Barsha)."""
+    p = str(place).strip()
+    if p.isdigit():
+        return p
+    if p.upper() in GEO:
+        return str(GEO[p.upper()])
+    key = (p.lower(), country_code.upper())
+    if key in _GEO_CACHE:
+        return _GEO_CACHE[key]
+    svc = client.get_service('GeoTargetConstantService')
+    req = client.get_type('SuggestGeoTargetConstantsRequest')
+    req.locale = 'en'
+    if country_code:
+        req.country_code = country_code.upper()
+    req.location_names.names.append(p)
+    res = svc.suggest_geo_target_constants(request=req)
+    for s in res.geo_target_constant_suggestions:
+        g = s.geo_target_constant
+        if g.status.name == 'ENABLED':
+            _GEO_CACHE[key] = str(g.id)
+            return _GEO_CACHE[key]
+    raise ValueError(f'no Google Ads location found for "{p}"')
+
+
+def _targets(client, req, countries, language, country_code=''):
     for c in countries:
-        if c.upper() in ('WORLD', 'WORLDWIDE', 'ALL'):
+        if str(c).upper() in ('WORLD', 'WORLDWIDE', 'ALL'):
             continue                    # no geo target = worldwide
-        req.geo_target_constants.append(geo.geo_target_constant_path(str(GEO.get(c.upper(), c))))
+        req.geo_target_constants.append(client.get_service('GeoTargetConstantService')
+                                        .geo_target_constant_path(geo_id(client, c, country_code)))
     req.language = client.get_service('GoogleAdsService').language_constant_path(str(LANG.get(language, language)))
     req.keyword_plan_network = client.enums.KeywordPlanNetworkEnum.GOOGLE_SEARCH
 
@@ -117,15 +145,15 @@ def _safe(fn):
 
 
 @_safe
-def ideas(seeds=None, url='', out_dir='.', countries=('AE',), language='en', limit=300):
+def ideas(seeds=None, url='', out_dir='.', countries=('AE',), language='en', limit=None, country_code=''):
     ok, why = configured()
     if not ok:
         return {'checked': False, 'reason': why}
     client, cid = _client()
     req = client.get_type('GenerateKeywordIdeasRequest')
     req.customer_id = cid
-    _targets(client, req, countries, language)
-    seeds = [s for s in (seeds or []) if s][:20]
+    _targets(client, req, countries, language, country_code)
+    seeds = [s for s in (seeds or []) if s][:20]          # Google Ads accepts at most 20 seed keywords
     if seeds and url:
         req.keyword_and_url_seed.url = url
         req.keyword_and_url_seed.keywords.extend(seeds)
@@ -138,29 +166,41 @@ def ideas(seeds=None, url='', out_dir='.', countries=('AE',), language='en', lim
     rows = []
     for idea in client.get_service('KeywordPlanIdeaService').generate_keyword_ideas(request=req):
         rows.append(_row(idea.text, idea.keyword_idea_metrics))
-        if len(rows) >= limit:
+        if limit and len(rows) >= limit:
             break
     rows.sort(key=lambda r: -(r['avg_monthly_searches'] or 0))
     meta = {'kind': 'ideas', 'seeds': seeds, 'url': url, 'countries': list(countries), 'language': language}
-    return {'checked': True, 'count': len(rows), 'top': rows[:40],
-            'files': _save(rows, out_dir, 'ideas', meta)}
+    files = _save(rows, out_dir, 'ideas', meta)
+    out = {'checked': True, 'count': len(rows), 'files': files}
+    if len(rows) <= 400:
+        out['rows'] = rows
+    else:
+        out['first_rows'] = rows[:100]
+        out['note'] = f'{len(rows)} ideas: all of them are in {files[1]}'
+    return out
 
 
 @_safe
-def volumes(keywords, out_dir='.', countries=('AE',), language='en'):
+def volumes(keywords, out_dir='.', countries=('AE',), language='en', country_code='', save=True):
     ok, why = configured()
     if not ok:
         return {'checked': False, 'reason': why}
     client, cid = _client()
-    req = client.get_type('GenerateKeywordHistoricalMetricsRequest')
-    req.customer_id = cid
-    _targets(client, req, countries, language)
-    req.keywords.extend(dict.fromkeys(k.strip() for k in keywords if k.strip()))
-    resp = client.get_service('KeywordPlanIdeaService').generate_keyword_historical_metrics(request=req)
-    rows = [dict(_row(r.text, r.keyword_metrics), close_variants=list(r.close_variants)) for r in resp.results]
+    kws = list(dict.fromkeys(k.strip().lower() for k in keywords if k and k.strip()))
+    rows = []
+    for i in range(0, len(kws), 5000):          # well under the API's 10,000-keyword request limit
+        req = client.get_type('GenerateKeywordHistoricalMetricsRequest')
+        req.customer_id = cid
+        _targets(client, req, countries, language, country_code)
+        req.keywords.extend(kws[i:i + 5000])
+        resp = client.get_service('KeywordPlanIdeaService').generate_keyword_historical_metrics(request=req)
+        rows += [dict(_row(r.text, r.keyword_metrics), close_variants=list(r.close_variants)) for r in resp.results]
     rows.sort(key=lambda r: -(r['avg_monthly_searches'] or 0))
     meta = {'kind': 'volumes', 'countries': list(countries), 'language': language}
-    return {'checked': True, 'count': len(rows), 'rows': rows, 'files': _save(rows, out_dir, 'volumes', meta)}
+    out = {'checked': True, 'count': len(rows), 'requested': len(kws), 'rows': rows}
+    if save:
+        out['files'] = _save(rows, out_dir, 'volumes', meta)
+    return out
 
 
 def login():

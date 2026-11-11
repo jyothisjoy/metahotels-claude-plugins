@@ -286,16 +286,16 @@ def build(doc):
     if doc.get('working'):
         _heading(d, "What's already working (no action)", 13, 2)
         _table(d, ['Item', 'Status', 'Note'], doc['working'])
-    if doc.get('parity'):
-        pb = doc['parity']
-        _heading(d, pb.get('title') or 'Rate parity (Best Rate calendar)', 13, 2)
-        _table(d, pb['columns'], pb['rows'])
-        if pb.get('note'):
-            _add(d.add_paragraph(), f"*{pb['note']}*")
     for p in doc.get('intro', []):
         _add(d.add_paragraph(), p)
     for s in doc['sections']:
+        if s.get('chapter'):
+            _heading(d, s.get('chapter_label') or s['chapter'], 15, 1)
+            continue
         extra = []
+        if s.get('severity'):
+            col = {'Critical': RED, 'High': RED, 'Medium': GOLD}.get(s['severity'], MUTED)
+            extra.insert(0, (f" [{s['severity']}]", {'bold': True, 'color': col}))
         if s.get('hold'):
             extra.append((f" [{s['hold']}]", {'bold': True, 'color': GOLD}))
         if s.get('time'):

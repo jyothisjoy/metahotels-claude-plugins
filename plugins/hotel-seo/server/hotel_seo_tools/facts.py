@@ -27,9 +27,7 @@ from . import paths
 
 NUM = r'\d[\d,.]*'
 FACT_PATTERNS = {
-    # m² and sq ft (Abar's sizes are in sq ft), single figures and ranges ("700–807 sq ft")
-    'size': rf'{NUM}(?:\s?[–-]\s?{NUM})?\s*(?:m²|m2|sqm|sq\.?\s?m\b|square met(?:er|re)s?|sq\.?\s?ft|ft²|'
-            rf'square f(?:ee|oo)t)',
+    'size': rf'{NUM}\s*(?:m²|m2|sqm|sq\.?\s?m|square met(?:er|re)s?)',
     'distance_time': rf'{NUM}\s*(?:km|kilomet(?:er|re)s?|miles?|minutes?|mins?|hours?|hrs?)\b',
     # up to two words between the number and the noun: "3 loyalty tiers", "13 luxury suites"
     'count_confirm': rf'{NUM}\s+(?:[a-z-]+\s+){{0,2}}?(?:rooms?|suites?|keys|guests?|people|persons|adults|'
@@ -50,13 +48,13 @@ FACT_PATTERNS = {
 }
 HOTEL_CONFIRMED = {'distance_time', 'count_confirm', 'round_the_clock', 'price', 'percent', 'time', 'loyalty'}
 MARK = re.compile(r'\[CONFIRM[^\]]*\]')
+URL_LIKE = re.compile(r'(?:https?://|www\.)\S+|(?<![\w])/[\w\-./]*[?#][^\s`)\]]*|`[^`]*(?:/|\?|=)[^`]*`')
 FACT_RE = re.compile('|'.join(f'(?P<{k}>{v})' for k, v in FACT_PATTERNS.items()), re.I)
 
 
 def norm(s):
     s = (s or '').lower().replace('²', '2').replace('–', '-').replace('—', '-')
     s = re.sub(r'(\d),(\d{3})', r'\1\2', s)
-    s = re.sub(r'\s*(?:sq\.?\s?ft|ft2|square f(?:ee|oo)t)\b', ' sqft', s)
     s = re.sub(r'\s*(?:sq\.?\s?m|sqm|square met(?:er|re)s?|m 2)\b', ' m2', s)
     s = re.sub(r'(\d)\s*([a-z%])', r'\1 \2', s)          # "830m2" == "830 m2"
     s = re.sub(r'\bhrs?\b', 'hour', s)
@@ -93,141 +91,33 @@ def _verified(phrase, corpus):
     return False
 
 
-def _items(doc, with_context=False):
-    """(section, text) for every text the guard reads; with_context adds the sentence or table row
-    the text sits in (a value in a table cell is to be deleted when its row says Delete)."""
-    def out(where, text, ctx=None):
-        return (where, text, text if ctx is None else ctx) if with_context else (where, text)
+def _items(doc):
     for w in doc.get('warnings_top', []) + doc.get('warnings_end', []):
-        yield out('warning', w)
+        yield 'warning', w
     for p in doc.get('intro', []):
-        yield out('intro', p)
+        yield 'intro', p
     for s in doc.get('sections', []):
+        if s.get('code_data'):
+            continue            # our own data tables (keyword volumes, OpenStreetMap distances), not hotel claims
         where = f"{s.get('number', '')} {s.get('title', '')}".strip()
-        prev = ''
         for b in s.get('blocks', []):
             (kind, val), = b.items()
-            if kind == 'code':
-                yield out(where, val, f'\x00code {prev} {val}')     # "Delete these lines:" then the code block
-            elif kind in ('p', 'warning', 'note', 'paste', 'h3'):
-                yield out(where, val)
+            if kind in ('p', 'code', 'warning', 'note', 'paste', 'h3'):
+                yield where, val
             elif kind in ('ol', 'ul'):
                 for li in val:
-                    yield out(where, li)
+                    yield where, li
             elif kind == 'table':
                 for row in val.get('rows', []):
                     joined = ' | '.join(str(c) for c in row)
                     for c in row:
-                        yield out(where, f'{c}' + (' [CONFIRM]' if MARK.search(joined) else ''), joined)
-            prev = str(val) if kind in ('p', 'ol', 'ul', 'h3', 'note') else ''
+                        yield where, f'{c}' + (' [CONFIRM]' if MARK.search(joined) else '')
 
 
 def is_confirmed_source(source):
-    """Sources in hotel-facts.json that count as confirmation for the [CONFIRM] guard."""
+    """Which hotel-facts.json sources count as confirmation for the [CONFIRM] guard."""
     s = str(source or '').strip().lower()
-    return bool(s) and not s.startswith('booking.com')
-
-
-def is_hotel_source(source):
-    """The hotel's own answer (information sheet, email, WhatsApp, the hotel contact): it beats the booking engine
-    when they disagree; the engine is then a setting to correct, not the site."""
-    return str(source or '').strip().lower().startswith(('hotel', 'the hotel'))
-
-
-ROOM_FACT = re.compile(r'^\s*(?P<room>[^:]{3,80}?):\s*(?P<val>.+)$')
-GUESTS = re.compile(r'(?:up to|sleeps|max(?:imum)?|for)\s*(\d+)\s*(?:guests?|people|persons|adults)?|(\d+)\s*guests', re.I)
-ADULTS_KIDS = re.compile(r'(\d+)\s*adults?\s*(?:\+|and|&)\s*(\d+)\s*(?:children|kids|child)', re.I)
-SIZE_VAL = re.compile(r'(\d[\d,.]*(?:\s?[–-]\s?\d[\d,.]*)?)\s*(m²|m2|sqm|sq\.?\s?m\b|sq\.?\s?ft|ft²|square f(?:ee|oo)t|'
-                      r'square met(?:er|re)s?)', re.I)
-
-
-def _room_key(name):
-    return re.sub(r'[^a-z0-9]+', ' ', name.lower().replace('one', '1').replace('two', '2').replace('three', '3')
-                  .replace('four', '4')).strip()
-
-
-def room_fact(text):
-    """("2 bedroom apartment", "guests" | "size", value) for facts like "Two Bedroom Apartment: up to 8 guests
-    (4 adults + 4 children)" or "Two Bedroom Apartment: 1,012–1,184 sq ft"; None otherwise."""
-    m = ROOM_FACT.match(str(text or ''))
-    if not m or not re.search(r'room|suite|apartment|studio|villa|chalet|penthouse|bedroom', m.group('room'), re.I):
-        return None
-    val = m.group('val')
-    ak = ADULTS_KIDS.search(val)
-    g = GUESTS.search(val)
-    if ak or g:
-        n = int(ak.group(1)) + int(ak.group(2)) if ak else int(g.group(1) or g.group(2))
-        return _room_key(m.group('room')), 'guests', n
-    sz = SIZE_VAL.search(val)
-    if sz:
-        return _room_key(m.group('room')), 'size', norm(sz.group(0))
-    return None
-
-
-def add_facts(facts_file, facts, source):
-    """Add facts with their source. One value per fact: a hotel answer marks the booking-engine / other facts it
-    contradicts (same room, same kind) "superseded"; a later non-hotel fact that contradicts a hotel answer is
-    stored already superseded. Returns what was added, what was superseded, and the booking engine corrections."""
-    f = paths.resolve(facts_file)
-    doc = json.loads(f.read_text(encoding='utf-8')) if f.exists() else {'facts': []}
-    rows = doc.setdefault('facts', [])
-    have = {x.get('fact') for x in rows}
-    hotel_new = is_hotel_source(source)
-    added, superseded = [], []
-    for text in facts:
-        if text in have:
-            continue
-        rf = room_fact(text)
-        rec = {'fact': text, 'source': source}
-        for x in rows:
-            xf = room_fact(x.get('fact'))
-            if not (rf and xf and xf[:2] == rf[:2] and xf[2] != rf[2]) or x.get('superseded'):
-                continue
-            if hotel_new and not is_hotel_source(x.get('source')):
-                x['superseded'] = True
-                x['superseded_by'] = f'{text} ({source})'
-                superseded.append(x['fact'])
-            elif not hotel_new and is_hotel_source(x.get('source')):
-                rec['superseded'] = True
-                rec['superseded_by'] = f"{x['fact']} ({x['source']})"
-        rows.append(rec)
-        have.add(text)
-        added.append(text)
-    f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text(json.dumps(doc, indent=1, ensure_ascii=False), encoding='utf-8')
-    return {'added': added, 'superseded': superseded, 'engine_corrections': engine_corrections(facts_file)}
-
-
-def engine_corrections(facts_file):
-    """Rooms where the hotel has answered and the booking engine sells something else: a booking-engine setting for
-    whoever manages Mirai, never a [CONFIRM] question and never a page edit (Abar, Nov 2026: the engine sold the
-    Two-Bedroom for 5; the hotel said 4 adults + 4 children)."""
-    f = paths.resolve(facts_file)
-    if not f.exists():
-        return []
-    rows = json.loads(f.read_text(encoding='utf-8')).get('facts', [])
-    hotel = {}
-    for x in rows:
-        rf = room_fact(x.get('fact'))
-        if rf and is_hotel_source(x.get('source')) and not x.get('superseded'):
-            hotel[rf[:2]] = (x['fact'], x['source'], rf[2])
-    out = []
-    for x in rows:
-        rf = room_fact(x.get('fact'))
-        if rf and str(x.get('source', '')).lower().startswith('booking engine') and rf[:2] in hotel \
-                and hotel[rf[:2]][2] != rf[2]:
-            h = hotel[rf[:2]]
-            out.append({'room': x['fact'].split(':')[0].strip(), 'kind': rf[1], 'engine_sells': x['fact'],
-                        'hotel_says': f'{h[0]} ({h[1]})',
-                        'fix': f"Booking engine setting: change {rf[1]} for {x['fact'].split(':')[0].strip()} to the "
-                               "hotel's answer (Mirai extranet; not a page edit)."})
-    seen, uniq = set(), []
-    for c in out:
-        k = (c['room'], c['kind'], c['engine_sells'])
-        if k not in seen:
-            seen.add(k)
-            uniq.append(c)
-    return uniq
+    return bool(s) and not s.startswith('booking.com,')
 
 
 def load_corpus(crawl_dir='', facts_file=''):
@@ -239,95 +129,34 @@ def load_corpus(crawl_dir='', facts_file=''):
             sources.append(str(f))
     if facts_file and paths.resolve(facts_file).exists():
         facts = json.loads(paths.resolve(facts_file).read_text(encoding='utf-8')).get('facts', [])
-        # A fact the hotel has corrected is kept for the record with "superseded": true and no longer counts
-        # (Abar, Nov 2026: the engine sold the Two-Bedroom for 5; the hotel said 4 adults + 4 children).
-        # Booking.com alone is never confirmation.
-        confirmed.extend(x.get('fact', '') for x in facts
-                         if is_confirmed_source(x.get('source', '')) and not x.get('superseded'))
+        # Booking.com alone is not confirmation (user rule): only facts the hotel's booking engine agrees with
+        # are re-saved as "Booking.com + booking engine, <date>" and count. Prices from Booking.com never count.
+        confirmed.extend(x.get('fact', '') for x in facts if is_confirmed_source(x.get('source', '')))
         sources.append(str(paths.resolve(facts_file)))
     confirmed_text = norm(' \n '.join(confirmed))
     return norm(' \n '.join(site)) + ' \n ' + confirmed_text, confirmed_text, sources
-
-
-DELETE_WORDS = re.compile(r'\b(?:delete|remove|drop|take out|get rid of)\b', re.I)
-CODE_SPAN = re.compile(r'`[^`]*`')
-REGEX_BACKREF = re.compile(r'^\$\d$')
-
-
-def _to_delete(text, ctx, m, kind_is_code):
-    """A value the list tells the reader to delete is not a claim the list makes: skip it when it sits
-    in a code span (or a code block) and the sentence, row or lead-in says delete / remove."""
-    if not DELETE_WORDS.search(ctx or ''):
-        return False
-    if kind_is_code:
-        return True
-    return any(c.start() <= m.start() and m.end() <= c.end() for c in CODE_SPAN.finditer(text))
-
-
-PATH_IN_TEXT = re.compile(r'\[→\s*([^\]\s]+)\s*\]|`(/[^`\s]*)`|https?://[^\s`)\]]+')
-HOMEPAGE_WORDS = re.compile(r'\bhome ?page\b', re.I)
-
-
-def severity_check(doc):
-    """Playbook severity rule: homepage, room, offer, contact and booking-path items belong on the
-    Priority list. Flags sections of the other lists that touch those pages (from their checks' URLs
-    and the paths in their text). A section can carry "not_priority_because" when it is deliberate
-    (e.g. held for hotel details, or a cosmetic change on a room page)."""
-    if doc.get('title') in ('Priority SEO List', 'Re-check'):
-        return []
-    from urllib.parse import urljoin, urlparse
-    from .audit import CRITICAL_TYPES, page_type
-    site = doc.get('site') or ''
-    host = urlparse(site).netloc.replace('www.', '')
-    out = []
-    for s in doc.get('sections', []):
-        if s.get('not_priority_because') or s.get('hold'):
-            continue
-        urls = [c.get('url') for c in s.get('checks', []) if c.get('url') and c.get('url') != 'sitewide']
-        urls += [c.get('source') for c in s.get('checks', []) if c.get('source')]
-        text = json.dumps(s.get('blocks', []), ensure_ascii=False) + ' ' + s.get('title', '')
-        for m in PATH_IN_TEXT.finditer(text):
-            urls.append(m.group(1) or m.group(2) or m.group(0))
-        hits = set()
-        for u in urls:
-            full = urljoin(site.rstrip('/') + '/', u) if site else u
-            if host and urlparse(full).netloc.replace('www.', '') not in (host, ''):
-                continue
-            t = page_type(full, host) if host else ''
-            if t in CRITICAL_TYPES:
-                hits.add(f'{t}: {urlparse(full).path or "/"}')
-        if HOMEPAGE_WORDS.search(s.get('title', '')):
-            hits.add('home: /')
-        if hits:
-            out.append({'section': f"{s.get('number', '')} {s['title']}".strip(), 'pages': sorted(hits)[:6]})
-    return out
 
 
 def check(doc, crawl_dir='', facts_file=''):
     corpus, confirmed, sources = load_corpus(crawl_dir, facts_file)
     if not sources:
         return {'checked': False, 'reason': 'no site_text.json (run audit_site) and no hotel-facts.json'}
-    items = list(_items(doc, with_context=True))
+    items = list(_items(doc))
     marked = defaultdict(str)          # section -> normalised text of its [CONFIRM] items
-    for where, text, _ in items:
+    for where, text in items:
         if MARK.search(str(text)):
             marked[where] += ' ' + norm(str(text))
-    unverified, checked, skipped = [], 0, 0
-    for where, text, ctx in items:
-        text, ctx = str(text), str(ctx)
+    unverified, checked = [], 0
+    for where, text in items:
+        text = str(text)
         if MARK.search(text):
             continue
-        is_code_block = ctx.startswith('\x00code ')
+        # URLs and paths are addresses, not hotel facts ("%2C", "checkin=20%2F03" in booking links)
+        text = URL_LIKE.sub(lambda m: ' ' * len(m.group(0)), text)
         for m in FACT_RE.finditer(text):
             checked += 1
             phrase, kind = m.group(0), m.lastgroup
             if norm(phrase) in marked[where]:
-                continue
-            if kind == 'price' and REGEX_BACKREF.match(phrase.strip()):
-                skipped += 1           # "$1" in a redirect rule is a regex backreference, not a price
-                continue
-            if _to_delete(text, ctx, m, is_code_block):
-                skipped += 1
                 continue
             evidence = confirmed if kind in HOTEL_CONFIRMED else corpus
             if not _verified(phrase, evidence):
@@ -335,5 +164,4 @@ def check(doc, crawl_dir='', facts_file=''):
                 unverified.append({'section': where, 'phrase': phrase, 'kind': kind,
                                    'needs': 'hotel confirmation' if kind in HOTEL_CONFIRMED else 'the live site',
                                    'context': text[start:m.end() + 60].replace('\n', ' ')})
-    return {'checked': True, 'facts_checked': checked, 'skipped_as_deletions_or_regex': skipped,
-            'unverified': unverified, 'evidence': sources}
+    return {'checked': True, 'facts_checked': checked, 'unverified': unverified, 'evidence': sources}

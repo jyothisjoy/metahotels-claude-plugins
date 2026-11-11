@@ -1,8 +1,8 @@
 [project]
 name = "hotel-seo-tools"
-version = "2.0.0"
+version = "2.0.1"
 description = "MCP tools for the MetaHotels hotel-seo skill: crawls, site audit, booking engine, parity, indexing, monitors, PDF and Google Docs lists"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "mcp>=1.2,<2",
     "requests>=2.31",
@@ -15,7 +15,21 @@ dependencies = [
     "azure-storage-blob>=12.19",
     "openpyxl>=3.1",
     "python-docx>=1.1",
+    # claude-seo vendored scripts (hotel_seo_tools/vendor/claude_seo, MIT)
+    "lxml>=6.1.1,<7",
+    "lxml_html_clean>=0.4.5,<1",
+    "trafilatura>=2.2.0,<3",
+    "htmldate>=1.10.0,<2",
+    "courlan>=1.4.0,<2",
+    "google-api-python-client>=2.196.0,<3",
+    "google-auth>=2.56.2,<3",
+    "urllib3>=2.7.0,<3",
+    # agent output validation (report.schema.json)
+    "jsonschema>=4.23,<5",
 ]
+
+[dependency-groups]
+dev = ["pytest>=8"]
 
 [project.scripts]
 hotel-seo-tools = "hotel_seo_tools.server:main"
@@ -23,9 +37,9 @@ hotel-seo-launch = "hotel_seo_tools.launch:main"
 hotel-seo-ads-login = "hotel_seo_tools.keywords:login"
 hotel-seo-parity-login = "hotel_seo_tools.parity:login"
 hotel-seo-bing-login = "hotel_seo_tools.bing:login"
+hotel-seo-key-login = "hotel_seo_tools.apikeys:login"
 hotel-seo-auth = "hotel_seo_tools.google_auth:main"
 hotel-seo-mirai-login = "hotel_seo_tools.mirai:login"
-hotel-seo-monitor = "hotel_seo_tools.monitor:main"
 
 [build-system]
 requires = ["hatchling"]

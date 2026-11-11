@@ -1,0 +1,114 @@
+{%- macro cell(c, align) -%}
+{%- if c is mapping -%}<td class="{{ align }}">{% if c.pill %}<span class="pill pill-{{ c.pill }}">{{ c.text }}</span>{% else %}{{ c.text | rich }}{% endif %}</td>
+{%- else -%}<td class="{{ align }}">{{ c | rich }}</td>{%- endif -%}
+{%- endmacro -%}
+
+{%- macro table(t) -%}
+<table class="mt">
+  <thead><tr>{% for col in t.columns %}<th class="{{ (t.align or [])[loop.index0] | default('l') }}">{{ col }}</th>{% endfor %}</tr></thead>
+  <tbody>{% for row in t.rows %}<tr>{% for c in row %}{{ cell(c, (t.align or [])[loop.index0] | default('l')) }}{% endfor %}</tr>{% endfor %}</tbody>
+</table>
+{%- endmacro -%}
+
+{%- macro cards(list, dark=false) -%}
+<div class="cards n{{ list | length if list | length < 4 else 3 }}{% if dark %} dark{% endif %}">
+  {% for k in list %}
+  <div class="card">
+    <div class="value">{{ k.value }}</div>
+    {% if k.change %}<div class="change {{ k.dir or 'none' }}">{{ k.change }}</div>{% endif %}
+    <div class="label">{{ k.label | rich }}</div>
+  </div>
+  {% endfor %}
+</div>
+{%- endmacro -%}
+
+{%- macro component(c) -%}
+<div class="comp{% if (c.table and c.table.rows | length <= 12) or c.cards or c.funnel %} keep{% endif %}">
+  {% if c.title %}<h3>{{ c.title | rich }}</h3>{% endif %}
+  {% if c.text and not c.tone is defined %}<p class="text">{{ c.text | rich }}</p>{% endif %}
+  {% if c.cards %}{{ cards(c.cards) }}{% endif %}
+  {% if c.table %}{{ table(c.table) }}{% endif %}
+  {% if c.grid2 %}
+  <div class="grid2">
+    {% for sub in c.grid2 %}
+    <div class="panel{% if sub.tone %} tone-{{ sub.tone }}{% endif %}">
+      {% if sub.title %}<h4>{{ sub.title | rich }}</h4>{% endif %}
+      {% if sub.table %}{{ table(sub.table) }}{% endif %}
+      {% if sub.text %}<p>{{ sub.text | rich }}</p>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if c.funnel %}
+  <div class="funnel">
+    {% for f in c.funnel %}
+    <div class="step{% if f.dark %} dark{% endif %}">
+      <div class="eyebrow">{{ f.eyebrow }}</div>
+      <div class="value">{{ f.value }}</div>
+      <div class="label">{{ f.label | rich }}</div>
+    </div>
+    {% if not loop.last %}<div class="arrow">→</div>{% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if c.timeline %}
+  <div class="timeline">
+    {% for t in c.timeline %}
+    <div class="tl">
+      <div class="when">{{ t.when }}</div>
+      <div class="what">
+        <div class="tl-title">{{ t.title | rich }}</div>
+        {% if t['items'] %}<ul>{% for i in t['items'] %}<li><code>{{ i }}</code></li>{% endfor %}</ul>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if c.list %}<ul class="list">{% for li in c.list %}<li>{{ li | rich }}</li>{% endfor %}</ul>{% endif %}
+  {% if c.checks %}
+  <div class="checks">{% for li in c.checks %}<div class="check"><span class="tick">✓</span> {{ li | rich }}</div>{% endfor %}</div>
+  {% endif %}
+  {% if c.callout %}<div class="callout"><strong>{{ c.callout.label }}</strong> {{ c.callout.text | rich }}</div>{% endif %}
+  {% if c.note %}<p class="note">{{ c.note | rich }}</p>{% endif %}
+</div>
+{%- endmacro -%}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ doc.hotel }}: {{ doc.name }} ({{ doc.date }})</title>
+<style>
+{{ css }}
+@page {
+  @bottom-left { content: "{{ doc.monthly.footer | replace('"', "'") }}"; font: 7.5pt Arial, Helvetica, sans-serif; color: #6b7480; vertical-align: top; padding-top: 4mm; }
+  @bottom-right { content: "MetaHotels · " counter(page); font: bold 7.5pt Arial, Helvetica, sans-serif; color: #18a058; vertical-align: top; padding-top: 4mm; }
+}
+@page :first { margin: 0; @bottom-left { content: none; } @bottom-right { content: none; } }
+</style>
+</head>
+<body>
+{% set cv = doc.monthly.cover %}
+<section class="cover">
+  <div class="bar"></div>
+  <div class="cover-in">
+    <img class="logo" src="{{ logo_on_dark }}" alt="MetaHotels">
+    <div class="rule"></div>
+    <div class="cover-eyebrow">{{ cv.eyebrow }}</div>
+    <h1>{{ cv.title }}<br><span>{{ cv.subtitle }}</span></h1>
+    <p class="cover-lead">{{ cv.lead | rich }}</p>
+    {% if cv.badge %}<div class="badge">{{ cv.badge }}</div>{% endif %}
+    {% if cv.cards %}{{ cards(cv.cards, dark=true) }}{% endif %}
+  </div>
+  <div class="cover-foot"><span>{{ cv.prepared }}</span><span>{{ cv.date }}</span></div>
+</section>
+
+{% for p in doc.monthly.pages %}
+<section class="page">
+  <div class="eyebrow">{{ p.eyebrow }}</div>
+  <h2>{{ p.title | rich }}</h2>
+  {% if p.intro %}<p class="intro">{{ p.intro | rich }}</p>{% endif %}
+  {% for c in p.components %}{{ component(c) }}{% endfor %}
+</section>
+{% endfor %}
+</body>
+</html>

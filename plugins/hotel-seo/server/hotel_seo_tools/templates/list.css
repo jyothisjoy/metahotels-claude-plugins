@@ -57,3 +57,12 @@ td.st-open { color: var(--red); font-weight: 600; }
 .confirm { color: var(--red); font-weight: 700; }
 .footer-line { margin-top: 14pt; padding-top: 6pt; border-top: 1px solid var(--rule); color: var(--muted); }
 section { break-inside: auto; }
+.chapter { margin: 18pt 0 4pt; padding: 7pt 10pt; border-bottom: 2.5px solid var(--navy); color: var(--navy);
+           font-size: 15pt; font-weight: 700; break-after: avoid; }
+.sev { display: inline-block; font-size: 7.5pt; font-weight: 700; padding: 1pt 5pt; border-radius: 8pt;
+       margin-right: 4pt; vertical-align: middle; letter-spacing: .2pt; background: #fff; }
+.sev-critical { color: #fff; background: #b42318; }
+.sev-high { color: #fff; background: #c4320a; }
+.sev-medium { color: #1f2328; background: #f0a640; }
+.sev-low { color: #1f2328; background: #d6dbe1; }
+.sev-info { color: #1f2328; background: #eef1f5; }

@@ -107,17 +107,18 @@ def build_html(doc):
     if doc.get('working'):
         H.append(f'<h2 style="color:{NAVY};font-family:Arial,sans-serif">What\'s already working (no action)</h2>')
         H.append(_table(['Item', 'Status', 'Note'], doc['working']))
-    if doc.get('parity'):
-        pb = doc['parity']
-        H.append(f'<h2 style="color:{NAVY};font-family:Arial,sans-serif">'
-                 f'{html.escape(pb.get("title") or "Rate parity (Best Rate calendar)")}</h2>')
-        H.append(_table(pb['columns'], pb['rows']))
-        if pb.get('note'):
-            H.append(f'<p style="{FONT}"><i>{_rich(pb["note"])}</i></p>')
     for p in doc.get('intro', []):
         H.append(f'<p style="{FONT}">{_rich(p)}</p>')
     for s in doc['sections']:
-        title = (f"{s['number']}. " if s.get('number') else '') + str(pdf.rich(s['title']))
+        if s.get('chapter'):
+            H.append(f'<h1 style="color:{NAVY};font-family:Arial,sans-serif;border-bottom:2px solid {NAVY}">'
+                     f'{html.escape(s.get("chapter_label") or s["chapter"])}</h1>')
+            continue
+        sev = ''
+        if s.get('severity'):
+            col = {'Critical': RED, 'High': RED, 'Medium': GOLD}.get(s['severity'], MUTED)
+            sev = f'<span style="color:{col}">[{html.escape(s["severity"])}]</span> '
+        title = sev + (f"{s['number']}. " if s.get('number') else '') + str(pdf.rich(s['title']))
         hold = f' <span style="color:{GOLD}">[{html.escape(s["hold"])}]</span>' if s.get('hold') else ''
         time_ = f' <span style="color:{MUTED};font-weight:normal">· {html.escape(str(s["time"]))}</span>' if s.get('time') else ''
         H.append(f'<h2 style="color:{NAVY};font-family:Arial,sans-serif">{title}{hold}{time_}</h2>')
@@ -161,10 +162,10 @@ def _folder(s, name, parent=None):
     return r.json()['id']
 
 
-def _upload(s, method, url, meta, body):
+def _upload(s, method, url, meta, body, content_type='text/html'):
     boundary = 'hotelseo' + str(abs(hash(url)))[:12]
     payload = (f'--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{json.dumps(meta)}\r\n'
-               f'--{boundary}\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n').encode() + body.encode('utf-8') \
+               f'--{boundary}\r\nContent-Type: {content_type}; charset=UTF-8\r\n\r\n').encode() + body.encode('utf-8') \
         + f'\r\n--{boundary}--'.encode()
     r = s.request(method, url, params={'uploadType': 'multipart', 'fields': 'id,webViewLink'}, data=payload,
                   headers={'Content-Type': f'multipart/related; boundary={boundary}'}, timeout=120)
@@ -219,3 +220,52 @@ def publish(doc, out_dir, pdf_file, folder_id='', docx_file=''):
             or f"https://docs.google.com/document/d/{res['id']}/edit",
             'folder': f'https://drive.google.com/drive/folders/{folder_id}',
             'note': 'Private to the signed-in account: share the hotel folder with the agency once.'}
+
+
+SHEET_MIME = 'application/vnd.google-apps.spreadsheet'
+URL_LIST_LIMIT = 25
+
+
+def prepare_url_lists(doc, out_dir, file_stem, folder_id='', upload=True):
+    """Findings with more than 25 URLs: the full list goes to '<file_stem> URLs - <finding>.csv' next to the report
+    and, when Google sign-in allows, to a Google Sheet in the hotel's Drive folder. The finding's note then names the
+    file / links the sheet, so every renderer shows where the complete list is. Returns {finding_id: {...}}."""
+    import csv as _csv
+    out = paths.resolve(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    made = {}
+    s, _why = _session() if upload else (None, 'upload off')
+    for sec in doc.get('sections', []):
+        pages = sec.get('pages_all') or []
+        if len(pages) <= URL_LIST_LIMIT:
+            continue
+        fid = re.sub(r'[^A-Za-z0-9_-]+', '-', str(sec.get('finding_id') or sec.get('number')))[:50]
+        f = out / f'{file_stem} URLs - {fid}.csv'
+        with open(f, 'w', newline='', encoding='utf-8-sig') as fh:
+            w = _csv.writer(fh)
+            w.writerow(['#', 'URL', 'Finding'])
+            for i, u in enumerate(pages, 1):
+                w.writerow([i, u, sec.get('title', '')])
+        entry = {'csv': str(f), 'count': len(pages)}
+        if s is not None:
+            try:
+                if not folder_id:
+                    cfg = json.loads(CONFIG.read_text()) if CONFIG.exists() else {}
+                    if not cfg.get('root_folder_id'):
+                        cfg['root_folder_id'] = _folder(s, ROOT_FOLDER)
+                        CONFIG.write_text(json.dumps(cfg, indent=2))
+                    folder_id = _folder(s, doc.get('short_name') or doc['hotel'], cfg['root_folder_id'])
+                res = _upload(s, 'POST', 'https://www.googleapis.com/upload/drive/v3/files',
+                              {'name': f.stem, 'mimeType': SHEET_MIME, 'parents': [folder_id]},
+                              f.read_text(encoding='utf-8-sig'), content_type='text/csv')
+                entry['sheet'] = res.get('webViewLink') or f"https://docs.google.com/spreadsheets/d/{res['id']}/edit"
+            except Exception as e:  # noqa: BLE001 - the CSV is there either way
+                entry['sheet_error'] = f'{type(e).__name__}: {str(e)[:200]}'
+        where = entry.get('sheet') or f.name
+        for b in sec.get('blocks', []):
+            if 'note' in b and 'linked sheet' in b['note']:
+                b['note'] = (f"{len(pages)} pages in total: the first {URL_LIST_LIMIT} are shown above; every URL is in "
+                             f"`{f.name}`" + (f" and in the Google Sheet {entry['sheet']}" if entry.get('sheet') else '')
+                             + '.')
+        made[fid] = entry
+    return made

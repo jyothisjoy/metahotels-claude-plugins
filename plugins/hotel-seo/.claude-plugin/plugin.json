@@ -1,6 +1,8 @@
 {
   "name": "hotel-seo",
-  "version": "2.0.0",
-  "description": "Hotel SEO lists for MetaHotels: LibreCrawl crawl, Search Console, GA4 and Mirai analysis, Priority / Nice-to-Have / Web Team lists as PDF, Word and Google Docs, agency re-checks, execute (fixes applied through the site's WordPress tools, verified live) and daily monitors, plus the copywriting-marketing skill",
-  "author": { "name": "MetaHotels" }
+  "version": "2.0.1",
+  "description": "Hotel SEO for MetaHotels: full audit and ground-up build plan per hotel (hotel groups tracked hotel by hotel), 11 specialist agents ported from claude-seo with hotel rules, crawl, Search Console, GA4, Keyword Planner, Mirai, booking engine and Booking.com facts; Audit Report, Build Plan and Web Team List as PDF, Word and Google Docs; re-checks; fixes applied to the site through its WordPress MCP in approved batches",
+  "author": {
+    "name": "MetaHotels"
+  }
 }

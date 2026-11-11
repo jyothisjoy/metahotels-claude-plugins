@@ -1,5 +1,5 @@
 """One Google sign-in for Search Console, GA4 and Google Docs output, plus Google Ads (Keyword Planner)
-with --with-ads and Google Business Profile with --with-gbp (flags combine; leaving one out drops it).
+with --with-ads.
 
 Asks for the scopes on one consent screen (Docs: only files this app creates) and writes:
   ~/.metahotels-seo/google/adc.json        (GA4, ADC authorized_user format)
@@ -17,7 +17,6 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 
 from . import paths
 from .docs import DRIVE_SCOPE
-from .gbp import GBP_SCOPE
 from .keywords import ADS_SCOPE
 
 
@@ -27,19 +26,12 @@ def main():
     ap.add_argument('--port', type=int, default=8085)
     ap.add_argument('--with-ads', action='store_true',
                     help='also ask for Google Ads (Keyword Planner); Google may ask to verify it is you again')
-    ap.add_argument('--with-gbp', action='store_true',
-                    help='also ask for Google Business Profile (listings, performance, reviews; changes only after approval)')
     args = ap.parse_args()
 
     if not paths.CLIENT_SECRET.exists():
         sys.exit(f'OAuth client file missing: {paths.CLIENT_SECRET}')
-    flow = InstalledAppFlow.from_client_secrets_file(str(paths.CLIENT_SECRET), [paths.GA_SCOPE, paths.GSC_SCOPE, DRIVE_SCOPE]
-                                                + ([ADS_SCOPE] if args.with_ads else [])
-                                                + ([GBP_SCOPE] if args.with_gbp else []))
-    # 127.0.0.1, not "localhost": on some Windows PCs localhost resolves to IPv6 (::1),
-    # where the listener isn't, and the redirect back from Google fails.
+    flow = InstalledAppFlow.from_client_secrets_file(str(paths.CLIENT_SECRET), [paths.GA_SCOPE, paths.GSC_SCOPE, DRIVE_SCOPE] + ([ADS_SCOPE] if args.with_ads else []))
     creds = flow.run_local_server(
-        host='127.0.0.1',
         port=args.port,
         open_browser=not args.no_browser,
         access_type='offline',
