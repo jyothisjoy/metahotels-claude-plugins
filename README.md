@@ -1,6 +1,9 @@
 # MetaHotels Claude plugins
 
-Private. Contains the **hotel-seo** plugin: give Claude a hotel website — or a hotel group's website — and get, for every
+Private. One marketplace (`metahotels`, repo `jyothisjoy/metahotels-claude-plugins`) with the MetaHotels Claude Code
+plugins: **hotel-seo** and **metahotels-optimize**.
+
+**hotel-seo:** give Claude a hotel website — or a hotel group's website — and get, for every
 hotel separately, a full **Audit Report**, a ground-up **Build Plan** and a **Web Team List** as PDF, Word and Google
 Docs, plus a **Questions for the Hotel** spreadsheet. Then re-check the fixes, or have Claude apply them to the site in
 batches you approve (using the hotel's answers), which ends with an **Execute Report** and an **Agency Fix List** for
@@ -15,24 +18,29 @@ Mirai, booking engine and Booking.com data.
 
 The same `metahotels` marketplace also lists **metahotels-optimize** (the site performance pass; its code lives in `plugins/metahotels-optimize` of this repo): `/plugin install metahotels-optimize@metahotels`, then `/metahotels-optimize:optimize --init`.
 
+**Repo renamed** (Nov 2026): `jyothisjoy/metahotels-seo` is now `jyothisjoy/metahotels-claude-plugins`. GitHub
+redirects the old name, so existing installs keep updating; to switch for good, run
+`/plugin marketplace remove metahotels`, then `/plugin marketplace add jyothisjoy/metahotels-claude-plugins` and
+install the plugins again.
+
 ## Before you start (once per person)
 
-1. **Repo access.** Ask the repo owner to add your GitHub account as a collaborator on `jyothisjoy/metahotels-seo`.
+1. **Repo access.** Ask the repo owner to add your GitHub account as a collaborator on `jyothisjoy/metahotels-claude-plugins`.
 2. **GitHub login on your computer.** Claude installs the plugin with a normal `git clone`, so your git must be able to reach the private repo. The easiest way is to install the [GitHub CLI](https://cli.github.com/) and run `gh auth login` (GitHub.com → HTTPS → log in with a browser). Git Credential Manager (comes with Git for Windows) or an SSH key also work.
-   Test: `git clone https://github.com/jyothisjoy/metahotels-seo.git` should work without errors (you can delete the folder afterwards).
+   Test: `git clone https://github.com/jyothisjoy/metahotels-claude-plugins.git` should work without errors (you can delete the folder afterwards).
 3. **Claude Code**, in the terminal or the Code tab of the Claude desktop app.
 
 ## Install (once per machine, Windows or macOS)
 
 1. In Claude Code (terminal, or the desktop app's Code tab):
    ```
-   /plugin marketplace add jyothisjoy/metahotels-seo
+   /plugin marketplace add jyothisjoy/metahotels-claude-plugins
    /plugin install hotel-seo@metahotels
    /plugin install metahotels-optimize@metahotels     (optional: the performance plugin)
    ```
    If the `/plugin` menu doesn't appear in the Code tab, run the same thing in a terminal:
    ```
-   claude plugin marketplace add jyothisjoy/metahotels-seo
+   claude plugin marketplace add jyothisjoy/metahotels-claude-plugins
    claude plugin install hotel-seo@metahotels
    ```
    Then start a new Claude Code session.

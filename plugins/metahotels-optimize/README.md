@@ -10,12 +10,12 @@ throttled-phone loading come first; the booking engine is never changed.
 In Claude Code:
 
 ```
-/plugin marketplace add jyothisjoy/metahotels-seo
+/plugin marketplace add jyothisjoy/metahotels-claude-plugins
 /plugin install metahotels-optimize@metahotels
 ```
 
-(It ships in the `metahotels` marketplace of `jyothisjoy/metahotels-seo`, next to hotel-seo. From a local clone
-instead: `/plugin marketplace add C:\path\to\metahotels-seo`.) Restart Claude Code if the
+(It ships in the `metahotels` marketplace of `jyothisjoy/metahotels-claude-plugins`, next to hotel-seo. From a local clone
+instead: `/plugin marketplace add C:\path\to\metahotels-claude-plugins`.) Restart Claude Code if the
 command does not show up, then set up once:
 
 ```
