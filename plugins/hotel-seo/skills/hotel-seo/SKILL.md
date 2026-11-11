@@ -88,7 +88,7 @@ abarhotels.com/                   SINGLE HOTEL: everything directly here
                                   web-team.json, build-plan.json
   Reports/                        Audit Report, Build Plan, Web Team List, Monthly Report, URL lists (CSV)
   recheck-<date>/, execute-<date>/, monthly-<YYYY-MM>/, monitor/
-  monthly-settings.json, tracked-keywords.json, work-log.csv, run-notes-<date>.md, findings-register-<date>.json
+  monthly-settings.json, tracked-keywords.json, ai-prompts.json, work-log.csv, run-notes-<date>.md, findings-register-<date>.json
 
 rosehotelsgroup.com/              HOTEL GROUP
   site.json                       "type": "group", every hotel with its own paths
@@ -405,10 +405,26 @@ report; a group gets one per hotel plus a Group Monthly Summary.
      says so).
    - `import_monthly_manual("<domain>", slug, month, {"gbp": {...}, "security": {...}})`, with the numbers exactly as the
      tool or page shows them. Unattended run or no access: skip; the report says "not checked this month".
+4b. **AI-answer panel (per hotel, Claude in Chrome):** `ai_prompts("<domain>", slug)` returns the hotel's fixed
+   questions (`ai-prompts.json`; the first time it proposes ~10 from the keyword map: show them, apply the user's
+   edits, save with `ai_prompts(..., prompts=[...])`; keep them the same every month) and the hotel facts to check
+   against. Open **one new tab** in the user's logged-in browser and reuse it for every question: chatgpt.com (a new
+   chat per question), perplexity.ai, and google.com (AI Mode, or the AI Overview on the results page). Paste each
+   question as written, wait for the full answer, read it with `get_page_text`. Never trigger browser dialogs (no
+   alerts, file pickers, print, downloads, "leave page?" prompts, extension or permission pop-ups): if one appears,
+   stop that engine. A site asking to log in or to solve a captcha: don't log in or type a password; put the engine in
+   `not_run` with the reason and tell the user. Record per question × engine: `named` (hotel named), `cited` (a link
+   to the hotel's own site), `position` among the hotels named, `hotels_named`, `competitors` (other hotels and OTAs
+   named), `description_correct` and `errors` (each wrong fact vs hotel-facts.json, e.g. "says check-in 14:00; fact:
+   15:00"). Then `import_monthly_manual(..., {"ai_panel": {"checked": "<today>", "results": [...], "not_run": {...}}})`.
+   Desktop chat or a run without the Chrome tools: skip the panel and say so; the report shows "not run", never zeros.
 5. **Work done:** collect lists execute changes and `work-log.csv`. Ask the user once for work done by hand this month
    (Business Profile, design, content outside execute) and add each with `add_work_log`, then re-run collect for that
    hotel (it is quick when the other data is cached). Business Profile changes sent with `gbp_apply` are in
-   `gbp_history`: add them the same way.
+   `gbp_history`: add them the same way. Collect also reads back every changed page (execute changes and work-log rows
+   with a URL, last 120 days): Search Console 28 days before vs after (56 when available) against unchanged pages of the
+   same type, labelled Promote / Keep testing / Rollback candidate / Unproven in "Work done". Say "moved with / against
+   similar pages", never that a change caused a result; a Rollback candidate is a question for the user, not an undo.
 6. **Narrative:** read `data.json` and `build_monthly_report` (first build without narrative), then
    `save_monthly_narrative` with: `cover_lead` (one sentence), `headline` (what the month means, 1–2 sentences),
    `keywords_note`, `ai_note`, `funnel_note`, `maps_note`, `work_intro`, `next` (3–6 items from the Build Plan's
@@ -545,7 +561,7 @@ Facts: `import_facts_sheet`, `bookingcom_extractor`, `import_bookingcom`, `cross
 `sites_csv_status`, `site_mcp_status`, `site_mcp_read`, `execute_plan`, `record_client_approval`, `run_execute_batch`,
 `record_chrome_step`, `execute_reports`, `undo_execute`. Hotel questions: `hotel_questions`, `edit_hotel_questions`,
 `import_hotel_answers`. Monthly: `monthly_collect`, `tracked_keywords`, `save_tracked_keywords`, `serp_ranks`,
-`import_monthly_manual`, `add_work_log`, `save_monthly_narrative`, `build_monthly_report`, `build_monthly_group`.
+`import_monthly_manual`, `ai_prompts`, `add_work_log`, `save_monthly_narrative`, `build_monthly_report`, `build_monthly_group`.
 Monitor: `monitor_site`. Setup: `health_check`.
 Also **hotel-seo-gsc** (Search Console, read-only: never add, delete or submit anything; if `health_check` shows the
 saved sign-in still has write access, run `hotel-seo-auth` once more) and **hotel-seo-ga4** (GA4).

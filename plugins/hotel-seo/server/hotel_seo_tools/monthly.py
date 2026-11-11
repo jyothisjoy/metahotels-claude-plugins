@@ -5,6 +5,7 @@ Folders, per hotel folder (a single-hotel site: <domain>/ itself; a group: <doma
   <hotel dir>/tracked-keywords.json          keywords followed every month (proposed from the keyword map,
                                                confirmed by the user)
   <hotel dir>/work-log.csv                   work done by hand: date, what, page, who
+  <hotel dir>/ai-prompts.json                the fixed AI-answer questions (monthly_proof; manual.json "ai_panel")
   <hotel dir>/monthly-<YYYY-MM>/data.json    every number for the month (collect)
   <hotel dir>/monthly-<YYYY-MM>/serp.json    Serper positions (serp.run)
   <hotel dir>/monthly-<YYYY-MM>/manual.json  what Claude read in Chrome (Business Profile, Search Console security)
@@ -469,6 +470,12 @@ def import_manual(group_dir, slug, month, data):
         clean.setdefault('source', 'Claude in Chrome' + (' (Google Business Profile)' if block == 'gbp'
                                                          else ' (Search Console)'))
         out[block] = clean
+    unknown = [k for k in data if k not in MANUAL_FIELDS and k != 'ai_panel']
+    if unknown:
+        raise ValueError(f'{unknown[0]} is not a known block; allowed: {", ".join(list(MANUAL_FIELDS) + ["ai_panel"])}')
+    if 'ai_panel' in data:                  # AI-answer panel (monthly_proof): validated against the saved questions
+        from . import monthly_proof
+        out['ai_panel'] = monthly_proof.validate_panel(data['ai_panel'], monthly_proof.load_prompts(ctx))
     f = month_dir(ctx, month) / 'manual.json'
     old = json.loads(f.read_text(encoding='utf-8')) if f.exists() else {}
     old.update(out)
@@ -529,12 +536,18 @@ def collect(group_dir, slug, month='', progress=None):
     except Exception as e:  # noqa: BLE001
         data['index'] = {'status': f'not available: {type(e).__name__}: {str(e)[:200]}'}
     data['work'] = _work(ctx, month)
+    say('change readback (Search Console, changed pages vs similar pages)')
+    try:
+        from . import monthly_proof
+        data['readback'] = monthly_proof.collect_readback(ctx, month)
+    except Exception as e:  # noqa: BLE001
+        data['readback'] = {'status': f'not available: {type(e).__name__}: {str(e)[:200]}'}
     tr = load_tracked(ctx)
     data['tracked'] = tr or {'confirmed': False, 'keywords': []}
     (out / 'data.json').write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding='utf-8')
     return {'file': str(out / 'data.json'), 'provisional': data['provisional'],
             'status': {k: (data[k].get('status') if isinstance(data.get(k), dict) else None)
-                       for k in ('gsc', 'ga4', 'mirai', 'parity', 'index')},
+                       for k in ('gsc', 'ga4', 'mirai', 'parity', 'index', 'readback')},
             'work_items': len(data['work']['items']), 'tracked_keywords': len(data['tracked'].get('keywords', [])),
             'tracked_confirmed': bool(data['tracked'].get('confirmed')), 'notes': data['notes']}
 
@@ -795,6 +808,11 @@ def _assemble(ctx, month, data, serp_d, manual, nar):
                               'hotel without a click are not counted; Google\'s AI Overviews are part of Google search.'})
     else:
         missing.append('GA4 ' + str(ga.get('status', '')))
+    from . import monthly_proof          # AI-answer panel: measured answers next to the GA4 visits
+    pc, pm = monthly_proof.panel_components(manual.get('ai_panel'), monthly_proof.load_panel(
+        ctx['hotel_dir'], monthly_proof.prev_month(month)), mlabel)
+    comps += pc
+    missing += pm
     if nar.get('ai_note'):
         comps.append({'callout': {'label': 'AI search:', 'text': nar['ai_note']}})
     pages.append({'eyebrow': '03 · AI assistants', 'title': 'Guests arriving from ChatGPT and other AI assistants',
@@ -822,6 +840,9 @@ def _assemble(ctx, month, data, serp_d, manual, nar):
     else:
         comps.append({'text': 'No changes were logged this month (execute runs or the work log).'})
         missing.append('no work logged this month')
+    rc, rm = monthly_proof.readback_components(data.get('readback'))   # did each change move its page?
+    comps += rc
+    missing += rm
     nxt = nar.get('next') or []
     if nxt:
         comps.append({'title': 'Coming next', 'list': nxt})
