@@ -80,7 +80,8 @@ complete one (`"status": "complete"`). If you run out of turns the partial file 
 8. **Re-check and execute.** `checks` (per finding) are machine checks that pass once it's fixed — types:
    `title`, `meta`, `h1`, `h1_count`, `redirect`, `status`, `canonical`, `canonical_self`, `noindex`, `text_absent`,
    `text_present`, `link_absent`, `link_present`, `alt`, `schema_count`, `title_present`, `meta_present`, `title_max`,
-   `meta_max`, `jsonld_valid`, `alt_present` (see report.schema.json). `actions` (owner `seo`) are what `/hotel-seo execute` will do:
+   `meta_max`, `jsonld_valid`, `alt_present`, and for the site-structure checks `inlinked`, `click_depth`,
+   `hreflang_ok`, `og_present`, `heading_levels`, `generic_anchors_max`, `variant_resolved` (see report.schema.json). `actions` (owner `seo`) are what `/hotel-seo execute` will do:
    `seo_fields`, `redirect`, `alt_text`, `elementor_text`, `schema_snippet`, `rankmath_setting`, `post_status`,
    `post_content`, `menu`, `page_create`, `chrome`. Never an action that changes a price, an offer, a discount or a
    member benefit, or anything marked [CONFIRM].
