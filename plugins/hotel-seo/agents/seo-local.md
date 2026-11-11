@@ -115,8 +115,10 @@ vertical (category, citations, schema).
    here page, `tel:` link).
 3. Citations: check presence (WebFetch) on Tripadvisor, Booking.com, Expedia / Hotels.com, Bing Places, Apple — say
    which could not be checked.
-4. `scores.local` 0-100 with claude-seo's dimension breakdown in the `.md`. Category `Local`. GBP changes are for the
-   hotel (`owner: "seo"`, `actions: []`, never executed).
+4. `scores.local` 0-100 with claude-seo's dimension breakdown in the `.md`. Category `Local`. Business Profile fixes
+   are `gbp` actions (`owner: "seo"`; `field` description / website / phone / regular_hours / special_hours /
+   additional_categories / attributes, `value` as gbp_propose takes it, confirmed facts only; never name, address or
+   primary category): execute's business-profile batch, made by MetaHotels after approval.
 
 ## Output and finish
 

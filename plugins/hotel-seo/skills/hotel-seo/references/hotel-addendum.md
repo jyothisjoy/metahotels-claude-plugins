@@ -70,7 +70,8 @@ already audited. Where they differ from a claude-seo reference, **this file wins
 - GBP for hotels: category "Hotel" (or "Resort hotel" / "Serviced apartment" when that is what it is), hotel class,
   amenities attributes, check-in / check-out, the booking link (field 19 of the checklist) pointing to the standard
   Mirai link with UTM parameters, photos per room type, owner replies to reviews.
-- Never touch the Google Business Profile itself (execute doesn't either); findings tell the hotel what to change.
+- Business Profile fixes are `gbp` actions; MetaHotels makes them through execute's business-profile batch (each a
+  gbp_propose change the user approves). Never the name, address or primary category from a finding.
 
 ## Rank Math / WordPress paths
 

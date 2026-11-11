@@ -55,7 +55,7 @@ Size comes from the job and the slot, never from a word count target (Google has
 | **Schema description** | 1–2 sentences that match the visible page | the facts on the page | claims not on the page, reviews written by the hotel |
 | **Business Profile description** | ≤ 750 characters, no links, no prices | what the hotel is, where, for whom, 2–3 confirmed facts | the business name stuffed with keywords; offers |
 | **Business Profile post** | an update or event (hotel profiles can't post offers) | one piece of news, a photo, a button | deals, discounts, promotions, phone numbers in the text |
-| **Review reply** | 2–4 sentences in the hotel's voice | thanks, the guest's specific point answered, what changed if anything did | guest names, discounts, promises the hotel hasn't confirmed, booking-site links |
+| **Review reply** | 2–4 sentences (≤ 600 characters) in the hotel's voice and the review's language (Arabic written natively) | thanks (first name only, when the guest shows one), the guest's specific point answered, what changed if anything did; a complaint: an apology and the confirmed hotel email or phone | surnames, booking or room numbers, stay dates, prices, discounts, codes, promises the hotel hasn't confirmed, links, arguing |
 
 ---
 

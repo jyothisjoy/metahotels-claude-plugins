@@ -1151,6 +1151,32 @@
           "where",
           "steps"
          ]
+        },
+        {
+         "description": "A Google Business Profile fix. Execute plans it as its own 'business-profile' batch: one gbp_propose change per action (preview with before -> after and a change id), sent only after the user approves that batch. Never name, address or primary category.",
+         "properties": {
+          "type": {
+           "const": "gbp"
+          },
+          "field": {
+           "enum": [
+            "description",
+            "website",
+            "phone",
+            "regular_hours",
+            "special_hours",
+            "additional_categories",
+            "attributes"
+           ]
+          },
+          "value": {
+           "description": "as gbp_propose takes it: description / website / phone a string (website: the hotel's page; execute adds the team UTM tags); regular_hours [{day, open, close}]; special_hours [{date, closed} | {date, open, close}]; additional_categories [names]; attributes {attribute_id: value, or null to unset}"
+          }
+         },
+         "required": [
+          "field",
+          "value"
+         ]
         }
        ]
       }
@@ -2181,6 +2207,32 @@
          "where",
          "steps"
         ]
+       },
+       {
+        "description": "A Google Business Profile fix. Execute plans it as its own 'business-profile' batch: one gbp_propose change per action (preview with before -> after and a change id), sent only after the user approves that batch. Never name, address or primary category.",
+        "properties": {
+         "type": {
+          "const": "gbp"
+         },
+         "field": {
+          "enum": [
+           "description",
+           "website",
+           "phone",
+           "regular_hours",
+           "special_hours",
+           "additional_categories",
+           "attributes"
+          ]
+         },
+         "value": {
+          "description": "as gbp_propose takes it: description / website / phone a string (website: the hotel's page; execute adds the team UTM tags); regular_hours [{day, open, close}]; special_hours [{date, closed} | {date, open, close}]; additional_categories [names]; attributes {attribute_id: value, or null to unset}"
+         }
+        },
+        "required": [
+         "field",
+         "value"
+        ]
        }
       ]
      }
@@ -3086,6 +3138,32 @@
      "required": [
       "where",
       "steps"
+     ]
+    },
+    {
+     "description": "A Google Business Profile fix. Execute plans it as its own 'business-profile' batch: one gbp_propose change per action (preview with before -> after and a change id), sent only after the user approves that batch. Never name, address or primary category.",
+     "properties": {
+      "type": {
+       "const": "gbp"
+      },
+      "field": {
+       "enum": [
+        "description",
+        "website",
+        "phone",
+        "regular_hours",
+        "special_hours",
+        "additional_categories",
+        "attributes"
+       ]
+      },
+      "value": {
+       "description": "as gbp_propose takes it: description / website / phone a string (website: the hotel's page; execute adds the team UTM tags); regular_hours [{day, open, close}]; special_hours [{date, closed} | {date, open, close}]; additional_categories [names]; attributes {attribute_id: value, or null to unset}"
+      }
+     },
+     "required": [
+      "field",
+      "value"
      ]
     }
    ]

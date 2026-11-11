@@ -111,7 +111,8 @@ Scope: ONE hotel. Tier 0 (no DataForSEO): no geo-grid — redistribute its weigh
    mention (distances are approximate — label them, and [CONFIRM] before they go into copy).
 3. The GBP checklist from visible data (maps-gbp-checklist.md), including the booking link field.
 4. Cross-platform presence (Bing, Apple, OpenStreetMap — is the hotel a named node / way near its coordinates?).
-5. `scores.maps` 0-100 (Tier 0 weights). Category `Maps`. No actions on GBP (the hotel changes it).
+5. `scores.maps` 0-100 (Tier 0 weights). Category `Maps`. Profile fixes are `gbp` actions
+   (as in seo-local: field + value; never name, address or primary category), for execute's business-profile batch.
 
 ## Output and finish
 

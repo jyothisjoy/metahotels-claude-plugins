@@ -82,6 +82,34 @@ def steps_for(a):
     return [f'{t}: see the fix above.']
 
 
+GBP_BATCH = 'business-profile'          # execute.GBP_BATCH
+
+
+def _gbp_section(pl, changes, recheck, done):
+    """The Execute Report's Business Profile section: what was sent to the Google profile (before -> after, change
+    id, Google's read-back), what is planned but not sent, or why the batch was skipped."""
+    sent = [c for c in changes if c.get('via') == 'business_profile']
+    planned = [i for i in pl.get('batches', {}).get(GBP_BATCH, []) if i['id'] not in done]
+    note = pl.get('business_profile') or {}
+    blocks = []
+    if sent:
+        blocks.append({'table': {'columns': ['What changed', 'Before', 'After', 'Change id', 'On the profile'], 'rows': [
+            [c.get('field') or '–', _short(c.get('old')), _short(c.get('new')), c.get('change_id') or '–',
+             (recheck.get(c.get('finding')) or {}).get('status') or c.get('read_back') or 'sent'] for c in sent]}})
+        blocks.append({'note': '"Pending Google review" is normal: Google checks most profile edits before they show. '
+                               'Undo proposes the before values again, for approval like any profile change.'})
+    if planned:
+        blocks.append({'p': f'**Not sent ({len(planned)}):** the batch was not approved or stopped; '
+                            'propose again with execute_gbp_refresh before running it.'})
+        blocks.append({'table': {'columns': ['What would change', 'Now', 'After'], 'rows': [
+            [i.get('field') or '–', _short(i.get('current')), _short(i.get('new'))] for i in planned]}})
+    if note.get('status') == 'skipped':
+        blocks.append({'warning': note.get('reason', 'Business Profile batch skipped')})
+    if not blocks:
+        return None
+    return {'title': f'Google Business Profile: {len(sent)} change(s) sent', 'blocks': blocks}
+
+
 def build(group_dir, slug, plan_file=''):
     reg = grp.load(group_dir)
     hotel = next((h for h in reg['hotels'] if h['slug'] == slug), None) if slug != 'group' else None
@@ -108,8 +136,8 @@ def build(group_dir, slug, plan_file=''):
 
     # ---- 1. Execute Report: what was changed
     secs, n = [], 0
-    for b in [b for b in pl.get('batches', {})]:
-        rows = [[c.get('page') or '–', c.get('field') or '–', _short(c.get('old')), _short(c.get('new')),
+    for b in [b for b in pl.get('batches', {}) if b != GBP_BATCH]:
+        rows =[[c.get('page') or '–', c.get('field') or '–', _short(c.get('old')), _short(c.get('new')),
                  (recheck.get(c.get('finding')) or {}).get('status', 'not re-checked')]
                 for c in changes if items.get(c['id'], {}).get('batch') == b]
         if not rows:
@@ -118,7 +146,11 @@ def build(group_dir, slug, plan_file=''):
         secs.append({'number': n, 'title': f"{b.replace('-', ' ').capitalize()}: {len(rows)} change(s)",
                      'blocks': [{'table': {'columns': ['Page', 'What changed', 'Before', 'After', 'Live re-check'],
                                            'rows': rows}}]})
-    waiting = [s for s in pl.get('skipped', []) if any(k in s.get('reason', '') for k in HOTEL_REASONS)]
+    gbp_sec = _gbp_section(pl, changes, recheck, done)
+    if gbp_sec:
+        n += 1
+        secs.append(dict(gbp_sec, number=n))
+    waiting =[s for s in pl.get('skipped', []) if any(k in s.get('reason', '') for k in HOTEL_REASONS)]
     if waiting:
         n += 1
         secs.append({'number': n, 'title': f'Waiting for the hotel: {len(waiting)} item(s) not changed',
@@ -130,9 +162,11 @@ def build(group_dir, slug, plan_file=''):
                      'blocks': [{'table': {'columns': ['Finding', 'Hotel answer'],
                                            'rows': [[r['title'], json.dumps(r['answers'], ensure_ascii=False)]
                                                     for r in pl['rewording']]}}]})
-    statuses = [r.get('status') for r in recheck.values()]
-    lead = (f"**{len(changes)} change(s)** made on {site} through the site's content tools "
-            f"({len(approved)} approved batch(es)). Live re-check: {statuses.count('Done')} done, "
+    statuses = [r.get('status') for r in recheck.values() if r.get('via') != 'business_profile']
+    n_gbp = sum(c.get('via') == 'business_profile' for c in changes)
+    lead = (f"**{len(changes) - n_gbp} change(s)** made on {site} through the site's content tools"
+            + (f" and **{n_gbp}** on the Google Business Profile" if n_gbp else '')
+            + f" ({len(approved)} approved batch(es)). Live re-check: {statuses.count('Done')} done, "
             f"{statuses.count('Partly')} partly, {statuses.count('Open')} still open. Everything execute could not do "
             'is in the Agency Fix List.')
     exec_doc = {'title': 'Execute Report', 'hotel': name, 'short_name': name, 'site': site, 'date': dlabel,
@@ -153,8 +187,10 @@ def build(group_dir, slug, plan_file=''):
         if not sec.get('severity') or sec.get('owner') == 'web':
             continue
         fid = sec.get('finding_id')
-        its = by_finding.get(fid, [])
-        sk = skipped.get(fid, [])
+        if sec.get('actions') and all(a.get('type') == 'gbp' for a in sec['actions']):
+            continue        # Business Profile fixes: MetaHotels makes them (Execute Report), never the agency
+        its = [i for i in by_finding.get(fid, []) if i.get('batch') != GBP_BATCH]
+        sk = [x for x in skipped.get(fid, []) if x.get('action') != 'gbp']
         all_done = its and all(i['id'] in done for i in its) and not sk
         if all_done and (recheck.get(fid) or {}).get('status') in ('Done', 'Manual', None):
             continue
