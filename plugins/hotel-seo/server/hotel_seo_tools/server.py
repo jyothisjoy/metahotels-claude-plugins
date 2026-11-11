@@ -1052,10 +1052,28 @@ def serp_ranks(group_dir: str, slug: str, month: str = '', confirm: bool = False
 def import_monthly_manual(group_dir: str, slug: str, month: str, data: dict) -> dict:
     """Save what you read in Chrome for the month: {"gbp": {"rating", "reviews", "profile_views", "searches", "calls",
     "directions", "website_clicks", "booking_clicks", "period", "note"}, "security": {"security_issues",
-    "manual_actions", "note"}} ("None" when Search Console shows none). Only numbers as shown on the page."""
+    "manual_actions", "note"}} ("None" when Search Console shows none). Only numbers as shown on the page.
+    "ai_panel": {"checked": "YYYY-MM-DD", "results": [{"prompt": id or exact text from ai_prompts, "engine": "chatgpt" |
+    "perplexity" | "google_ai", "named", "cited" (yes/no), "position" (among hotels named; only when named),
+    "hotels_named", "competitors": [...], "description_correct" (yes/no, only when named), "errors": [...], "note"}],
+    "not_run": {"perplexity": "needs login"}}. Leave ai_panel out when the panel was not run (the report says so)."""
     try:
         return monthly.import_manual(group_dir, slug, month, data)
     except ValueError as e:
+        return {'error': str(e)}
+
+
+@mcp.tool()
+def ai_prompts(group_dir: str, slug: str, propose: bool = False, prompts: list | None = None) -> dict:
+    """The hotel's fixed AI-answer questions (<hotel dir>/ai-prompts.json, about ten), asked every month in ChatGPT,
+    Perplexity and Google AI Mode / AI Overview. No file yet or propose=true: built from the keyword map (area,
+    landmarks, audiences, facilities, rooms) plus two questions naming the hotel. prompts=[...] ("text" or {"prompt",
+    "kind": "discovery" | "brand", "why"}) saves the user's edited set. Returns the hotel facts to check answers
+    against."""
+    try:
+        from . import monthly_proof
+        return monthly_proof.prompts_tool(monthly.context(group_dir, slug), propose, prompts)
+    except (FileNotFoundError, LookupError, ValueError) as e:
         return {'error': str(e)}
 
 
