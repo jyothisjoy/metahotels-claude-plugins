@@ -205,7 +205,9 @@ Fully automatic apart from **one intake round** (step 3). Anything you can't get
    - `inspect_pages` on the homepage, each hotel's main page and one room page per hotel (desktop + mobile).
    - **Business Profile** per hotel: `gbp_locations("<hotel name or domain>")`, then `gbp_report("locations/<id>",
      "<hotel dir>/gbp", crawl_dir, site)`. Several profiles for one hotel, or none: say so and ask. Not set up on this
-     machine → **Business Profile** under Missing inputs.
+     machine → **Business Profile** under Missing inputs. Once the hotel is linked (`gbp_link`), also
+     `gbp_amenities(domain, slug)` (hotel details vs confirmed facts) and `gbp_photos(domain, slug)` (missing or stale
+     photo categories); their mismatches, gaps and flags go to the finish message as Business Profile changes to offer.
 6. **Keyword map per hotel:** `build_keyword_map("<domain>", slug, crawl_dir, countries=[<hotel country + feeder
    markets from Search Console / GA4 / Mirai>], languages=["en", "ar", <guest languages>], competitor_urls=[<3–5 nearby
    competitor hotel sites from nearby_places / Booking.com similar properties>])`; group only: then
@@ -569,6 +571,14 @@ Rules:
 - **Wording** of descriptions, posts and replies follows [references/content-writing.md](references/content-writing.md);
   **facts** follow the [CONFIRM] rule: only what the site, `hotel-facts.json` or the booking engine shows.
   Description: 750 characters, no links, no prices.
+- **Hotel details (amenities and policies):** `gbp_amenities(domain, slug)` reads the profile's check-in/out, payment,
+  breakfast, pool, parking, Wi-Fi, pets, airport shuttle, accessibility and the rest ("not set" and "exception: …" are
+  different things), what Google changed itself, and compares them with `hotel-facts.json`. Show the mismatches and
+  gaps; its `changes` (confirmed facts only, never Booking.com alone) go into `gbp_propose` as they are. "Unconfirmed"
+  values stay; ask the hotel if one looks wrong. Never fill a field from the website or a guess.
+- **Photos:** `gbp_photos(domain, slug)` counts owner and guest photos by category and flags missing rooms / exterior /
+  pool and common areas / food and drink / cover / logo, categories whose newest owner photo is over 12 months old, and
+  too few photos. New photos go through `gbp_propose`'s `photos` key (public https image URLs the hotel supplied).
 - `gbp_history` shows what was changed from this machine, with the before values to restore from if something must be
   undone. Changes sent count as work done for the monthly report (`add_work_log`).
 
@@ -580,7 +590,8 @@ Crawl and audit: `crawl_site`, `job_status`, `list_crawls`, `export_crawl`, `rea
 Facts: `import_facts_sheet`, `bookingcom_extractor`, `import_bookingcom`, `crosscheck_facts`, `add_facts`,
 `engine_corrections`, `booking_engine_snapshot`. Data: `mirai_reservations`, `rate_parity`, `import_parity_calendar`,
 `keyword_volumes`, `keyword_ideas`, `import_keyword_csv`, `build_keyword_map`, `assign_keyword_owners`, `geo_lookup`,
-`nearby_places`. Business Profile: `gbp_locations`, `gbp_report`, `gbp_propose`, `gbp_apply`, `gbp_history`. Agents:
+`nearby_places`. Business Profile: `gbp_locations`, `gbp_link`, `gbp_api_check`, `gbp_report`, `gbp_amenities`, `gbp_photos`,
+`gbp_propose`, `gbp_apply`, `gbp_history`. Agents:
 `seo_check`, `seo_check_list`, `content_scan`, `download_images`, `agent_preflight`, `validate_agent_output`. Reports:
 `build_audit_report`, `build_group_summary`, `presend_check`, `render_report`, `recheck_list`, `copy_check`. Sites:
 `sites_csv_status`, `site_mcp_status`, `site_mcp_read`, `execute_plan`, `record_client_approval`, `run_execute_batch`,

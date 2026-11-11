@@ -5,7 +5,7 @@ Needs, once per machine: the Google sign-in with Business Profile (hotel-seo-aut
 account that manages the hotel's profile (owner or manager), and these APIs enabled on the
 metahotels-analytics Cloud project, which Google has approved for Business Profile API access:
   My Business Account Management API, My Business Business Information API,
-  Business Profile Performance API, Google My Business API (reviews).
+  Business Profile Performance API, Google My Business API (reviews, photos), My Business Lodging API (amenities).
 
 Google has no read-only scope for Business Profile. This module only reads (GET requests); changes go
 through gbp_write.py, and only after the user approves a proposed change file.
@@ -540,6 +540,11 @@ def report(location, out_dir='', crawl_dir='', site='', months=12, reviews_limit
         revs = _reviews(account, name, reviews_limit)
     except GbpError as e:
         revs, errors['reviews'] = {}, str(e)
+    try:
+        from . import gbp_lodging          # amenities and policies: the full table is gbp_amenities
+        lodging = gbp_lodging.summary(name)
+    except Exception as e:  # noqa: BLE001 - one section missing doesn't stop the report
+        lodging, errors['lodging'] = {}, str(e)[:300]
 
     result = {
         'checked': True, 'generated': date.today().isoformat(), 'listing': _summary(loc, account),
@@ -548,6 +553,7 @@ def report(location, out_dir='', crawl_dir='', site='', months=12, reviews_limit
                       + [c.get('displayName', '') for c in (loc.get('categories') or {}).get('additionalCategories', [])],
         'description': (loc.get('profile') or {}).get('description', ''),
         'attributes_on': attrs,
+        'lodging': lodging,
         'performance_by_month': perf,
         'search_terms': {'months': f'{kw_start:%Y-%m} to {kw_end:%Y-%m}', 'rows': kws},
         'reviews': revs,
@@ -582,6 +588,14 @@ def _md(r):
     else:
         L.append(f"- {vs.get('schema')}")
     L.append('')
+    lg = r.get('lodging') or {}
+    if lg:
+        L += ['## Hotel details (amenities and policies)',
+              f"- {lg.get('fields_set', 0)} fields set" + ('' if lg.get('has_lodging_data') else ' (no hotel details yet)'),
+              f"- Key fields not set: {', '.join(lg.get('key_fields_not_set') or []) or 'none'}"]
+        if lg.get('google_changed'):
+            L.append(f"- Google changed these itself: {lg['google_changed']}")
+        L += ['- Full table and comparison with the hotel\'s confirmed facts: gbp_amenities', '']
     if r['performance_by_month']:
         L += ['## Performance by month', '',
               '| Month | Views | Search | Maps | Website clicks | Calls | Directions | Click rate |',

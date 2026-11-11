@@ -553,7 +553,9 @@ def gbp_propose(location: str, changes: dict, out_dir: str = '', allow_risky: bo
     "y": null to unset}, review_replies [{"review_id","reply"}] (review ids from gbp_report),
     delete_review_replies ["review_id"], posts [{"type": "STANDARD|OFFER|EVENT", "summary", "button": "BOOK",
     "url", "photo_url", "title", "start", "end", "coupon", "terms"}], delete_posts ["post id"],
-    photos [{"url": "<public https image>", "category": "ROOMS|EXTERIOR|..."}].
+    photos [{"url": "<public https image>", "category": "ROOMS|EXTERIOR|..."}],
+    lodging {"policies.checkinTime": "15:00", "parking.freeParking": true, ...} (hotel amenities and policies; the
+    ready dict comes from gbp_amenities, confirmed facts only).
     Locked: title, address, primary_category; allow_risky=true only when the user asked for exactly that
     change (it can send the profile back to verification).
     out_dir: e.g. "<domain>/gbp/changes". Show the preview to the user word for word; apply only after
@@ -578,6 +580,38 @@ def gbp_history(location: str = '', limit: int = 20) -> dict:
     """Business Profile changes applied from this machine (newest first), with before / after and results."""
     from . import gbp_write
     return gbp_write.history(location, limit)
+
+
+@mcp.tool()
+def gbp_amenities(domain: str, slug: str, location: str = '') -> dict:
+    """Hotel amenities and policies on the Business Profile (Google's Lodging API), read-only. domain: the site folder;
+    slug: the hotel; location: "locations/<id>" to override the hotel's linked profile (gbp_link). Returns the table
+    (field -> "yes" / "no" / "15:00" / a number, "exception: <reason>" or "not set"), fields Google changed itself,
+    and the comparison with the hotel's confirmed facts (<hotel dir>/hotel-facts.json; Booking.com alone never counts):
+    mismatches, gaps (fact known, profile unset), matches, conflicting facts, and "unconfirmed" profile values no fact
+    backs (left alone). `changes` is ready for gbp_propose (confirmed facts only); propose only when the user asks."""
+    from . import gbp_lodging
+    try:
+        loc = gbp.resolve_hotel(domain, slug, location)
+    except gbp.GbpError as e:
+        return {'checked': False, 'reason': str(e)}
+    return _off_loop(gbp_lodging.amenities, loc, facts_file=gbp_lodging._facts_file(domain, slug))
+
+
+@mcp.tool()
+def gbp_photos(domain: str, slug: str, location: str = '') -> dict:
+    """Business Profile photo check, read-only: owner and guest photos by category (EXTERIOR, INTERIOR, ROOMS,
+    COMMON_AREA, FOOD_AND_DRINK, ...), newest / oldest owner photo per category, owner vs guest share, total views
+    when Google returns them, and flags (no owner photo of rooms / exterior / pool and common areas / food and drink /
+    cover / logo, newest owner photo in a category over 12 months old, too few photos). Uses the hotel's linked
+    profile (gbp_link) unless location is given. Adding photos: gbp_propose's "photos" key."""
+    from . import gbp_media
+    try:
+        loc = gbp.resolve_hotel(domain, slug, location)
+    except gbp.GbpError as e:
+        return {'checked': False, 'reason': str(e)}
+    account = '' if location else gbp.hotel_location(domain, slug).get('account', '')
+    return _off_loop(gbp_media.photos, loc, account=account)
 
 
 @mcp.tool()

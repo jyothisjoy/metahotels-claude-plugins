@@ -186,7 +186,9 @@ or cron); reports go to the site folder's `monitor/`.
 
 Claude reads each hotel's Google Business Profile (listing, monthly views / calls / website clicks / direction
 requests, search terms, reviews and reply rate, and whether the listing matches the website's schema, phone and
-address). Changes (description, hours, categories, attributes, review replies, posts, photos) are proposed first with a
+address), its hotel details (check-in/out, breakfast, parking, Wi-Fi, pool, pets…) against the hotel's confirmed
+facts, and its photos (missing or stale categories). Changes (description, hours, categories, attributes, hotel
+details, review replies, posts, photos) are proposed first with a
 now → after preview, and sent to Google only after you approve that preview in a later message. Name, address and main
 category are locked unless you ask for exactly that change.
 

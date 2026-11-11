@@ -23,6 +23,9 @@ them can send the profile back to verification or get it suspended.
                      "coupon", "terms", "language": "en"}]
   delete_posts     ["<post id or full name>"]
   photos           [{"url": "<public image URL>", "category": "ROOMS|EXTERIOR|INTERIOR|COMMON_AREA|FOOD_AND_DRINK|..."}]
+  lodging          hotel amenities and policies (Lodging API updateLodging), flat or nested:
+                   {"policies.checkinTime": "15:00", "parking": {"freeParking": true}, "pools.pool": "DEPENDENT_ON_SEASON",
+                    "x.y": null to unset}; fields in gbp_lodging.WRITABLE. gbp_amenities builds this from confirmed facts.
   title, address ({addressLines: [...], locality, administrativeArea, postalCode, regionCode}),
   primary_category                                                  (allow_risky only)
 """
@@ -38,7 +41,8 @@ from .gbp import INFO, READ_MASK, V4, GbpError, _call, _find, _get, _safe
 
 LOG = paths.HOME / 'gbp-changes.jsonl'
 KEY_FILE = paths.HOME / 'gbp-change-key'
-ALLOWED_HOSTS = {'mybusinessbusinessinformation.googleapis.com', 'mybusiness.googleapis.com'}
+ALLOWED_HOSTS = {'mybusinessbusinessinformation.googleapis.com', 'mybusiness.googleapis.com',
+                 'mybusinesslodging.googleapis.com'}
 ALLOWED_METHODS = {'PATCH', 'PUT', 'POST', 'DELETE'}
 
 
@@ -76,7 +80,7 @@ PHOTO_CATS = {'COVER', 'PROFILE', 'LOGO', 'EXTERIOR', 'INTERIOR', 'PRODUCT', 'AT
               'COMMON_AREA', 'ROOMS', 'TEAMS', 'ADDITIONAL'}
 BUTTONS = {'BOOK', 'ORDER', 'SHOP', 'LEARN_MORE', 'SIGN_UP', 'CALL'}
 KNOWN = {'website', 'phone', 'description', 'regular_hours', 'special_hours', 'additional_categories', 'attributes',
-         'review_replies', 'delete_review_replies', 'posts', 'delete_posts', 'photos'} | RISKY
+         'review_replies', 'delete_review_replies', 'posts', 'delete_posts', 'photos', 'lodging'} | RISKY
 
 
 def _time(s):
@@ -328,6 +332,11 @@ def propose(location, changes, out_dir='', allow_risky=False):
                     'params': {'attributeMask': ','.join(amask)}, 'body': {'name': f'{name}/attributes', 'attributes': body},
                     'before': {m.split('/')[-1]: current.get(m.split('/')[-1]) for m in amask}})
 
+    # ---- hotel amenities and policies (Lodging API): one PATCH
+    if 'lodging' in changes:
+        from . import gbp_lodging
+        ops.append(gbp_lodging.lodging_op(name, changes['lodging']))
+
     # ---- reviews
     base = f'{V4}/{account}/{name}'
     for r in changes.get('review_replies', []):
@@ -428,6 +437,9 @@ def _live_before(op, account, name):
         return {k: cur.get(k) for k in op['before']}
     if op['kind'] in ('review_reply', 'delete_review_reply'):
         return (_get(op['url'].rsplit('/reply', 1)[0]).get('reviewReply') or {}).get('comment', '')
+    if op['kind'] == 'lodging':
+        from . import gbp_lodging
+        return gbp_lodging.live_values(gbp_lodging.fetch(name), op['before'])
     if op['kind'] == 'delete_post':
         return _get(op['url']).get('summary', '')
     return None
@@ -473,6 +485,11 @@ def apply(change_file, confirm):
                     same = all(pick[k](loc) == pick[k](op['body']) for k in checked)
                     r['read_back'] = 'live now' if same else ('not live yet: Google is reviewing the edit '
                                                               '(the profile shows it as a pending edit)')
+            if op['kind'] == 'lodging':
+                from . import gbp_lodging
+                now = gbp_lodging.live_values(gbp_lodging.fetch(c['location']), op['after'])
+                r['read_back'] = 'live now' if now == op['after'] else (
+                    'not live yet: ' + ', '.join(f'{p} shows {now[p]}' for p in op['after'] if now[p] != op['after'][p]))
             if op['kind'] in ('post', 'photo'):
                 r['created'] = resp.get('name', '')
                 if resp.get('state'):
