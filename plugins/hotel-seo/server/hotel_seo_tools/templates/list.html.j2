@@ -39,6 +39,17 @@
 </section>
 {% endif %}
 
+{% if doc.parity %}
+<section>
+  <h2><span>{{ doc.parity.title or 'Rate parity (Best Rate calendar)' }}</span></h2>
+  <table class="grid">
+    <thead><tr>{% for c in doc.parity.columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for row in doc.parity.rows %}<tr>{% for cell in row %}<td>{{ cell | rich }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+  </table>
+  {% if doc.parity.note %}<p class="why">{{ doc.parity.note | rich }}</p>{% endif %}
+</section>
+{% endif %}
+
 {% if doc.intro %}{% for p in doc.intro %}<p>{{ p | rich }}</p>{% endfor %}{% endif %}
 
 {% for s in doc.sections %}

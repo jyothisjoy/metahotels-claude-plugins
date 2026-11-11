@@ -4,12 +4,16 @@ Private. Contains the **hotel-seo** plugin: give Claude a hotel website — or a
 hotel separately, a full **Audit Report**, a ground-up **Build Plan** and a **Web Team List** as PDF, Word and Google
 Docs, plus a **Questions for the Hotel** spreadsheet. Then re-check the fixes, or have Claude apply them to the site in
 batches you approve (using the hotel's answers), which ends with an **Execute Report** and an **Agency Fix List** for
-what's left. Each month, `/hotel-seo monthly` makes the client **Monthly Report**.
+what's left. Each month, `/hotel-seo monthly` makes the client **Monthly Report**. Between runs, `/hotel-seo monitor`
+watches each site for what changed; `/hotel-seo write` writes hotel copy to one standard; `/hotel-seo check` fact-checks
+someone else's SEO report; and the Google Business Profile can be read and (after your approval) updated.
 
 The audit runs **11 specialist agents ported from [claude-seo](https://github.com/AgriciDaniel/claude-seo) (MIT)** —
 technical, sitemap, performance, agent readiness, backlinks, content (Opus), schema, local, maps, AI search (Opus) and
 FLOW — with MetaHotels' hotel rules, on top of hotel-seo's own crawl, audit, Search Console, GA4, Keyword Planner,
 Mirai, booking engine and Booking.com data.
+
+The same `metahotels` marketplace also lists **metahotels-optimize** (the site performance pass; its code lives in `jyothisjoy/metahotels-optimize`, which needs the same GitHub access): `/plugin install metahotels-optimize@metahotels`, then `/metahotels-optimize:optimize --init`.
 
 ## Before you start (once per person)
 
@@ -24,6 +28,7 @@ Mirai, booking engine and Booking.com data.
    ```
    /plugin marketplace add jyothisjoy/metahotels-seo
    /plugin install hotel-seo@metahotels
+   /plugin install metahotels-optimize@metahotels     (optional: the performance plugin)
    ```
    If the `/plugin` menu doesn't appear in the Code tab, run the same thing in a terminal:
    ```
@@ -31,7 +36,7 @@ Mirai, booking engine and Booking.com data.
    claude plugin install hotel-seo@metahotels
    ```
    Then start a new Claude Code session.
-2. Run `/hotel-seo init`. It installs `uv` if needed, LibreCrawl, Chromium and the desktop-app setup, then walks you through one Google sign-in as **metahotels.m@gmail.com** (get the password from the team; never put it in this repo). It covers GA4, Search Console, Google Docs output and Google Ads Keyword Planner (through the MetaHotels Manager Ads account 437-179-3247; no developer token since Google retired them on 9 Sep 2026). Takes about 5–10 minutes.
+2. Run `/hotel-seo init`. It installs `uv` if needed, LibreCrawl, Chromium and the desktop-app setup, then walks you through one Google sign-in as **metahotels.m@gmail.com** (get the password from the team; never put it in this repo). It covers GA4, Search Console (read-only), Google Docs output, Google Business Profile and Google Ads Keyword Planner (through the MetaHotels Manager Ads account 437-179-3247; no developer token since Google retired them on 9 Sep 2026). Takes about 5–10 minutes.
 3. **API keys for the agents:** add them to the `.env` file in the work folder (the same file as the Mirai login):
    - `PAGESPEED_API_KEY=...` (or `GOOGLE_API_KEY`) — Cloud console, project `metahotels-analytics`: enable **PageSpeed Insights API** and **Chrome UX Report API**, create an API key restricted to those two. Used for Core Web Vitals field data and Lighthouse. The Google sign-in in step 2 does not cover these two APIs, so this key is needed as well.
    - `MOZ_API=...` — moz.com API, free plan. Without it the backlink score is "insufficient data".
@@ -48,7 +53,8 @@ Mirai, booking engine and Booking.com data.
 
 ```
 /hotel-seo rosehotelsgroup.com                 full report for every hotel of the site (asks once: confirm the hotels,
-                                               each hotel's Booking.com URL, the hotel information sheet)
+                                               each hotel's Booking.com URL, the hotel information sheet, the
+                                               Disparity / Best Rate calendar)
 /hotel-seo rosehotelsgroup.com --hotel rose-park-albarsha     one hotel
 /hotel-seo recheck rosehotelsgroup.com          every finding re-checked on the live site
 /hotel-seo execute rosehotelsgroup.com          apply the fixes through the site's MCP, batch by batch, after your OK
@@ -57,8 +63,25 @@ Mirai, booking engine and Booking.com data.
 /hotel-seo execute --undo <plan file>           put back what an execute run changed
 /hotel-seo monthly rosehotelsgroup.com          client Monthly Report per hotel for last month, plus a group page
 /hotel-seo monthly abarhotels.com --month 2026-10
+/hotel-seo monitor abarhotels.com               what changed since the last run (posts, spam searches, booking links,
+                                               tags, noindex / canonical / schema on the key pages, robots.txt)
+/hotel-seo monitor add abarhotels.com           add it to the daily monitor run
+/hotel-seo write abarhotels.com <what>          one piece of copy (a title, an intro, an FAQ, an offer page, a blog
+                                               post, Business Profile text), paste-ready
+/hotel-seo check <report or file>               fact-check an agency's or tool's SEO report against Google's own
+                                               documentation
 /hotel-seo init --check                         health check (install, sign-in, keys, sites.csv)
 ```
+
+Everything the plugin writes for a website or Business Profile, from a title to a blog post, follows one writing
+standard: `plugins/hotel-seo/skills/hotel-seo/references/content-writing.md`. The renderer flags copy that breaks it
+(AI-sounding phrases, stock openings, unsourced superlatives, em dashes in paste copy, titles over 62 or metas over 155
+characters, invisible characters).
+
+Every full report also checks whether ChatGPT, Perplexity, Claude, Copilot and Google's AI features can reach the site
+(robots.txt per crawler, and a firewall test: the homepage and a room / offer page fetched as each AI crawler, with
+challenge pages detected), reads Google Images data, and warns when a Search Console comparison falls in Google's
+inflated-impressions period (13 May 2025 – 27 Apr 2026).
 
 Work is saved in a folder per site (`<domain>/`) wherever Claude is started (desktop chat: `~/Documents/MetaHotels SEO`),
 with `site.json` describing the site. The plugin tells the two kinds of site apart from the page structure:
@@ -104,7 +127,9 @@ batch as a table — page, field, current value, new value — before anything i
 values, writes, purges the cache and re-checks every fix on the live site; `--undo` puts the old values back. Steps with
 no MCP tool (wp-admin screens, Search Console, Bing Webmaster) run with Claude in Chrome in your own logged-in browser.
 It never touches prices, offers, discounts, member benefits, Web Team items, deletions or the Google Business Profile.
-Group-wide settings (Rank Math templates, shared headers / loops) run in their own batch.
+Group-wide settings (Rank Math templates, shared headers / loops) run in their own batch. A hotel that approves every
+change before it goes live (its `hotel.json` setting) gets the change list first: no batch runs until the client's yes
+is recorded (who, how, when).
 
 **The hotel's answers.** Execute first asks whether the hotel sent the Questions for the Hotel spreadsheet back. If so,
 it reads it: the answers become confirmed facts; a fix marked [CONFIRM] goes ahead only when the hotel answered yes (the
@@ -116,6 +141,15 @@ After the run it writes two documents (PDF + Word): the **Execute Report** (ever
 re-check result, what waits for the hotel, how to undo) and the **Agency Fix List** (every SEO fix execute could not
 do, step by step with the exact text to paste and where in WordPress, ready to send to the SEO agency; new pages to
 create; items that wait for the hotel). Developer items stay in the Web Team List.
+
+### Rate parity (Disparity / Best Rate calendar)
+
+The full report asks for the hotel's Disparity / Best Rate calendar CSVs (`disparity-calendar-<hotel>-<YYYY-MM>.csv`,
+one per month, from MetaHotels' parity monitoring). They are counted in code (best-rate, disparity and no-record days,
+the no-record pattern such as "every Saturday", the longest disparity run, direct bookings by day type) and the Audit
+Report gets a **Rate parity (Best Rate calendar)** table. When the website was not the best rate on 20% or more of the
+recorded days, that goes at the top of the report: page fixes won't win a booking the OTAs sell cheaper. Rates are a
+revenue-team matter, never a change on the website.
 
 ### Monthly Report
 
@@ -139,6 +173,30 @@ Every number comes from the tools; Claude writes only the short explanations, an
 not in the month's data. Anything that couldn't be read (no Mirai ID, no parity login, no Manager access) is listed at
 the end of the run. The tracked keywords are confirmed with you the first month and then stay the same so months compare.
 
+### Monitor
+
+`/hotel-seo monitor <domain>` compares the site with the last run: the homepage and the key pages it links to (status,
+noindex, canonical, H1, Hotel / Offer / Breadcrumb schema), robots.txt (Googlebot or AI search crawlers newly blocked),
+newly dead booking links, new or growing suspicious posts, new WordPress users, REST / MCP routes open without login,
+new spam searches in Search Console, and tags that stopped firing. Alerts first, then changes. The first run saves the
+baseline. `monitor add <domain>` puts the site on the daily schedule (`hotel-seo-monitor`, run by Windows Task Scheduler
+or cron); reports go to the site folder's `monitor/`.
+
+### Business Profile
+
+Claude reads each hotel's Google Business Profile (listing, monthly views / calls / website clicks / direction
+requests, search terms, reviews and reply rate, and whether the listing matches the website's schema, phone and
+address). Changes (description, hours, categories, attributes, review replies, posts, photos) are proposed first with a
+now → after preview, and sent to Google only after you approve that preview in a later message. Name, address and main
+category are locked unless you ask for exactly that change.
+
+### Write and check
+
+`/hotel-seo write` writes one piece of hotel copy (a title and meta, an intro, an FAQ, a room or offer text, a new page
+or blog post, Business Profile text) to the writing standard, with facts only from the hotel's confirmed facts or
+marked [CONFIRM]. `/hotel-seo check` reads an agency's or tool's SEO report or advice and says, point by point, what
+Google's own documentation supports, what is wrong or outdated, and what doesn't apply to a hotel.
+
 ## Update
 
 ```
@@ -150,15 +208,19 @@ the end of the run. The tracked keywords are confirmed with you the first month 
 Automatic background updates of a private plugin need a `GITHUB_TOKEN` (or `GH_TOKEN`) environment variable with read
 access to this repo.
 
-**From 0.8 to 0.9:** the Priority / Nice-to-Have lists are replaced by the Audit Report and Build Plan, and the daily
-monitor is gone — if you scheduled it, delete the task (`schtasks /Delete /TN hotel-seo-monitor /F`, or remove the
-crontab line). Add the three API keys and `sites.csv`.
+**From 0.8 to 0.9:** the Priority / Nice-to-Have lists are replaced by the Audit Report and Build Plan. Add the three
+API keys and `sites.csv`.
 
 **From 0.9 / 0.10 to 0.11:** the site's settings file is now `site.json` (an older `group.json` is still read). A
 single-hotel site (one hotel on its own domain, like abarhotels.com) is now kept flat in `<domain>/` with no `group/` or
 `hotels/` folders and no Group Summary. If an older run created those folders for a single hotel, run the report again:
 the new run works in `<domain>/`, and the old `group/` and `hotels/` folders can be deleted afterwards. Add `SERPER_API`
 to `.env` for the monthly report's exact Google positions.
+
+**From 2.0.0 to 2.0.1:** the Audit Report / Build Plan / Web Team List and execute through `sites.csv` replace the
+Priority / Nice-to-Have lists again. Write, check, monitor, Business Profile, the Disparity / Best Rate calendar and the
+AI-crawler firewall test carry over. A daily monitor task you scheduled before keeps working (`hotel-seo-monitor`). Run
+`/hotel-seo init` to refresh the desktop app's copy and the Google sign-in (Business Profile).
 
 ## Troubleshooting
 
@@ -175,6 +237,8 @@ to `.env` for the monthly report's exact Google positions.
 | Monthly Report: "not checked this month" for Google Maps | Claude in Chrome wasn't available or metahotels.m@gmail.com has no Manager access to that Business Profile. |
 | Execute: "login rejected (401)" | The user name or application password in `sites.csv` is wrong or revoked: create a new application password for that user in WordPress. |
 | Execute: "WordPress refused (403)" | The login works but that user may not use MCP on the site (role, MCP plugin settings or a security plugin). |
+| Business Profile: "not set up on this machine" | Run `/hotel-seo init` again and allow the Business Profile permission; metahotels.m@gmail.com needs Manager access to the profile. |
+| Monitor shows "First run" every time | The baseline is saved in `~/.metahotels-seo/monitor/<host>.json`: check that folder is writable. |
 | Start over on a machine | Delete `~/.metahotels-seo/` and run `/hotel-seo init` again. |
 
 ## What's inside
@@ -184,11 +248,14 @@ plugins/hotel-seo/
   agents/                 the 11 agents (seo-technical, seo-sitemap, seo-performance, seo-agentic, seo-backlinks,
                           seo-content, seo-schema, seo-local, seo-maps, seo-geo, seo-flow), ported from claude-seo
   skills/hotel-seo/       SKILL.md (the workflow), references/ (playbook, hotel-addendum, agent-contract, inputs
-                          checklist, LibreCrawl guide, claude-seo/ references and FLOW prompts), templates/report.schema.json
+                          checklist, content-writing standard, audit-checks registry, third-party warnings, LibreCrawl
+                          guide, claude-seo/ references and FLOW prompts), templates/ (report.schema.json,
+                          findings-register.schema.json)
   server/                 hotel-seo-tools MCP server (Python, run with uv): crawl, audit, site kinds (single / group),
                           keyword map, Booking.com facts, maps, agent preflight and validation, report builder and
                           renderers (PDF / Word / Google Docs), hotel questions (xlsx), re-check, site MCP client,
-                          execute and its reports, monthly report (GA4, Search Console, Serper, Mirai, parity);
+                          execute and its reports, monthly report (GA4, Search Console, Serper, Mirai, parity),
+                          monitor, Business Profile, page consistency, Best Rate calendar;
                           vendor/claude_seo/ = 26 claude-seo scripts (MIT) and their tests
   setup/init.py           /hotel-seo init
   setup/claude-seo-port/  how to update the ported agents and scripts from a newer claude-seo
@@ -201,7 +268,8 @@ app's copy). Site logins live in `sites.csv` in the work folder. Neither goes in
 
 ## Changing the method
 
-Edit `plugins/hotel-seo/skills/hotel-seo/references/playbook.md` (hotel lessons in "Lessons learned") or
+Run the offline tests first (`uv run pytest -q` in `plugins/hotel-seo/server`). Edit
+`plugins/hotel-seo/skills/hotel-seo/references/playbook.md` (hotel lessons in "Lessons learned") or
 `hotel-addendum.md` (the rules every agent follows); agent-specific hotel instructions are generated from
 `setup/claude-seo-port/make_agents.py`. Bump `version` in `plugins/hotel-seo/.claude-plugin/plugin.json`,
 `.claude-plugin/marketplace.json` and `server/pyproject.toml`, commit and push. Teammates get it with the update commands.

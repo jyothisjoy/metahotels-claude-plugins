@@ -101,7 +101,12 @@ Scope: ONE hotel. Model: Opus. Guests ask AI assistants "best hotel near X with 
 through partners, so being citable and reachable matters for direct bookings.
 
 1. robots.txt access per AI crawler, by what it governs (training vs search vs user-triggered). robots.txt is
-   site-wide: report it with `hotel: "group"` (it is merged once across hotels).
+   site-wide: report it with `hotel: "group"` (it is merged once across hotels). Then the firewall test in
+   `findings.json` `report.ai_access` (audit_site fetches the homepage, a room and an offer page as each AI crawler
+   and AI agent): `search_bots_blocked_by_firewall_signal` / `guest_agents_blocked_by_firewall_signal` (403s or
+   challenge pages while a browser gets 200) are a signal, not proof: report them as `insufficient_data` until the
+   host / Cloudflare bot settings confirm the block, then `owner: "web"`. robots.txt blocks of search crawlers are
+   already core findings (`ai_search_bot_blocked`); don't restate them.
 2. Citability of the hotel's key pages from `extracted_text` (render_page): self-contained answer blocks, direct
    answers in the first 40–60 words, question headings, specific facts (only confirmed facts).
 3. Questions to answer: the informational clusters in `keyword-map.json` (getting from the airport, things to do

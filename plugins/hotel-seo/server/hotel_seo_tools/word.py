@@ -286,6 +286,12 @@ def build(doc):
     if doc.get('working'):
         _heading(d, "What's already working (no action)", 13, 2)
         _table(d, ['Item', 'Status', 'Note'], doc['working'])
+    if doc.get('parity'):
+        pb = doc['parity']
+        _heading(d, pb.get('title') or 'Rate parity (Best Rate calendar)', 13, 2)
+        _table(d, pb['columns'], pb['rows'])
+        if pb.get('note'):
+            _add(d.add_paragraph(), f"*{pb['note']}*")
     for p in doc.get('intro', []):
         _add(d.add_paragraph(), p)
     for s in doc['sections']:

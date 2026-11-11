@@ -154,11 +154,40 @@ def desktop_config_paths():
     return [Path.home() / '.config' / 'Claude' / 'claude_desktop_config.json']
 
 
+def stop_copy_processes(copy):
+    """The desktop app keeps hotel-seo-tools / gsc / ga4 running from the server copy, and on Windows
+    their open files can't be deleted. Stop them (the app restarts them when reopened)."""
+    if os.name != 'nt':
+        return []
+    ps = ("Get-CimInstance Win32_Process | Where-Object { ($_.ExecutablePath -and $_.ExecutablePath.StartsWith($env:HSC, "
+          "'OrdinalIgnoreCase')) -or ($_.CommandLine -and $_.CommandLine.IndexOf($env:HSC, "
+          "[StringComparison]::OrdinalIgnoreCase) -ge 0) } | Where-Object { $_.ProcessId -ne $PID } | "
+          "Select-Object -ExpandProperty ProcessId")
+    try:
+        out = subprocess.run(['powershell', '-NoProfile', '-Command', ps], capture_output=True, text=True,
+                             env={**os.environ, 'HSC': str(copy)}, timeout=60).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    pids = [p for p in out.split() if p.isdigit() and int(p) != os.getpid()]
+    for pid in pids:
+        subprocess.run(['taskkill', '/F', '/T', '/PID', pid], capture_output=True)
+    return pids
+
+
 def setup_desktop(uv):
     say('\n[3/5] Claude desktop app')
     copy = paths.HOME / 'server'
     if copy.exists():
-        shutil.rmtree(copy, ignore_errors=True)
+        stopped = stop_copy_processes(copy)
+        if stopped:
+            say(f'  stopped {len(stopped)} desktop-app server process(es) using the old copy; '
+                'quit and reopen the desktop app afterwards')
+            time.sleep(2)
+        try:
+            shutil.rmtree(copy)
+        except OSError as e:
+            sys.exit(f'  Could not replace {copy}: {e}\n  A program still has files open there (usually the Claude '
+                     'desktop app). Quit the desktop app completely (tray icon -> Quit) and run init again.')
     shutil.copytree(SERVER_SRC, copy, ignore=shutil.ignore_patterns('.venv', '__pycache__', '*.pyc'))
     paths.GOOGLE_DIR.mkdir(parents=True, exist_ok=True)
     shutil.copy2(PLUGIN_DIR / 'setup' / 'google' / 'client_secret.json', paths.GOOGLE_DIR / 'client_secret.json')
@@ -223,15 +252,16 @@ def google_signin(no_browser=False):
                                                    'customer_id': ADS_MANAGER_ID}, indent=2))
         say(f'  Keyword Planner: Google Ads manager {ADS_MANAGER_ID} saved to {keywords.ADS_CONFIG}')
     rows = health.check_google()
-    if all(r['ok'] for r in rows) and keywords.configured()[0]:
+    from hotel_seo_tools import gbp
+    if all(r['ok'] for r in rows) and keywords.configured()[0] and gbp.configured()[0]:
         for r in rows:
             say(f"  {r['check']}: {r['detail']}")
         say('  already signed in')
         return
     say('  Sign in as metahotels.m@gmail.com and allow every permission (Analytics, Search Console, Drive')
-    say('  files, Google Ads). If Google shows "Google hasn\'t verified this app": click Advanced ->')
+    say('  files, Google Ads, Business Profile). If Google shows "Google hasn\'t verified this app": click Advanced ->')
     say('  Go to MetaHotels SEO (unsafe) -> Continue. Waiting up to 10 minutes...')
-    cmd = [sys.executable, '-m', 'hotel_seo_tools.google_auth', '--with-ads'] + (['--no-browser'] if no_browser else [])
+    cmd = [sys.executable, '-m', 'hotel_seo_tools.google_auth', '--with-ads', '--with-gbp'] + (['--no-browser'] if no_browser else [])
     run(cmd, cwd=str(SERVER_SRC))
 
 
@@ -290,7 +320,8 @@ def main():
     if os.name == 'nt':
         r = subprocess.run(['schtasks', '/Query', '/TN', 'hotel-seo-monitor'], capture_output=True, text=True)
         if r.returncode == 0:
-            say('The daily monitor was removed in 0.9.0: delete its task with  schtasks /Delete /TN hotel-seo-monitor /F')
+            say('Daily monitor task found (hotel-seo-monitor): it runs every site in ~/.metahotels-seo/monitor/sites.json '
+                '(/hotel-seo monitor add <domain> adds one).')
     sys.exit(0 if ok else 1)
 
 

@@ -336,14 +336,9 @@ def crosscheck(facts_file, engine_json, on=None):
 
 
 def add_facts(facts_file, facts, source):
-    """Add facts by hand (e.g. read from a PDF sheet or the Booking.com sections the parser missed)."""
+    """Add facts by hand (e.g. read from a PDF sheet or the Booking.com sections the parser missed). One value per
+    fact (facts.add_facts): a hotel answer marks the booking-engine facts it contradicts superseded."""
     if not source or not re.search(r'\d{4}', source):
         raise ValueError('source must name where the fact came from and the date, e.g. "hotel contact, 24 Oct 2026"')
-    f, doc = _facts_doc(facts_file)
-    have = {x.get('fact') for x in doc.get('facts', [])}
-    new = [{'fact': str(x if isinstance(x, str) else x.get('fact')), 'source': source} for x in facts]
-    new = [x for x in new if x['fact'] and x['fact'] not in have]
-    doc.setdefault('facts', []).extend(new)
-    f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text(json.dumps(doc, indent=1, ensure_ascii=False), encoding='utf-8')
-    return {'added': len(new), 'facts_file': str(f)}
+    from . import facts as fx
+    return fx.add_facts(facts_file, facts, source)

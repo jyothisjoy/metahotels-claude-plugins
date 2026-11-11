@@ -93,7 +93,8 @@ Scope: the whole group site, once. Tag each finding with the hotel whose pages i
    present in raw HTML. `inspect_pages` (mobile) for viewport, tap targets, horizontal scroll, pop-ups over the booking
    button.
 5. **robots.txt and AI crawlers:** access per crawler with what it governs (training vs search). seo-geo reports
-   citability; you report access and blocking mistakes.
+   citability and the AI-crawler firewall test (`findings.json` `report.ai_access`); you report access and blocking
+   mistakes in robots.txt, hreflang (`report.hreflang`) and snippet controls (`report.snippet_blocked_pages`).
 6. **Rank Math settings (read-only).** If the site is in `sites.csv`: `site_mcp_read(site, "seo-get-settings",
    {"group": "titles"})` and `{"group": "sitemap"}`, and `seo-get-posts` with `filter` (`robots_override`,
    `canonical_override`, `noindex`) to give exact setting changes. These become `rankmath_setting` actions (group-wide)

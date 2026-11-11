@@ -2,7 +2,7 @@
 
 What a full run uses (per hotel of a group), who gets it, and what to call it when it's missing. In the run summary, list anything missing under **Missing inputs** using the names below in bold.
 
-Anyone on the MetaHotels team can do every "From you" item except the hotel facts. Drop the files into the hotel's folder (`<domain>/`) before the run, or attach them in desktop chat. If they arrive later, re-run `/hotel-seo <domain>`: it builds on the last run.
+Anyone on the MetaHotels team can do every "From you" item except the hotel facts. Drop the files into the hotel's folder (`<hotel dir>`: `<domain>/` for a single hotel, `<domain>/hotels/<slug>/` for a group hotel) before the run, or attach them in desktop chat. If they arrive later, re-run `/hotel-seo <domain>`: it builds on the last run.
 
 ---
 
@@ -25,7 +25,7 @@ Anyone on the MetaHotels team can do every "From you" item except the hotel fact
   schema) and asks you to confirm names, URL paths and cities.
 - **Booking.com URL of each hotel** (asked in the same message). Claude reads the page with Claude in Chrome; facts
   count as confirmed only where the hotel's booking engine agrees. Missing: **Booking.com URL**.
-- **Mirai hotel ID**: from `<domain>/hotel.json` of an earlier run, else `idtokenprovider=` in the site's booking links.
+- **Mirai hotel ID**: from `site.json` of an earlier run, else `idtokenprovider=` in the site's booking links.
 - **History** (previous management company, recent rebuild, sister hotels on the same domain): from the site, Search Console and the crawl. Tell Claude if you already know it.
 
 ### 2. Search Console
@@ -34,12 +34,17 @@ Anyone on the MetaHotels team can do every "From you" item except the hotel fact
 **Claude also pulls** (no exports needed any more):
 - Page indexing states for every crawled and sitemap URL (`index_status`, URL Inspection API, 2,000 URLs a day per site).
 - Incoming links and Bing sitemaps from Bing Webmaster Tools (`bing_report`, when the Bing key is set up).
+- The Google Business Profile: listing, views, website clicks, calls, searches, reviews (`gbp_report`, when Business Profile is set up in the Google sign-in). No Business Profile screenshots needed. metahotels.m@gmail.com needs Manager access to the profile; otherwise that is **Business Profile access**.
 
 **From you, only when relevant:**
 - [ ] **Old-URL 404 list**: Indexing → Pages → Not found (404) → Export, only for sites with many old or spam URLs Google still remembers (they're not in any crawl or sitemap). Claude passes them to `index_status`.
 - [ ] **Manual actions / Security issues**: screenshot only if Search Console emailed an alert.
 
 If the hotel's property isn't visible to metahotels.m@gmail.com, that is **Search Console access**: add the account as a user on the property.
+
+### 2b. Disparity / Best Rate calendar
+**From you:** the monthly CSV export from the parity monitoring, one file per hotel and month, e.g. `disparity-calendar-gewan-palace-new-alamein-2026-08.csv` (Date, Weekday, Hotel, Parity Status, Bookings, Day Type). The last 3 months is ideal. Drop them in the hotel's folder or attach them; Claude asks for the missing months during the intake.
+- [ ] **Disparity / Best Rate calendar**: Claude imports it with `import_parity_calendar` (into `<hotel dir>/parity/`) and the Audit Report gets a "Rate parity (Best Rate calendar)" table (best-rate, disparity and no-record days, direct bookings), a lead line when the site lost the best rate on 20%+ of recorded days, and questions for MetaHotels (e.g. no record every Saturday).
 
 ### 3. GA4
 **Claude pulls through the MCP, last 90 days:** events (`purchase` count and revenue, refunds), traffic acquisition by session source / medium with revenue, users and sessions by country, hostname × sessions when the numbers look off.
@@ -56,13 +61,13 @@ competitor hotels' pages, volumes for the hotel's city, country and feeder marke
 clusters with one target page each and their status in Search Console.
 
 **From you, only if `init --check` shows Google Ads not set up:**
-- [ ] **Keyword Planner CSVs**: Keyword Planner → Discover new keywords (hotel URL + 5–10 area phrases) → Download keyword ideas → CSV. One file per language and location: English and Arabic, the hotel's country and worldwide. Put them in `<domain>/keywords/` as downloaded; don't open and re-save them. Claude reads them with `import_keyword_csv`, which keeps Arabic in order.
+- [ ] **Keyword Planner CSVs**: Keyword Planner → Discover new keywords (hotel URL + 5–10 area phrases) → Download keyword ideas → CSV. One file per language and location: English and Arabic, the hotel's country and worldwide. Put them in `<hotel dir>/keywords/` as downloaded; don't open and re-save them. Claude reads them with `import_keyword_csv`, which keeps Arabic in order. **Arabic keywords to paste in:** Claude gives them in a UTF-8 `.txt` file (open it in Notepad and copy from there). Never copy Arabic from the Claude terminal: it arrives reversed and every keyword returns no data.
 
 ### 4. Mirai
 **Claude pulls through the Mirai API** (`mirai_reservations`) when the work folder's `.env` has `MIRAI_USER` and `MIRAI_PASS` (one login covers every MetaHotels hotel on Mirai): bookings, cancellations, revenue, ADR, seasonality by stay month, offers and room types sold by name, club sign-ups, channel source, promo codes, guest countries, and what's on the books for the coming months.
 
 **From you, only if the API isn't set up** (2 min):
-- [ ] **Mirai reservations export**: switch the property view to the hotel → Reservations → booking date **1 Mar 2026 → today** → Export Excel. Name it anything; put it in `<domain>/`.
+- [ ] **Mirai reservations export**: switch the property view to the hotel → Reservations → booking date **1 Mar 2026 → today** → Export Excel. Name it anything; put it in the hotel's folder.
 
 Claude reads the live booking engine itself with `booking_engine_snapshot`: rooms, offers, member rate, cancellation terms and prices for 3 sample stays.
 
@@ -85,6 +90,13 @@ Needed before anything marked **[CONFIRM]** goes live. The run ends with the exa
 - Distances (airport, metro, landmarks), check-in and check-out, cancellation policy
 - Services the site contradicts itself on (room service, breakfast, transfers, parking)
 
+**Hotel settings** (asked once, first run for a hotel; saved with `hotel_settings` in `<hotel dir>/hotel.json`): the
+hotel's **other websites** (in-house restaurant, spa, sister brand: which searches belong there), whether the **client
+approves every change before it goes live** (default no), and the **size unit** (m² or sq ft).
+
+Answers that arrive later, by any channel (email, WhatsApp, the hotel contact), go into `hotel-facts.json` the same day
+with `add_facts` (source `hotel (<who>, <channel> <date>)`).
+
 ---
 
 ## C. Re-check (after the agency says "done")
@@ -99,7 +111,7 @@ Needed before anything marked **[CONFIRM]** goes live. The run ends with the exa
 
 ## D. Standing access
 
-- [ ] The Google sign-in includes Docs (`init --check` → Google Docs output OK); otherwise lists come as PDF plus a `.docs.html` file.
+- [ ] The Google sign-in includes Docs (`init --check` → Google Docs output OK); otherwise documents come as PDF and Word only.
 - [ ] metahotels.m@gmail.com has Search Console and GA4 access for every hotel on the rollout list (`init --check` shows how many properties it sees).
 - [ ] `MIRAI_USER` and `MIRAI_PASS` (Mirai XML API) in the `.env` of the work folder on each machine, or the Mirai masterkey (individual hotel views) for the reservations export.
 - [ ] Each site's row in `sites.csv` logs in (`sites_csv_status`, `site_mcp_status`): a 401 means the user name or

@@ -6,6 +6,8 @@
                                first error, cache purged, each finding re-checked on the live site.
   undo(plan_file)              writes the before-values back (redirects created by the run are deleted; created
                                pages go back to draft, never deleted).
+  record_client_approval(...)  the client's yes, for hotels whose hotel.json says preferences.client_approval: true
+                               (no batch runs until it is recorded).
 
 Never: prices / offers / discounts / member benefits, anything [CONFIRM] or on hold, Web Team items, deleting posts,
 pages, media, users or menus, plugins / themes, other hotels' pages, Google Business Profile.
@@ -23,6 +25,7 @@ from urllib.parse import urlparse
 import requests
 
 from . import checks as chk, group as grp, paths, sites
+from .librecrawl import UA
 
 BATCH_ORDER = ['booking-path', 'hotel-answers', 'seo-fields', 'redirects', 'elementor-text', 'schema', 'alt-text', 'post-status',
                'menus', 'new-pages', 'chrome', 'site-settings', 'group']
@@ -91,6 +94,7 @@ class Site:
             except Exception:  # noqa: BLE001
                 pass
         slug = key.strip('/').split('/')[-1]
+        no_link = []
         for pt in self.post_types:
             try:
                 d = self.read('get-post', {'slug': slug, 'post_type': pt, 'include_content': False,
@@ -99,10 +103,25 @@ class Site:
                 continue
             post = d.get('post') or d
             link = post.get('link') or post.get('permalink') or ''
-            if post.get('id') and (not link or _norm(link) == key):
+            if post.get('id') and link and _norm(link) == key:
                 self._ids[key] = int(post['id'])
                 self.types[key] = pt
                 return int(post['id'])
+            if post.get('id') and not link:
+                no_link.append((int(post['id']), pt))
+        # A slug alone is not enough on a group site, where every hotel has /about-us/ and /rooms/ (Rose, Nov 2026:
+        # about 130 changes aimed at the wrong page): match the full path through the public REST API.
+        rest = resolve_post(self.site, url)
+        if rest.get('error'):
+            raise LookupError(rest['error'])
+        if rest.get('post_id'):
+            self._ids[key] = int(rest['post_id'])
+            self.types[key] = rest.get('type') or ''
+            return int(rest['post_id'])
+        if len(no_link) == 1 and rest.get('not_found'):
+            # the MCP gave no link and the type isn't in REST: the only candidate (as before)
+            self._ids[key], self.types[key] = no_link[0]
+            return no_link[0][0]
         raise LookupError(f'no post found for {url}')
 
 
@@ -280,9 +299,12 @@ def plan(group_dir, slug, only=None):
     batches = defaultdict(list)
     for it in planned:
         batches[it['batch']].append(it)
+    prefs = hotel_preferences(hdir)
     out = {'site': site, 'hotel': slug, 'created': time.strftime('%Y-%m-%d %H:%M'), 'source_run': str(run),
            'batches': {b: batches[b] for b in BATCH_ORDER if batches.get(b)}, 'skipped': skipped,
-           'rewording': rewording, 'approved': [], 'done': [], 'recheck': {}}
+           'rewording': rewording, 'approved': [], 'done': [], 'recheck': {},
+           'client_approval_required': bool(prefs.get('client_approval')), 'client_approval': None,
+           'units': prefs.get('units')}
     ed = hdir / f'execute-{date.today().isoformat()}'
     ed.mkdir(parents=True, exist_ok=True)
     f = ed / 'plan.json'
@@ -291,9 +313,13 @@ def plan(group_dir, slug, only=None):
                   it.get('field', it['action']['type']), str(it.get('current'))[:120], str(it.get('new'))[:120]]
                  for it in items] for b, items in out['batches'].items()}
     return {'plan_file': str(f), 'batches': {b: len(v) for b, v in out['batches'].items()}, 'skipped': len(skipped),
-            'rewording': rewording,
+            'rewording': rewording, 'client_approval_required': out['client_approval_required'],
+            **({'units': out['units']} if out['units'] else {}),
             'skipped_reasons': skipped[:40], 'table': table,
-            'next': 'Show each batch as a table (page, field, current -> new) and ask the user to approve it; then '
+            'next': ('This hotel approves every change before it goes live (hotel.json preferences.client_approval): '
+                     'send the client these tables first and record_client_approval(plan_file, by) once the user '
+                     'confirms their yes. ' if out['client_approval_required'] else '')
+                    + 'Show each batch as a table (page, field, current -> new) and ask the user to approve it; then '
                     'run_execute_batch(plan_file, batch). Nothing has been written.'}
 
 
@@ -395,10 +421,11 @@ def _resolve(s, a, pages_spec):
         if len(els) != 1:
             raise LookupError(f'"{a["find"][:60]}" matches {len(els)} Elementor elements on {a["url"]}: needs one')
         el = els[0]
-        old = {k: (el.get('settings') or {}).get(k) for k in a['settings']}
-        return {'page': a['url'], 'post_id': pid, 'field': 'elementor ' + ', '.join(a['settings']), 'current': old,
-                'new': a['settings'], 'calls': [['elementor-update-element', {'post_id': pid, 'element_id': el['id'],
-                                                                              'settings': a['settings']}]],
+        settings = _rendered_settings(el, a['settings'])
+        old = {k: (el.get('settings') or {}).get(k) for k in settings}
+        return {'page': a['url'], 'post_id': pid, 'field': 'elementor ' + ', '.join(settings), 'current': old,
+                'new': settings, 'calls': [['elementor-update-element', {'post_id': pid, 'element_id': el['id'],
+                                                                          'settings': settings}]],
                 'undo': [['elementor-update-element', {'post_id': pid, 'element_id': el['id'], 'settings': old}]]}
     if t == 'schema_snippet':
         cur = None
@@ -510,6 +537,11 @@ def run_batch(plan_file, batch, approved=False):
         raise PermissionError('Show the batch table to the user and pass approved=true only after they approve it.')
     pf = paths.resolve(plan_file)
     pl = json.loads(pf.read_text(encoding='utf-8'))
+    if pl.get('client_approval_required') and not pl.get('client_approval'):
+        raise PermissionError('This hotel approves every change before it goes live (hotel.json '
+                              'preferences.client_approval). Send the client the change list, then '
+                              'record_client_approval(plan_file, by="<name>, <channel> <date>") once the user confirms '
+                              'their yes. Never assume approval.')
     items = pl['batches'].get(batch)
     if not items:
         raise LookupError(f'no batch {batch} in the plan')
@@ -584,6 +616,115 @@ def run_batch(plan_file, batch, approved=False):
     return {'batch': batch, 'done': len(done), 'of': len(items), 'failed': failed, 'cache_purged': purge,
             'recheck': rechecked, 'changes_file': str(changes_f), 'before_file': str(before_f),
             'undo': f'undo_execute("{plan_file}")'}
+
+
+def hotel_preferences(hotel_dir):
+    """preferences from <hotel dir>/hotel.json (hotel_settings): client_approval, units. Empty when there is none."""
+    f = paths.resolve(hotel_dir) / 'hotel.json'
+    try:
+        return (json.loads(f.read_text(encoding='utf-8')).get('preferences') or {}) if f.exists() else {}
+    except (ValueError, OSError):
+        return {}
+
+
+def record_client_approval(plan_file, by, note=''):
+    """The client's yes to this change list: who and how ("Mr Yunus, email 6 Nov"). Never inferred."""
+    if not str(by).strip():
+        raise ValueError('say who approved and how, e.g. "Mr Yunus, email 6 Nov"')
+    pf = paths.resolve(plan_file)
+    pl = json.loads(pf.read_text(encoding='utf-8'))
+    pl['client_approval'] = {'by': by, 'note': note, 'recorded': time.strftime('%Y-%m-%d %H:%M')}
+    pf.write_text(json.dumps(pl, indent=1, ensure_ascii=False), encoding='utf-8')
+    return {'recorded': True, 'by': by, 'plan_file': str(pf)}
+
+
+WIDGET_TEXT_KEY = {'heading': 'title', 'text-editor': 'editor', 'button': 'text', 'icon-box': 'title_text',
+                   'image-box': 'title_text', 'call-to-action': 'title', 'animated-headline': 'before_text'}
+TEXT_KEYS = ('title', 'editor', 'text', 'title_text', 'description_text', 'heading', 'content')
+
+
+def elementor_settings(element, new_text, key=''):
+    """Settings for elementor-update-element that the widget really renders: heading -> title, text-editor -> editor
+    (wrapped in <p>), button -> text, icon-box / image-box -> title_text; an unknown widget uses its only text key.
+    element: one element from elementor-get-structure (with settings). Writing the wrong key "succeeds" and changes
+    nothing on the page."""
+    have = element.get('settings') or {}
+    wtype = element.get('widgetType') or element.get('widget_type') or ''
+    want = WIDGET_TEXT_KEY.get(wtype)
+    if not want:
+        present = [k for k in TEXT_KEYS if isinstance(have.get(k), str) and have.get(k)]
+        want = present[0] if len(present) == 1 else None
+    if key and want and key != want and key not in have:
+        key = want
+    key = key or want
+    if not key:
+        return {'error': f'widget "{wtype}" has no single text key ({[k for k in TEXT_KEYS if k in have]}): '
+                         'pick it by reading the element'}
+    v = new_text
+    if key == 'editor' and isinstance(v, str) and not v.lstrip().startswith('<'):
+        v = f'<p>{v}</p>'
+    return {'widget': wtype, 'settings': {key: v}, 'before': {key: have.get(key)}}
+
+
+def _rendered_settings(el, settings):
+    """One text value for a key the element doesn't have goes to the key its widget renders."""
+    have = el.get('settings') or {}
+    if len(settings) != 1:
+        return settings
+    (k, v), = settings.items()
+    if k in have or not isinstance(v, str):
+        return settings
+    fixed = elementor_settings(el, v, k)
+    return fixed.get('settings') or settings
+
+
+def _full(site, u):
+    return u if u.startswith('http') else site.rstrip('/') + '/' + u.lstrip('/')
+
+
+def resolve_post(site, url):
+    """The WordPress post behind a full URL. A slug alone is not enough on a group site, where every hotel has
+    /about-us/ and /rooms/. Asks the public REST API for every post with the last slug and keeps the one whose link
+    matches the full path; two matches is an error. Post types not in REST return not_found."""
+    site = site.rstrip('/')
+    want = urlparse(_full(site, url)).path.rstrip('/') + '/'
+    slug = want.strip('/').split('/')[-1] if want.strip('/') else ''
+    s = requests.Session()
+    s.headers['User-Agent'] = UA
+    if not slug:
+        return {'url': url, 'front_page': True, 'note': 'the homepage: use the site settings / front page id'}
+    try:
+        types = s.get(site + '/wp-json/wp/v2/types', timeout=25).json()
+        bases = sorted({t.get('rest_base') for t in types.values() if isinstance(t, dict) and t.get('rest_base')}
+                       - {'media', 'attachment', 'wp_block', 'wp_template', 'wp_template_part', 'wp_navigation',
+                          'wp_global_styles', 'wp_font_family', 'wp_font_face', 'menu-items', 'blocks'})
+    except (requests.RequestException, ValueError, AttributeError):
+        bases = ['pages', 'posts']
+    hits = []
+    for b in bases:
+        rows, page = [], 1
+        while page <= 10:                     # a group site can have dozens of posts with one slug
+            try:
+                r = s.get(f'{site}/wp-json/wp/v2/{b}', params={'slug': slug, '_fields': 'id,link,type,status',
+                                                               'per_page': 100, 'page': page}, timeout=25)
+                got = r.json() if r.status_code == 200 else []
+            except (requests.RequestException, ValueError):
+                break
+            if not isinstance(got, list) or not got:
+                break
+            rows += got
+            if len(got) < 100:
+                break
+            page += 1
+        for row in rows:
+            if isinstance(row, dict) and urlparse(row.get('link', '')).path.rstrip('/') + '/' == want:
+                hits.append({'post_id': row['id'], 'type': row.get('type') or b, 'link': row.get('link')})
+    if len(hits) > 1:
+        return {'url': url, 'error': f'{len(hits)} posts have the path {want}: resolve by hand', 'matches': hits}
+    if not hits:
+        return {'url': url, 'not_found': True, 'note': f'no public post with the path {want} (the type may not be in '
+                'REST): use the site tools (list-posts / get-post) and compare the full link'}
+    return {'url': url, **hits[0]}
 
 
 def _recheck(site, items):

@@ -98,6 +98,32 @@ CORE = {
                    None),
     'phone_country_code': ('Content', 'High', 'Phone number with an odd country code',
                            "Use the hotel's real number with the right country code.", None),
+    # v2.0.0 audit checks (AI search access, hreflang, snippets, offer markup, metas)
+    'ai_search_bot_blocked': ('AI Search', 'Critical', 'robots.txt blocks an AI search crawler',
+                              'Allow the search crawler in robots.txt (OAI-SearchBot, PerplexityBot, Claude-SearchBot, '
+                              'Bingbot...): a blocked search crawler hides the whole site from that search. Training '
+                              'crawlers (GPTBot, ClaudeBot, Google-Extended) are the owner\'s choice.', None),
+    'snippet_blocked': ('AI Search', 'Medium', 'Page blocks search snippets (nosnippet / max-snippet)',
+                        'Remove nosnippet / data-nosnippet or raise max-snippet (-1): it also keeps the page out of '
+                        'AI Overviews and AI Mode.', None),
+    'hreflang_no_return': ('Technical', 'Medium', "hreflang pair that doesn't link back",
+                           'Each language version must list the other (and itself); Google ignores one-way pairs.',
+                           None),
+    'hreflang_bad_target': ('Technical', 'Medium', 'hreflang points to a redirect, 404, noindex or non-canonical page',
+                            'Point each hreflang at the final, indexable, self-canonical URL of that language version.',
+                            None),
+    'hreflang_invalid_code': ('Technical', 'Medium', 'Invalid hreflang language code',
+                              'Use ISO 639-1 language (+ optional ISO 3166-1 region) codes: en-GB not en-UK, ja not jp.',
+                              None),
+    'arabic_page_untranslated': ('Content', 'High', 'Arabic page (lang=ar) with no Arabic title, meta or H1',
+                                 'Write the Arabic title, meta description and H1 (native Arabic, not machine '
+                                 'translation), or noindex the page until it is translated.', None),
+    'offer_schema_expired': ('Schema', 'Medium', 'Offer markup past its end date (validThrough / priceValidUntil)',
+                             'Update the dates to the live offer, or remove the Offer markup when the offer has ended.',
+                             None),
+    'meta_equals_title': ('On-Page', 'Low', 'Meta description repeats the title',
+                          'Write a meta description of 155 characters or fewer that adds what the title does not: '
+                          'location, one product fact, Book direct.', None),
 }
 
 
@@ -487,6 +513,30 @@ def _doc(title, hotel_name, site, findings, health, cats, extra=None):
     return doc
 
 
+def parity_calendar_block(hotel_dir, hotel_name):
+    """The Disparity / Best Rate calendar (import_parity_calendar into <hotel dir>/parity/) as the Audit Report's
+    `parity` block and lead lines. When the files cover several hotels, only this hotel's months are used (matched
+    on its name); none matching -> all of them. None when no calendar was imported."""
+    from . import parity_calendar
+    files = sorted((f for f in (Path(hotel_dir) / 'parity' / 'parity-calendar.json',
+                                Path(hotel_dir) / 'parity-calendar.json') if f.exists()), key=lambda f: f.stat().st_mtime)
+    if not files:
+        return None
+    try:
+        months = json.loads(files[-1].read_text(encoding='utf-8')).get('months') or []
+    except (ValueError, OSError):
+        return None
+    if len({m.get('hotel') for m in months}) > 1:
+        words = {w for w in re.findall(r'[a-z0-9]+', hotel_name.lower()) if len(w) > 2}
+        mine = [m for m in months if words and words <= set(re.findall(r'[a-z0-9]+', str(m.get('hotel', '')).lower()))]
+        months = mine or months
+    if not months:
+        return None
+    out = parity_calendar.report_block(months)
+    out['parity']['note'] += f" Source: {files[-1].parent.name}/{files[-1].name}."
+    return out
+
+
 def build(group_dir, slug, run_date=None):
     """Assemble one hotel's Audit Report + Web Team List (+ audit-data.json). Returns paths and scores.
     run_date defaults to the hotel's latest audit-<date> folder (a run can cross midnight)."""
@@ -539,7 +589,11 @@ def build(group_dir, slug, run_date=None):
     hrun.mkdir(parents=True, exist_ok=True)
     report = _doc('Audit Report', hotel['name'], reg['group']['site'], seo, health, cats, extra)
     report['sections'] += keyword_sections(hdir, hotel, slug)
-    web_doc = _doc('Web Team List', hotel['name'], reg['group']['site'], web, None, cats,
+    pc = parity_calendar_block(hdir, hotel['name'])
+    if pc:
+        report['parity'] = pc['parity']
+        report['warnings_top'] = report.get('warnings_top', []) + pc['lead_lines']
+    web_doc =_doc('Web Team List', hotel['name'], reg['group']['site'], web, None, cats,
                    {'short_name': hotel['name'], 'hotel_slug': slug,
                     'subtitle': f'Developer items for {hotel["name"]}: {len(web)} finding(s)' +
                                 ('.' if grp.is_single(reg) else '; site-wide items are in the Group Summary.')})

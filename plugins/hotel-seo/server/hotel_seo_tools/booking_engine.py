@@ -321,7 +321,9 @@ def snapshot(site, hotel_id, out_dir, stays=None, crawl_dir='', facts_file='', p
     for c in summary['cancellation_options']:
         facts.append(f'Cancellation option: {c}')
     if facts_file:
-        _merge_facts(facts_file, facts, f'booking engine, {today:%d %b %Y}')
+        merged = _merge_facts(facts_file, facts, f'booking engine, {today:%d %b %Y}')
+    else:
+        merged = {}
 
     result = {'site': site, 'hotel_id': hotel_id, 'checked': today.isoformat(), 'stays': results,
               'summary': summary, 'calendar': cal, 'engine_settings': {
@@ -329,21 +331,25 @@ def snapshot(site, hotel_id, out_dir, stays=None, crawl_dir='', facts_file='', p
               'tracking_in_engine': {k: v for k, v in (engine_cfg.get('tracking') or {}).items()
                                      if isinstance(v, list) and v},
               'website_vs_engine': comparison, 'facts': facts, 'errors': errors,
-              'site_pages_rendered': len(site_pages)}
+              'site_pages_rendered': len(site_pages),
+              'engine_corrections': merged.get('engine_corrections', [])}
     (out / 'booking_engine.json').write_text(json.dumps(result, indent=1, ensure_ascii=False), encoding='utf-8')
     md = summary_md(result)
+    if result['engine_corrections']:
+        lines = [f"- {c['engine_sells']} → hotel says: {c['hotel_says']}" for c in result['engine_corrections']]
+        md += ('\n## Booking engine corrections (the hotel has answered; the engine sells something else)\n\n'
+               'A Mirai setting for whoever manages the engine, not a page edit. The site follows the hotel.\n\n'
+               + '\n'.join(lines) + '\n')
     (out / 'booking_engine.md').write_text(md, encoding='utf-8')
     return {'files': [str(out / 'booking_engine.json'), str(out / 'booking_engine.md')],
-            'errors': errors, 'summary_md': md[:7000]}
+            'errors': errors, 'engine_corrections': result['engine_corrections'], 'summary_md': md[:7000]}
 
 
 def _merge_facts(facts_file, facts, source):
-    f = paths.resolve(facts_file)
-    doc = json.loads(f.read_text(encoding='utf-8')) if f.exists() else {'facts': []}
-    have = {x.get('fact') for x in doc.get('facts', [])}
-    doc.setdefault('facts', []).extend({'fact': x, 'source': source} for x in facts if x not in have)
-    f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text(json.dumps(doc, indent=1, ensure_ascii=False), encoding='utf-8')
+    # one value per fact: an engine figure that contradicts the hotel's own answer is stored superseded, and
+    # comes back as a booking engine correction (facts.add_facts)
+    from . import facts as fx
+    return fx.add_facts(facts_file, facts, source)
 
 
 def summary_md(r):

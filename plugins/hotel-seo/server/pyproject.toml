@@ -1,7 +1,7 @@
 [project]
 name = "hotel-seo-tools"
 version = "2.0.1"
-description = "MCP tools for the MetaHotels hotel-seo skill: crawls, site audit, booking engine, parity, indexing, monitors, PDF and Google Docs lists"
+description = "MCP tools for the MetaHotels hotel-seo skill: crawls, site audit, booking engine, parity, indexing, monitors, Business Profile, PDF and Google Docs lists"
 requires-python = ">=3.11"
 dependencies = [
     "mcp>=1.2,<2",
@@ -40,6 +40,7 @@ hotel-seo-bing-login = "hotel_seo_tools.bing:login"
 hotel-seo-key-login = "hotel_seo_tools.apikeys:login"
 hotel-seo-auth = "hotel_seo_tools.google_auth:main"
 hotel-seo-mirai-login = "hotel_seo_tools.mirai:login"
+hotel-seo-monitor = "hotel_seo_tools.monitor:main"
 
 [build-system]
 requires = ["hatchling"]

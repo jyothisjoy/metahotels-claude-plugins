@@ -67,7 +67,35 @@ def load(doc_or_path):
     return json.loads(p.read_text(encoding='utf-8'))
 
 
+ESCAPED = re.compile(r'\\u[0-9a-fA-F]{4}')
+
+
+def escaped_text(doc):
+    r"""Visible text holding a literal \uXXXX: Arabic (or any non-Latin text) that was escaped twice
+    and would print as codes (one hotel's Arabic came out this way)."""
+    hits = []
+
+    def walk(v, where):
+        if isinstance(v, str):
+            m = ESCAPED.search(v)
+            if m:
+                hits.append(f'{where}: ...{v[max(0, m.start() - 20):m.end() + 20]}...')
+        elif isinstance(v, dict):
+            for k, x in v.items():
+                if k != 'checks':
+                    walk(x, f'{where}.{k}' if where else k)
+        elif isinstance(v, list):
+            for i, x in enumerate(v):
+                walk(x, f'{where}[{i}]')
+    walk(doc, '')
+    return hits
+
+
 def validate(doc):
+    bad = escaped_text(doc)
+    if bad:
+        raise ValueError(r'Literal \uXXXX escapes in the list text (they would print as codes, not letters): '
+                         + '; '.join(bad[:5]) + '. Write the real characters (save the JSON as UTF-8).')
     missing = [k for k in REQUIRED if not doc.get(k)]
     if missing:
         raise ValueError(f'List JSON is missing: {", ".join(missing)}')
