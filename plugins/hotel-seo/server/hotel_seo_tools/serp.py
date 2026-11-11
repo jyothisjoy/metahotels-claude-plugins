@@ -5,10 +5,16 @@ Search Console gives average positions for searches where the hotel already appe
 one fixed day from the hotel's city, the page that ranks, who ranks above, and the map pack.
 Each results page (10 results) costs one Serper credit; positions are checked to the top 30 (3 pages) and the
 search stops as soon as the hotel's page is found.
+
+Page 1 of every check is also kept whole, at no extra credit, as `composition`: People Also Ask questions, related
+searches, the answer box, the knowledge graph, and a label for each top-10 result (classify_result: booking site,
+own hotel, own group, rival hotel, guide, other) with a one-line verdict (mix_verdict). Files saved before
+composition existed simply lack the key; readers use .get('composition').
 """
 import json
 import re
 import time
+from collections import Counter
 from datetime import date
 from urllib.parse import urlparse
 
@@ -73,23 +79,125 @@ def _name_match(title, hotel_name):
     return bool(words) and all(w in t for w in words)
 
 
-def rank(keyword, site, prefixes, hotel_name, city, country='United Arab Emirates', hl='en', pages=PAGES):
+# ---------------------------------------------------------------- what page 1 is made of
+
+# Booking sites / OTAs and metasearch, by their name before the country ending (expedia.ae, tripadvisor.co.uk).
+OTA_NAMES = ('booking', 'expedia', 'agoda', 'trip', 'hotels', 'tripadvisor', 'kayak', 'trivago', 'priceline',
+             'hotelscombined', 'momondo', 'skyscanner', 'makemytrip', 'goibibo', 'almosafer', 'tajawal', 'wego',
+             'rehlat', 'cleartrip', 'airbnb', 'vrbo', 'hostelworld', 'travelocity', 'orbitz', 'ebookers',
+             'lastminute', 'opodo', 'hrs', 'yatra', 'travelstay', 'hotwire', 'ostrovok', 'easemytrip', 'musafir')
+# Guides, magazines, news, encyclopedias, forums and social sites.
+GUIDE_NAMES = ('timeout', 'timeoutdubai', 'visitdubai', 'visitabudhabi', 'visitsharjah', 'visitrasalkhaimah',
+               'lonelyplanet', 'wikipedia', 'wikitravel', 'wikivoyage', 'cntraveler', 'theculturetrip', 'culturetrip',
+               'gulfnews', 'khaleejtimes', 'thenationalnews', 'thenational', 'whatson', 'reddit', 'quora', 'youtube',
+               'tiktok', 'instagram', 'facebook', 'medium', 'travelandleisure', 'forbes', 'nytimes', 'theguardian',
+               'bbc', 'cnn', 'dubaitravelblog', 'condenast', 'telegraph', 'independent', 'fodors', 'frommers',
+               'arabianbusiness', 'gulfbusiness', 'zawya', 'emirates247', 'mydubai', 'dubaiofw', 'pinterest')
+# Hotel brands and chains that are hotels themselves (their own sites).
+HOTEL_BRANDS = ('marriott', 'hilton', 'ihg', 'accor', 'hyatt', 'radissonhotels', 'radisson', 'rotana', 'jumeirah',
+                'millenniumhotels', 'wyndhamhotels', 'fourseasons', 'shangri-la', 'kempinski', 'movenpick', 'novotel',
+                'ibis', 'sofitel', 'fairmont', 'rovehotels', 'citymaxhotels', 'premierinn', 'addresshotels',
+                'vidahotels', 'ramada', 'holidayinn', 'crowneplaza', 'sheraton', 'westin', 'ritzcarlton',
+                'mandarinoriental', 'anantara', 'swissotel', 'pullman', 'mercure', 'atlantis', 'oneandonly',
+                'fortunegroupofhotels', 'florahospitality', 'bestwestern', 'centarahotelsresorts', 'melia',
+                'barcelo', 'nh-hotels', 'raffles', 'banyantree', 'avanihotels', 'hotelindigo', 'staybridge',
+                'intercontinental', 'goldentulip', 'louvrehotels', 'hamptoninn', 'doubletree', 'conrad', 'waldorf')
+HOTEL_WORDS = re.compile(r'\b(hotels?|resorts?|suites|inn|hostel|motel|residences?|hotel apartments|'
+                         r'serviced apartments)\b', re.I)
+GUIDE_PATH = re.compile(r'/(blog|blogs|news|guide|guides|article|articles|magazine|things-to-do|travel-guide|'
+                        r'stories|story|wiki)(/|$|-)', re.I)
+GUIDE_TITLE = re.compile(r'\b(top \d+|\d+ best|best \d+|things to do|guide|where to stay|review of)\b', re.I)
+LABELS = ('booking site', 'own hotel', 'own group', 'rival hotel', 'guide', 'other')
+BOOKING_HEAVY = 6          # booking sites in the top 10 for "mostly booking sites"
+HOTEL_CAN_WIN = 2          # hotel sites (ours or rivals) in the top 10 for "hotel sites can win"
+GUIDE_HEAVY = 5            # guides in the top 10 for "mostly guides and articles"
+
+
+def _named(host, names):
+    """True when host is <name>.<country ending> or a sub-domain of it (ae.hotels.com, www.expedia.co.uk)."""
+    return any(re.search(rf'(^|\.){re.escape(n)}\.(com|net|org|[a-z]{{2}}|co\.[a-z]{{2}}|com\.[a-z]{{2}})$', host)
+               for n in names)
+
+
+def classify_result(link, title='', host='', prefixes=None, rival_names=()):
+    """Label of one search result: 'own hotel' (this hotel's pages), 'own group' (another page of the same site),
+    'booking site' (OTA / metasearch, Google Hotels), 'guide' (guide, blog, news, social), 'rival hotel' (another
+    hotel's own site: a hotel brand, hotel words in the title or domain, or one of rival_names), else 'other'."""
+    h = _host(link)
+    path = urlparse(link or '').path or '/'
+    t = str(title or '')
+    if host and h == host:
+        return 'own hotel' if _ours(link, host, prefixes or []) else 'own group'
+    if _named(h, OTA_NAMES) or (re.search(r'(^|\.)google\.', h) and path.startswith('/travel')):
+        return 'booking site'
+    if _named(h, GUIDE_NAMES) or GUIDE_PATH.search(path) or GUIDE_TITLE.search(t):
+        return 'guide'
+    first = h.split('.')[0] if h else ''
+    if (_named(h, HOTEL_BRANDS) or HOTEL_WORDS.search(t) or re.search(r'hotel|resort|suites|inn$', first)
+            or any(_name_match(t, n) for n in rival_names if n)):
+        return 'rival hotel'
+    return 'other'
+
+
+def mix_verdict(mix):
+    """One line on who holds page 1: hotel sites can win / mostly booking sites / mostly guides and articles / mixed."""
+    hotels = mix.get('own hotel', 0) + mix.get('own group', 0) + mix.get('rival hotel', 0)
+    if hotels >= HOTEL_CAN_WIN:
+        return 'hotel sites can win'
+    if mix.get('booking site', 0) >= BOOKING_HEAVY:
+        return 'mostly booking sites'
+    if mix.get('guide', 0) >= GUIDE_HEAVY:
+        return 'mostly guides and articles'
+    return 'mixed'
+
+
+def composition(data, host='', prefixes=None, rival_names=()):
+    """Page 1 of one Serper search response, whole: top-10 labels and mix, People Also Ask, related searches, answer
+    box and knowledge graph. Missing parts are empty / None (Serper only sends what Google showed)."""
+    data = data or {}
+    top = []
+    for i, o in enumerate((data.get('organic') or [])[:10], 1):
+        link = o.get('link', '')
+        top.append({'position': o.get('position') or i, 'domain': _host(link), 'title': o.get('title', ''),
+                    'label': classify_result(link, o.get('title', ''), host, prefixes, rival_names)})
+    counts = Counter(t['label'] for t in top)
+    mix = {k: counts.get(k, 0) for k in LABELS}
+    ab = data.get('answerBox') or None
+    kg = data.get('knowledgeGraph') or None
+    return {
+        'top10': top, 'mix': mix, 'verdict': mix_verdict(mix) if top else None,
+        'rival_domains': list(dict.fromkeys(t['domain'] for t in top if t['label'] == 'rival hotel')),
+        'paa': [q['question'] for q in data.get('peopleAlsoAsk') or [] if isinstance(q, dict) and q.get('question')],
+        'related': [r['query'] for r in data.get('relatedSearches') or [] if isinstance(r, dict) and r.get('query')],
+        'answer_box': {'title': ab.get('title', ''), 'text': ab.get('answer') or ab.get('snippet') or '',
+                       'domain': _host(ab.get('link'))} if isinstance(ab, dict) else None,
+        'knowledge_graph': {'title': kg.get('title', ''), 'type': kg.get('type', ''),
+                            'domain': _host(kg.get('website'))} if isinstance(kg, dict) else None,
+    }
+
+
+def _map_pack(data, hotel_name):
+    places = data.get('places') or []
+    if not places:
+        return {'shown': False}
+    pos = next((i for i, p in enumerate(places, 1) if _name_match(p.get('title'), hotel_name)), None)
+    return {'shown': True, 'hotel_position': pos, 'hotels': [p.get('title') for p in places]}
+
+
+def rank(keyword, site, prefixes, hotel_name, city, country='United Arab Emirates', hl='en', pages=PAGES,
+         rival_names=()):
     """One keyword: position of the hotel's page (or None in the top `pages`*10), the URL, results above it,
-    another page of the same site that ranks instead (group sites), and the map pack."""
+    another page of the same site that ranks instead (group sites), the map pack, and page 1's composition."""
     host = _host(site)
     loc, gl = location(city, country), gl_for(country)
-    seen, credits, map_pack, other_page = [], 0, None, None
+    seen, credits, map_pack, other_page, comp = [], 0, None, None, None
     hit = None
     for page in range(1, pages + 1):
         data = _post('search', {'q': keyword, 'gl': gl, 'hl': hl, 'location': loc, 'page': page})
         credits += 1
         if page == 1:
-            places = data.get('places') or []
-            if places:
-                pos = next((i for i, p in enumerate(places, 1) if _name_match(p.get('title'), hotel_name)), None)
-                map_pack = {'shown': True, 'hotel_position': pos, 'hotels': [p.get('title') for p in places]}
-            else:
-                map_pack = {'shown': False}
+            map_pack = _map_pack(data, hotel_name)
+            comp = composition(data, host, prefixes, rival_names)
         organic = data.get('organic') or []
         for i, o in enumerate(organic, 1):
             absolute = len(seen) + 1
@@ -107,7 +215,8 @@ def rank(keyword, site, prefixes, hotel_name, city, country='United Arab Emirate
             'position': hit['position'] if hit else None, 'url': hit['url'] if hit else '',
             'checked_to': len(seen), 'above': [{'position': a['position'], 'title': a['title'],
                                                 'domain': _host(a['link'])} for a in above],
-            'other_site_page': other_page if not hit else None, 'map_pack': map_pack, 'credits': credits}
+            'other_site_page': other_page if not hit else None, 'map_pack': map_pack, 'composition': comp,
+            'credits': credits}
 
 
 def maps_rank(keyword, lat, lng, hotel_name, hl='en', zoom=14):

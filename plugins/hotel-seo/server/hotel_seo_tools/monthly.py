@@ -726,12 +726,14 @@ def _assemble(ctx, month, data, serp_d, manual, nar):
         disc = [k for k, t in tracked.items() if t.get('type') != 'brand']
         if disc:
             rows = []
+            sq_prev = _serp_last_month(ctx, month, sq)
             for k in disc:
                 g, gp_ = qn.get(k), qp.get(k)
                 s = sq.get(k)
                 rows.append([k, fmt(g[1]) if g else '0', _pill(g[2]) if g else {'text': 'not showing', 'pill': 'grey'},
                              _pill(gp_[2]) if gp_ else {'text': '–', 'pill': 'grey'},
                              (_pill(s.get('position'), True) if s else {'text': 'not checked', 'pill': 'grey'}),
+                             (_pill(sq_prev[k].get('position'), True) if k in sq_prev else {'text': '–', 'pill': 'grey'}),
                              ('in map pack' + (f" #{s['map_pack']['hotel_position']}" if s['map_pack'].get('hotel_position') else ' (not listed)')
                               if s and (s.get('map_pack') or {}).get('shown') else ('no map pack' if s else '–')),
                              {'text': tracked[k].get('target', 'Page 1'), 'pill': 'grey'}])
@@ -741,8 +743,9 @@ def _assemble(ctx, month, data, serp_d, manual, nar):
                           'Search Console average position this month and last month. Exact Google positions were '
                           'not checked this month.',
                           'table': {'columns': ['Search term', 'Google views', f'Position {mlabel[:3]}',
-                                                f'Position {plabel[:3]}', 'Google today', 'Map pack', 'Target'],
-                                    'align': ['l', 'r', 'r', 'r', 'r', 'l', 'r'], 'rows': rows}})
+                                                f'Position {plabel[:3]}', 'Google today', 'Google last month',
+                                                'Map pack', 'Target'],
+                                    'align': ['l', 'r', 'r', 'r', 'r', 'r', 'l', 'r'], 'rows': rows}})
             if not sq:
                 missing.append('exact Google positions (Serper) not checked')
         else:
@@ -961,6 +964,20 @@ def _month_of(day):
 def _next_month(month):
     y, m = map(int, month.split('-'))
     return f'{y + (m == 12)}-{(m % 12) + 1:02d}'
+
+
+def _serp_last_month(ctx, month, sq):
+    """{keyword: last month's Serper result} for the "Google last month" column. A keyword is left out (shown "–")
+    when last month was not checked or was checked from another location, country, language or device."""
+    y, m = map(int, month.split('-'))
+    f = ctx['hotel_dir'] / f'monthly-{y - (m == 1)}-{(m - 2) % 12 + 1:02d}' / 'serp.json'
+    try:
+        prev = json.loads(f.read_text(encoding='utf-8')).get('search', {}) if f.exists() else {}
+    except ValueError:
+        return {}
+    same = ('location', 'gl', 'hl', 'device')
+    return {k: p for k, p in prev.items() if isinstance(p, dict) and k in sq
+            and all((p.get(x) or '') == (sq[k].get(x) or '') for x in same)}
 
 
 def _short_date(d, year=False):
