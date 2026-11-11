@@ -205,6 +205,8 @@ Fully automatic apart from **one intake round** (step 3). Anything you can't get
    markets from Search Console / GA4 / Mirai>], languages=["en", "ar", <guest languages>], competitor_urls=[<3–5 nearby
    competitor hotel sites from nearby_places / Booking.com similar properties>])`; group only: then
    `assign_keyword_owners("<domain>")`. Searches that belong to the hotel's `other_sites` are left out.
+   With a Serper key it also reads Google page 1 (1 credit each, at most 12 per hotel, reused for 30 days) for the
+   top "no page" / "shows but low" clusters: rival hotels, booking-site share, People Also Ask.
 7. **Code checks per hotel:** `content_scan(crawl_dir, "<hotel dir>/audit-<date>/code", "<domain>", slug)` and
    `site_consistency_check("https://<domain>", "<hotel dir>/audit-<date>/code", facts_file="<hotel dir>/hotel-facts.json",
    room_path=<the hotel's room-page path on a group site>)`: one fact must read the same on every page (room guests,
@@ -247,7 +249,9 @@ Fully automatic apart from **one intake round** (step 3). Anything you can't get
     calendar)** table, and when the site was not the best rate on 20%+ of recorded days, that line at the top. Parity is
     a revenue-team matter: never an agency fix and never a price change on the site.
 12. **Build Plan per hotel** — write `<hotel dir>/audit-<date>/build-plan.json` (see below), from the
-    keyword map, the agents' findings (content, schema, local, geo, flow), facts and Mirai. Every page's copy is written
+    keyword map, the agents' findings (content, schema, local, geo, flow), facts and Mirai. Order new pages by the
+    map's `build_order` (rival hotels rank and we have no page: first); a cluster's `serp.paa` feeds the page's FAQ, and
+    its `why` gives the publish-by date when searches are seasonal. Every page's copy is written
     to content-writing.md (a unit brief, then the copy, then the edit pass), in the hotel's `voice.md` (make it once
     when a hotel needs more than titles and metas).
 13. **Questions for the hotel** (after the Build Plan, before rendering): `hotel_questions("<domain>", slug)`. It

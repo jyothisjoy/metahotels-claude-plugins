@@ -11,10 +11,15 @@ Steps, all in code (playbook 0c-3):
   D. Clusters: close variants + shared head modifier; one target page per cluster (existing page by URL / title /
      H1 match, or "missing page"); Search Console (16 months, this hotel's pages) gives the status:
      ranks / shows but low / invisible / no page.
+  E. Google page 1 (serp_enrich): earlier checks reused free, then Serper for at most SERP_CLUSTERS "no page" /
+     "shows but low" clusters (1 credit each): rival hotels, booking-site share, People Also Ask (c['serp']);
+     build_order puts clusters rival hotels rank for ahead of the rest. Seasonal peak from the 12 monthly volumes
+     (c['peak']): "publish or refresh by" = peak - LEAD_WEEKS.
 Output: <hotel dir>/keywords/keyword-map.json (+ keyword-map-keywords.csv of every keyword kept and
 keyword-map-excluded.csv of every search left out, with the reason). Each cluster carries "why": the reasons it
 was chosen, in plain words (explain()), used by the Audit Report's keyword chapter.
 """
+import calendar
 import csv
 import json
 import re
@@ -311,7 +316,8 @@ def _best_page(cluster_words, page_index, page_type):
 
 
 def build(group_dir, slug, crawl_dir, countries=None, languages=('en',), extra_keywords=(), competitor_urls=(),
-          radius_m=5000, gsc_property='', progress=None):
+          radius_m=5000, gsc_property='', progress=None, serp_clusters=None):
+    serp_clusters = SERP_CLUSTERS if serp_clusters is None else serp_clusters
     def say(m):
         if progress:
             progress(m)
@@ -515,6 +521,7 @@ def build(group_dir, slug, crawl_dir, countries=None, languages=('en',), extra_k
             impr, pos = 0, None
             status = 'invisible' if target else 'no page'
         dist = [r['distance_m'] for r in items if r.get('distance_m') is not None]
+        peak = seasonal_peak(_sum_monthly(items))
         cl = {
             'id': re.sub(r'[^a-z0-9]+', '-', f'{kind}-{head}').strip('-')[:60], 'kind': kind, 'head': head,
             'primary_keyword': primary['keyword'], 'page_type': primary['page_type'],
@@ -525,9 +532,18 @@ def build(group_dir, slug, crawl_dir, countries=None, languages=('en',), extra_k
             'monthly': primary.get('monthly', []),
             'sources': sorted({r.get('source') or "built from the hotel's facts and location" for r in items}),
             'distance_m': min(dist) if dist else None}
-        cl['why'] = explain(cl, city=city, stars=stars, market=markets[0] if markets else '', slug=slug)
+        if peak:
+            cl['peak'] = peak
         out_clusters.append(cl)
     out_clusters.sort(key=lambda c: -c['score'])
+    # who holds page 1: free from earlier checks, then Serper for the top "no page" / "shows but low" clusters
+    serp_note = serp_enrich(out_clusters, hdir, reg['group'].get('site') or '', hotel, city, country,
+                            rival_names=competitor_names, limit=serp_clusters, say=say)
+    order = build_order(out_clusters)
+    rank_of = {cid: i for i, cid in enumerate(order, 1)}
+    for cl in out_clusters:
+        cl['build_rank'] = rank_of.get(cl['id'])
+        cl['why'] = explain(cl, city=city, stars=stars, market=markets[0] if markets else '', slug=slug)
     ex_summary = defaultdict(lambda: {'count': 0, 'examples': []})
     for e in excluded:
         b = ex_summary[e['reason']]
@@ -540,7 +556,7 @@ def build(group_dir, slug, crawl_dir, countries=None, languages=('en',), extra_k
               'places': places, 'brand_terms_filtered': brands, 'candidates': len(cands), 'keywords': len(rows),
               'excluded_summary': dict(sorted(ex_summary.items(), key=lambda kv: -kv[1]['count'])),
               'excluded_file': str(out_dir / 'keyword-map-excluded.csv'),
-              'clusters': out_clusters,
+              'clusters': out_clusters, 'build_order': order, 'serp': serp_note,
               'status_counts': {s: sum(1 for c in out_clusters if c['status'] == s)
                                 for s in ('ranks', 'shows but low', 'invisible', 'no page')},
               'sources': ['Google Ads Keyword Planner'] + (['Search Console (16 months, hotel pages)'] if gsc else []) +
@@ -563,7 +579,7 @@ def build(group_dir, slug, crawl_dir, countries=None, languages=('en',), extra_k
             'excluded': len(excluded),
             'clusters': len(out_clusters), 'status_counts': result['status_counts'],
             'top_clusters': [{k: c[k] for k in ('primary_keyword', 'volume', 'status', 'target_page')}
-                             for c in out_clusters[:15]]}
+                             for c in out_clusters[:15]], 'serp': serp_note}
 
 
 BRAND_OWN = "brand search: people already looking for the hotel by name (it ranks for these; no work needed)"
@@ -591,13 +607,168 @@ STATUS_REASON = {
 }
 
 
+SERP_CLUSTERS = 12        # most Serper credits a keyword map spends: page 1 (1 credit) of this many clusters
+SERP_STATUSES = ('no page', 'shows but low')   # the clusters checked, top score first
+SERP_MAX_AGE_DAYS = 30    # an earlier page-1 check (keyword map or monthly report) is reused this long
+SERP_CACHE = 'serp-page1.json'                 # <hotel dir>/keywords/: the keyword map's own checks
+LEAD_WEEKS = 8            # publish or refresh a page this long before its searches peak
+PEAK_MIN_RATIO = 1.3      # the peak month must be 30% above the monthly average, else demand is flat
+PEAK_MIN_AVG = 10         # below this many searches a month the seasonal shape is noise
+VERDICT_REASON = {
+    'hotel sites can win': "Hotel websites hold places on page 1 of Google (checked {d}): a strong hotel page can "
+                           "rank.",
+    'mostly booking sites': "Page 1 of Google is mostly booking sites ({n} of the top 10, checked {d}): hard for a "
+                            "hotel page to reach the top.",
+    'mostly guides and articles': "Page 1 of Google is mostly guides and articles ({n} of the top 10, checked {d}): "
+                                  "a guide page fits it better than a booking page.",
+    'mixed': "Page 1 of Google is a mix of booking sites, guides and other sites (checked {d}).",
+}
+
+
+def _sum_monthly(items):
+    """The 12-month series of a whole cluster (sum of its searches' Keyword Planner months)."""
+    tot = defaultdict(int)
+    for r in items:
+        for m in r.get('monthly') or []:
+            if m.get('searches') is not None and re.match(r'^\d{4}-\d{2}$', str(m.get('month', ''))):
+                tot[m['month']] += m['searches']
+    return [{'month': k, 'searches': v} for k, v in sorted(tot.items())]
+
+
+def _next_start(month, today):
+    d = date(today.year, month, 1)
+    return d if d > today else date(today.year + 1, month, 1)
+
+
+def seasonal_peak(monthly, today=None):
+    """The calendar month searches peak in: {'month': 7, 'name': 'July', 'lift_pct': 45, 'publish_by': date str}
+    (publish_by = the next start of that month minus LEAD_WEEKS). None when there are not 12 months, too few
+    searches (PEAK_MIN_AVG) or no month stands out (PEAK_MIN_RATIO): flat or missing data."""
+    by = defaultdict(list)
+    for m in monthly or []:
+        mt = re.match(r'^(\d{4})-(\d{2})$', str(m.get('month', '')))
+        if mt and isinstance(m.get('searches'), (int, float)) and 1 <= int(mt.group(2)) <= 12:
+            by[int(mt.group(2))].append(m['searches'])
+    if len(by) < 12:
+        return None
+    avg_by = {k: sum(v) / len(v) for k, v in by.items()}
+    avg = sum(avg_by.values()) / 12
+    top = max(avg_by.values())
+    if avg < PEAK_MIN_AVG or top < avg * PEAK_MIN_RATIO:
+        return None
+    today = today or date.today()
+    month = min((m for m, v in avg_by.items() if v == top), key=lambda m: _next_start(m, today))
+    return {'month': month, 'name': calendar.month_name[month], 'lift_pct': round((top / avg - 1) * 100),
+            'publish_by': str(_next_start(month, today) - timedelta(weeks=LEAD_WEEKS))}
+
+
+def _timing_line(peak, today=None):
+    today = today or date.today()
+    by = _next_start(peak['month'], today) - timedelta(weeks=LEAD_WEEKS)
+    head = f"Searches peak in {peak['name']} ({peak['lift_pct']}% above the monthly average)"
+    if by <= today:
+        return head + f": publish or refresh the page now (the peak is under {LEAD_WEEKS} weeks away)."
+    return head + f": publish or refresh the page by {by.day} {calendar.month_name[by.month]} {by.year}."
+
+
+def _earlier_checks(hdir, today):
+    """{keyword: Serper rank result with composition} from the keyword map's cache and the monthly reports'
+    serp.json, checked within SERP_MAX_AGE_DAYS; the newest check wins. Files without composition add nothing."""
+    hdir = paths.resolve(hdir)
+    out = {}
+    for f in sorted(hdir.glob('monthly-*/serp.json')) + [hdir / 'keywords' / SERP_CACHE]:
+        if not f.exists():
+            continue
+        try:
+            d = json.loads(f.read_text(encoding='utf-8'))
+        except ValueError:
+            continue
+        for kw, r in (d.get('search') or {}).items():
+            if not isinstance(r, dict) or not r.get('composition'):
+                continue
+            try:
+                age = (today - date.fromisoformat(str(r.get('checked', '')))).days
+            except ValueError:
+                continue
+            k = _norm(kw)
+            if 0 <= age <= SERP_MAX_AGE_DAYS and (k not in out or r['checked'] >= out[k]['checked']):
+                out[k] = r
+    return out
+
+
+def _serp_summary(r, source):
+    comp = r.get('composition') or {}
+    mp = r.get('map_pack') or {}
+    return {'checked': r.get('checked'), 'source': source, 'position': r.get('position'),
+            'verdict': comp.get('verdict'), 'mix': comp.get('mix') or {},
+            'rival_domains': comp.get('rival_domains') or [], 'paa': comp.get('paa') or [],
+            'related': comp.get('related') or [], 'answer_box': comp.get('answer_box'),
+            'map_pack': {'shown': bool(mp.get('shown')), 'hotel_position': mp.get('hotel_position')}}
+
+
+def serp_enrich(clusters, hdir, site, hotel, city, country, rival_names=(), limit=SERP_CLUSTERS, say=None,
+                today=None):
+    """Page 1 of Google for the clusters (c['serp']: verdict, mix, rival hotel domains, People Also Ask, related
+    searches, map pack). Earlier checks are reused free; then Serper (1 credit each) for the top `limit` clusters
+    by score whose status is in SERP_STATUSES. No Serper key: skipped, nothing else changes."""
+    today = today or date.today()
+    found = _earlier_checks(hdir, today)
+    note = {'reused': 0, 'checked': 0, 'credits': 0, 'limit': limit}
+    for c in clusters:
+        r = found.get(_norm(c.get('primary_keyword')))
+        if r:
+            c['serp'] = _serp_summary(r, 'earlier check')
+            note['reused'] += 1
+    # the cap counts reused checks too, so a rebuild within SERP_MAX_AGE_DAYS spends nothing new
+    todo = [c for c in clusters if c.get('status') in SERP_STATUSES][:max(0, limit or 0)]
+    todo = [c for c in todo if not c.get('serp')]
+    if not todo:
+        return note
+    from . import apikeys, serp
+    if not apikeys.get('serper'):
+        note['skipped'] = 'no Serper key: page 1 (rival hotels, People Also Ask) not checked'
+        return note
+    cache_f = paths.resolve(hdir) / 'keywords' / SERP_CACHE
+    try:
+        cache = json.loads(cache_f.read_text(encoding='utf-8')) if cache_f.exists() else {}
+    except ValueError:
+        cache = {}
+    cache.setdefault('search', {})
+    if say:
+        say(f'Google page 1 for {len(todo)} clusters (Serper, {len(todo)} credits at most)')
+    for c in todo:
+        try:
+            r = serp.rank(c['primary_keyword'], site, hotel.get('paths') or ['/'], hotel.get('name', ''),
+                          city or 'Dubai', country or 'United Arab Emirates', pages=1, rival_names=rival_names)
+        except RuntimeError as e:
+            note['error'] = str(e)[:200]
+            break
+        cache['search'][c['primary_keyword']] = r
+        c['serp'] = _serp_summary(r, 'keyword map check')
+        note['checked'] += 1
+        note['credits'] += r.get('credits', 1)
+    cache_f.parent.mkdir(parents=True, exist_ok=True)
+    cache_f.write_text(json.dumps(cache, indent=1, ensure_ascii=False), encoding='utf-8')
+    return note
+
+
+def build_order(clusters):
+    """Cluster ids in Build Plan order: clusters with no page or shown low where rival hotels rank on page 1 come
+    first (guests go to rivals for it, and a hotel page can win it), then all others by score, so clusters nobody's
+    hotel page serves come after them."""
+    def key(c):
+        rivals = bool((c.get('serp') or {}).get('rival_domains')) and c.get('status') in SERP_STATUSES
+        return 0 if rivals else 1, -(c.get('score') or 0)
+    return [c['id'] for c in sorted(clusters, key=key)]
+
+
 def _title(s):
     small = {'of', 'the', 'and', 'in', 'at', 'al', 'el', 'bin', 'de'}
     words = str(s or '').split()
     return ' '.join(w if (w in small and i) else w[:1].upper() + w[1:] for i, w in enumerate(words))
 
 
-def explain(c, city='', stars=None, market='', slug=''):
+def explain(c, city='', stars=None, market='', slug='', today=None):
     """Plain-language reasons a cluster was chosen (also for keyword maps built before reasons were recorded)."""
     kind, head = c.get('kind', 'type'), str(c.get('head') or '')
     if kind in ('place', 'landmark', 'landmark-info'):
@@ -624,6 +795,21 @@ def explain(c, city='', stars=None, market='', slug=''):
         why.append(st.format(pos=round(c.get('gsc_position') or 0), impr=f"{c.get('gsc_impressions') or 0:,}")
                    if c.get('status') == 'shows but low' and (c.get('gsc_position') or 0) > 50
                    else st.format(pos=c.get('gsc_position'), impr=f"{c.get('gsc_impressions') or 0:,}"))
+    s = c.get('serp') or {}
+    if s.get('rival_domains') and c.get('status') in SERP_STATUSES:
+        why.append(f"Rival hotels are on page 1 of Google for it ({', '.join(s['rival_domains'][:3])}) and the hotel "
+                   + ('has no page for it' if c.get('status') == 'no page' else 'is not on page 1')
+                   + ': build it first.')
+    elif s.get('verdict') in VERDICT_REASON:
+        mix = s.get('mix') or {}
+        n = mix.get('booking site', 0) if s['verdict'] == 'mostly booking sites' else mix.get('guide', 0)
+        why.append(VERDICT_REASON[s['verdict']].format(n=n, d=s.get('checked') or 'recently'))
+    if s.get('paa'):
+        why.append('People also ask on Google: ' + ' '.join(f'"{q}"' for q in s['paa'][:3])
+                   + ' Answer them on the page (FAQ and copy).')
+    peak = c.get('peak') or seasonal_peak(c.get('monthly'), today)
+    if peak:
+        why.append(_timing_line(peak, today))
     if slug and c.get('owned_by') and c.get('owned_by') != slug:
         why.append('In this city another hotel of the group targets it first (see the Group Summary).')
     src = [x for x in c.get('sources') or [] if not x.startswith('built from')]

@@ -795,7 +795,9 @@ def build_keyword_map(group_dir: str, slug: str, crawl_dir: str, countries: list
     facilities, rooms, audiences), Keyword Planner ideas (seeds + competitor URLs), volumes for the hotel's city,
     country and feeder markets (countries: e.g. ["AE", "GB", "SA"]), brand filter, score = volume x intent x fit,
     clusters with one target page each, Search Console (16 months, this hotel's pages) for status: ranks / shows but
-    low / invisible / no page. extra_keywords: FLOW Find ideas, Arabic versions. Writes <hotel dir>/keywords/."""
+    low / invisible / no page. extra_keywords: FLOW Find ideas, Arabic versions. Writes <hotel dir>/keywords/.
+    With a Serper key: Google page 1 for up to 12 "no page" / "shows but low" clusters (1 credit each, reused 30 days):
+    rival hotels, booking-site share, People Also Ask; build_order and seasonal publish-by dates in each cluster."""
     job = _start_job('keyword_map', keyword_map.build, group_dir, slug, crawl_dir, countries=countries,
                      languages=tuple(languages or ['en']), extra_keywords=tuple(extra_keywords or ()),
                      competitor_urls=tuple(competitor_urls or ()), radius_m=radius_m)
