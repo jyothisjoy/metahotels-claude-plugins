@@ -39,7 +39,7 @@ Size comes from the job and the slot, never from a word count target (Google has
 
 | Unit | Shape | Must have | Never |
 |---|---|---|---|
-| **Title** (SEO title) | ≤ 60 characters (hard limit 62–66); `[What the page is, in the guest's words] \| [Hotel name]`; homepage ends "Official Site" | the main search phrase once, the area or landmark when the search has one | keyword lists, the city twice, "Best", "No. 1", years that will age, the same title on two pages |
+| **Title** (SEO title) | ≤ 60 characters (hard limit 62–66) and ≤ 580px wide (capitals and W/M are wide; Arabic: characters only); `[What the page is, in the guest's words] \| [Hotel name]`; homepage ends "Official Site" | the main search phrase once, the area or landmark when the search has one | keyword lists, the city twice, "Best", "No. 1", years that will age, the same title on two pages |
 | **Meta description** | ≤ 155 characters, one or two sentences | location or landmark, one concrete fact (size, view, kitchenette, what's included), the direct-booking reason or member benefit if confirmed | the title again, "Discover X at Y. Book now." templates, prices, unconfirmed claims |
 | **H1** | one per page, states what the page is | the guest's words for the page | slogans ("Experience luxury"), the hotel name alone on an inner page |
 | **Intro** (page top, rooms or offers intro) | 40–80 words; first two sentences answer the page's question and still make sense quoted alone | what it is, where, who it suits, one specific fact, a link to the next step | "Welcome to…", "Whether you're travelling for business or leisure…", history before the answer |
@@ -50,8 +50,8 @@ Size comes from the job and the slot, never from a word count target (Google has
 | **Offer page** | what's included, dates, who it's for, the terms in plain words, the button | only what the engine sells today, terms from the engine | prices or percentages not on the engine; a page for an offer the engine no longer sells |
 | **Area / landmark page** | only when demand and unique content justify it (registry C03) | how to get there from the hotel (time and mode, [CONFIRM]), what's there, when to go, the rooms that suit that trip | a page per landmark with the name swapped (scaled content) |
 | **Full blog post** | as long as the guest's question needs, built section by section (section 6) | a real job, the hotel's first-hand detail, sources for every fact, a booking paragraph | rewriting the top 5 results, invented experiences, AI byline |
-| **Alt text** | one sentence, written after viewing the image | what is in the photo + the room or place + the hotel name | "image of", keyword lists, the same alt on every image |
-| **Button text** | 2–4 words, says where it goes | "View Deluxe King Room", "Check availability" | "Read more", "Click here", "View more" |
+| **Alt text** | one sentence (≤ 125 characters), written after viewing the image | what is in the photo + the room or place + the hotel name | "image of", "photo of", keyword lists, the same alt on every image |
+| **Button text** | 2–4 words, says where it goes | "View Deluxe King Room", "Check availability" | "Read more", "Click here", "View more", "Learn more", "Submit" |
 | **Schema description** | 1–2 sentences that match the visible page | the facts on the page | claims not on the page, reviews written by the hotel |
 | **Business Profile description** | ≤ 750 characters, no links, no prices | what the hotel is, where, for whom, 2–3 confirmed facts | the business name stuffed with keywords; offers |
 | **Business Profile post** | an update or event (hotel profiles can't post offers) | one piece of news, a photo, a button | deals, discounts, promotions, phone numbers in the text |
@@ -70,7 +70,9 @@ Size comes from the job and the slot, never from a word count target (Google has
 - "In today's…", "When it comes to…", "Whether you're … or …"
 - a proverb, a famous quote, "everyone knows", "every traveller dreams of…"
 
-**Words and patterns to leave out** (the hotel AI tells; `presend_check` and `render_report` flag them): nestled, in the heart of, boasts (use "has"), vibrant, oasis, haven, unparalleled, seamless, elevate, unforgettable, tapestry, testament, curated, delve, embark, indulge, luxurious retreat, perfect blend, second to none, leverage, enhance, game-changing, innovative, holistic, robust, unlock, "serves as / stands as" (use "is"), "not just X but Y", "X rather than simply Y", "this matters", a reflex list of three adjectives, "Bold term: description" bullet lists, em dashes in paste copy (use a colon, comma or full stop).
+**Words and patterns to leave out** (the hotel AI tells; `presend_check` and `render_report` flag them): nestled, in the heart of, boasts (use "has"), vibrant, oasis, haven, unparalleled, seamless, elevate, unforgettable, tapestry, testament, curated, delve, embark, indulge, luxurious retreat, perfect blend, second to none, leverage, enhance, game-changing, innovative, holistic, robust, unlock, "serves as / stands as" (use "is"), "not just X but Y", "X rather than simply Y", "this matters", a reflex list of three adjectives, "Bold term: description" bullet lists, em dashes in paste copy (use a colon, comma or full stop). Also: sentences opening "Moreover / Furthermore / Additionally", filler ("it is worth noting", "let's dive in", "in conclusion", "this article will", "I hope this helps"), inflated verbs (utilise, facilitate) and adjectives (comprehensive, pivotal, bustling). One of these is a warning to read; several kinds in one section (3+ kinds or 6+ hits) is a problem: the section reads machine-made, so rewrite it rather than swapping words.
+
+**Words that date.** "Currently", "this year", "newly opened", "recently", "brand new" and a year in the text go stale without anyone noticing. State the fact ("the spa opened in March 2025 [CONFIRM]" only where the date matters to the guest) or drop the time word.
 
 **One value per fact, in the hotel's unit.** A room's size, guest count or a landmark's distance reads the same in the title, the meta, the body, the schema and on every other page: take it from `hotel-facts.json` (the hotel's answer beats the engine; distances are stored once), never re-measure per page. Sizes in the unit `hotel.json` `preferences.units` names (m² or sq ft), the same unit everywhere. When you change a fact in one place, list every other place it appears (`site_consistency_check`, `custom_search`) and change those too.
 
@@ -78,7 +80,9 @@ Size comes from the job and the slot, never from a word count target (Google has
 
 **Guest's words, once, in the prominent places.** The main search phrase goes in the title, the H1 and the first two sentences, once each, the way a person would say it. Secondary phrases go where they fit naturally, usually an H2 or the intro. Never count keywords, never repeat a phrase to "hit" it, never change a URL slug to add one.
 
-**Answer-first, quotable passages.** Each section opens with a sentence that answers that section's question and makes sense on its own (name the room or the hotel instead of "it" or "this"). This is what Google's AI features, ChatGPT and Perplexity lift; it is also what a guest skimming on a phone reads.
+**Answer-first, self-contained passages.** Each section opens with a sentence that answers that section's question and makes sense on its own: it names the hotel or the room instead of starting "It", "This", "They" or "These", and it adds a fact instead of repeating the heading ("Family Suites" → not "Our family suites are…" but "The Family Suite at Atana Hotel sleeps two adults and two children and has a kitchenette [CONFIRM]"). This is what Google's AI features, ChatGPT and Perplexity lift; it is also what a guest skimming on a phone reads.
+
+**Room fit.** On a rooms index or in an FAQ, tell guests which room suits them: "Choose the Family Suite if you're two adults and two children; the Deluxe King suits couples." Build it only from confirmed occupancy (the engine or `hotel-facts.json`), one room per guest type, no superlatives ("the best room for families").
 
 **Proof over promise.** First-hand detail only the hotel has (what the view looks at, which rooms connect, what breakfast includes, how guests get to the airport) beats general claims. Real reviews may be quoted with the platform and month; never write reviews or ratings.
 
@@ -97,6 +101,8 @@ Size comes from the job and the slot, never from a word count target (Google has
 - No invented reviews, ratings, statistics or awards; a rating only with its platform and the date it was checked.
 
 **Facts and sources.** Hotel facts: `hotel-facts.json` or [CONFIRM]. Area facts (opening times, distances, prices of attractions, visa or transport rules): an official or primary source, current within the last 2 years for anything that changes, linked in the run notes; no aggregator lists, no competitor blogs, no AI summaries as sources.
+
+**The claim ledger** (any piece with an area fact). In the run notes, one line per fact that isn't about the hotel (a distance, a travel time, opening hours, visa or entry rules, an event date): the claim as written, its source (link), the date you checked it. A claim with no source is removed or marked [CONFIRM]. A hotel fact is never softened into vague wording to get past the guard ("a short walk" in place of an unconfirmed "3 minutes"): it keeps its number and gets [CONFIRM].
 
 ---
 
@@ -136,8 +142,9 @@ In this order; a short piece takes a minute, a full post longer:
 2. **Facts.** Every number, distance, time, price, amenity and policy: in `hotel-facts.json` or the engine, or marked [CONFIRM]. Area facts linked to their source. The renderer's guard catches hotel facts; area facts are on you.
 3. **Job and intent.** Does the first sentence answer what the guest came for? Does the piece end at the next step?
 4. **Readability.** Paragraphs of 2–4 sentences, H2s as questions where it fits, facts in text, lists only for real lists.
-5. **Voice and tells.** Read it aloud. Any word from the list in section 4, any stock opening, any sentence that could describe any hotel anywhere: rewrite it with a fact or cut it.
-6. **Fit the slot.** Title and meta lengths, one H1, alt text per image, button text that says where it goes. Then `presend_check` / `render_report` (`copy_problems` / `copy_warning`) and fix what they report.
+5. **Voice and tells.** Read it aloud. Any word from the list in section 4, any stock opening, any sentence that could describe any hotel anywhere: rewrite it with a fact or cut it. Then ask once: *what still reads templated here?* (the same sentence shape three times, every section the same length, a closing line that sums up). Write down the concrete answers, revise once, and stop.
+6. **Fit the slot.** Title and meta lengths, one H1, alt text per image, button text that says where it goes. Then `copy_check` (write mode) or `presend_check` / `render_report` and fix every problem; read every warning.
+7. **Integrity re-check.** The voice edit can undo earlier fixes. Re-verify against the brief and the claim ledger: every fact and number unchanged, [CONFIRM] markers still in place, lengths still within the slot, links and the booking link still right, the main phrase still in the title, H1 and first two sentences.
 
 ---
 
@@ -166,6 +173,8 @@ Update it when the hotel corrects something; mention in the run notes that it wa
 
 **Also taken, from MetaHotels' own copywriting method (handoff, Nov 2026):** the honesty gates, the swap test and the differentiator inventory, customer words from reviews, one action per piece. Ads, offers and campaigns are outside this standard.
 
+**Also taken, from Awesome SEO Writing Skill (Flaq AI, MIT):** the claim ledger, the integrity re-check after the style edit, the single "what still reads templated?" pass, and judging AI tells in clusters rather than one word at a time. Left out: rule-of-three and sentence-rhythm scoring, AI-detector scores, word-count minimums.
+
 **Taken:** the guest job before anything else; a brief before writing; small units, one section at a time; Search Console queries to optimise existing pages; facts checked against primary sources; the layered edit (repetition → facts → readability → voice → humanise); per-client voice guardrails; banned openings; CTAs after proof; "Read more" internal links; real bylines.
 
 **Left out, and why:**
@@ -182,11 +191,13 @@ Update it when the hotel corrects something; mention in the run notes that it wa
 
 - [ ] One guest job; the first sentence serves it.
 - [ ] The guest's search words in title, H1 and first sentences, once each; nothing counted or stuffed.
-- [ ] Every hotel fact confirmed or [CONFIRM]; area facts sourced.
+- [ ] Every hotel fact confirmed or [CONFIRM]; area facts in the claim ledger with source and date checked.
 - [ ] Something only this hotel can say is in it (or the piece is short and honest).
-- [ ] No stock opening, no word from the tells list, no em dashes in paste copy.
-- [ ] Passes the swap test; no superlative, urgency, price or rating without its source.
-- [ ] Slot limits met: title ≤ 60, meta ≤ 155, one H1, button text says where it goes.
+- [ ] No stock opening, no word from the tells list, no em dashes in paste copy, no words that date.
+- [ ] Each section's first sentence names the hotel or room and doesn't repeat its heading.
+- [ ] Passes the swap test; no superlative, urgency, price or rating without its source; no price in an FAQ answer.
+- [ ] Slot limits met: title ≤ 60 and ≤ 580px, meta ≤ 155, alt ≤ 125, one H1, button text says where it goes; each title / meta / alt line shows its count.
 - [ ] A next step: room page, offer page or the standard booking link, after the proof.
 - [ ] Before / after given for changes to live text, and a check for each.
-- [ ] `presend_check` / `render_report` show no `copy_problems` / `copy_warning`.
+- [ ] Integrity re-check done after the voice edit.
+- [ ] `copy_check` / `presend_check` / `render_report`: no problems; every warning read.

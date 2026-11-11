@@ -255,8 +255,10 @@ def render_report(out_dir: str, json_path: str = '', data: dict | None = None, c
     documents that quote the live site. Text with literal backslash-u escapes (Arabic saved escaped twice) is refused:
     it would print as codes.
 
-    Also returned, fix and render again: copy_warning (copy the agency pastes word for word: AI tells, stock openings,
-    unsourced superlatives, em dashes in paste copy, titles over 62 / metas over 155, invisible characters),
+    Also returned, fix and render again: copy_warning (copy the agency pastes word for word; problems: titles over 62
+    characters or 580px, metas over 155, prices in FAQ answers, "Read more"-type buttons, "image of" alt text, stock
+    openings, unsourced superlatives, em dashes in paste copy, invisible characters, a cluster of AI tells; warnings:
+    single AI tells, pronoun or heading-echo openings, alt text, time words, size units, the main phrase),
     checks_warning (Audit Report / Web Team List findings naming URLs no check covers), client_approval_warning and
     units (from <hotel dir>/hotel.json, see hotel_settings)."""
     if not json_path and not data:
@@ -312,12 +314,14 @@ def render_report(out_dir: str, json_path: str = '', data: dict | None = None, c
     if prefs.get('units'):
         out['units'] = f"this hotel writes sizes in {prefs['units']} (hotel.json preferences.units)"
     if title != 'Re-check':
-        from .checks import lint_copy
-        copy_lint = lint_copy(doc)
-        if copy_lint:
-            out['copy_warning'] = {'problems': copy_lint, 'next': 'The agency pastes this word for word: rewrite '
-                                   'the AI-sounding phrases plainly (references/content-writing.md) and remove '
-                                   'invisible characters, then render again.'}
+        from .copylint import copy_report
+        rep = copy_report(doc, units_pref=prefs.get('units', ''))
+        if rep['problems'] or rep['warnings']:
+            out['copy_warning'] = {'problems': rep['problems'], 'warnings': rep['warnings'],
+                                   'next': 'The agency pastes this word for word: fix every problem (rewrite '
+                                   'AI-sounding phrases plainly per references/content-writing.md, remove invisible '
+                                   'characters), read each warning and fix it unless it is right as written, then '
+                                   'render again.'}
     if google_doc:
         out['google_doc'] = _off_loop(docs.publish, doc, out_dir, result['file'], folder_id=folder_id,
                                       docx_file=out.get('docx', ''))
@@ -576,6 +580,29 @@ def presend_check(list_json: str, crawl_dir: str = '', wait_seconds: int = 45) -
     of the same-date lists in that folder). Background job."""
     job = _start_job('presend', checks.presend, list_json, crawl_dir=crawl_dir)
     return _wait(job, wait_seconds)
+
+
+@mcp.tool()
+def copy_check(units: list[dict] | None = None, json_path: str = '', hotel_dir: str = '', hotel: str = '',
+               main_phrase: str = '') -> dict:
+    """Check hotel copy before it is handed over (write mode), without rendering a document. units: [{"kind": "title" |
+    "meta" | "h1" | "heading" | "alt" | "button" | "faq_answer" | "copy", "text": "...", "where": "<page URL>"}]
+    (units with the same "where" are one page), or json_path to a list / Build Plan JSON. hotel: the hotel's name (alt
+    text should carry it); main_phrase: the page's main search phrase; hotel_dir: reads preferences.units from
+    hotel.json. Returns problems (fix), warnings (read, fix unless right as written) and lengths: every title / meta /
+    alt with its count ("58/60, 512/580 px") to show next to the line in the hand-over."""
+    from . import copylint
+    units_pref = ''
+    if hotel_dir:
+        try:
+            units_pref = json.loads((paths.resolve(hotel_dir) / 'hotel.json').read_text(encoding='utf-8')).get(
+                'preferences', {}).get('units', '')
+        except (ValueError, OSError, AttributeError):
+            pass
+    if json_path:
+        doc = json.loads(paths.resolve(json_path).read_text(encoding='utf-8'))
+        return copylint.copy_report(doc, hotel or None, main_phrase, units_pref)
+    return copylint.report_units(units or [], hotel, main_phrase, units_pref)
 
 
 @mcp.tool()
