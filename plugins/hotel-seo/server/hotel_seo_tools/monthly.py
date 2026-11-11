@@ -905,6 +905,9 @@ def _assemble(ctx, month, data, serp_d, manual, nar):
         comps.append(par_block)
     else:
         missing.append('rate parity ' + str(par.get('status', 'no data for the month')))
+    cal = _calendar_block(ctx, month, mlabel, plabel)
+    if cal:                 # optional: no calendar for the month -> left out, not listed as missing
+        comps.append(cal)
     if nar.get('funnel_note'):
         comps.append({'callout': {'label': 'From search to booking:', 'text': nar['funnel_note']}})
     pages.append({'eyebrow': '05 · From search to booking', 'title': nar.get('title_05') or
@@ -985,6 +988,55 @@ def _month_of(day):
 def _next_month(month):
     y, m = map(int, month.split('-'))
     return f'{y + (m == 12)}-{(m % 12) + 1:02d}'
+
+
+def _calendar_block(ctx, month, mlabel, plabel):
+    """The month's Disparity / Best Rate calendar (the parity + bookings CSV the user gave, imported with
+    import_parity_calendar into <hotel dir>/parity/) as a page-05 section. None when this month wasn't imported."""
+    from . import parity_calendar
+    months, _src = parity_calendar.stored_months(ctx['hotel_dir'], ctx['hotel']['name'])
+    cur = next((m for m in months if m.get('month') == month), None)
+    if not cur:
+        return None
+    prev = next((m for m in months if m.get('month') == _month_of(_prev_month_start(month))), None)
+    on, per_day = cur.get('bookings_on') or {}, cur.get('bookings_per_day') or {}
+
+    def pd(k):
+        v = per_day.get(k)
+        return '–' if v is None else fmt(v, 1)
+    rows = [['Official site had the best rate', fmt(cur.get('best_rate_days')), fmt(on.get('best', 0)), pd('best')],
+            ['An OTA was cheaper (disparity)', fmt(cur.get('disparity_days')), fmt(on.get('disparity', 0)),
+             pd('disparity')],
+            ['Not checked (no record)', fmt(cur.get('no_record_days')), fmt(on.get('no_record', 0)), '–'],
+            ['Whole month', fmt(cur.get('days')), fmt(cur.get('bookings')), '–']]
+    lines = []
+    if cur.get('disparity_days'):
+        lines.append(f"An OTA was cheaper than the official site on {cur['disparity_days']} of "
+                     f"{cur['days'] - cur.get('no_record_days', 0)} checked days ({fmt(cur.get('disparity_pct_of_recorded'), 1)}%"
+                     + (f", longest run {cur['longest_disparity_run_days']} days" if cur.get('longest_disparity_run_days', 0) > 1 else '')
+                     + '): ' + ', '.join(_short_date(d) for d in cur.get('disparity_dates', [])) + '.')
+    else:
+        lines.append('The official site had the best rate on every checked day.')
+    if prev:
+        lines.append(f"{plabel}: OTA cheaper on {fmt(prev.get('disparity_days'))} of "
+                     f"{prev['days'] - prev.get('no_record_days', 0)} checked days "
+                     f"({fmt(prev.get('disparity_pct_of_recorded'), 1)}%), {fmt(prev.get('bookings'))} direct bookings.")
+    if cur.get('no_record_pattern'):
+        lines.append(f"Not checked {cur['no_record_pattern']}.")
+    if cur.get('comparison_note'):
+        lines.append(cur['comparison_note'][:1].upper() + cur['comparison_note'][1:] + '.')
+    if cur.get('unknown_statuses'):
+        lines.append('Statuses not recognised (left out of the counts): ' + ', '.join(map(str, cur['unknown_statuses'])) + '.')
+    lines.append('Bookings by day type show what happened on those days, not that the price caused them.')
+    return {'title': f'Best Rate calendar: rate parity and direct bookings, {mlabel}',
+            'table': {'columns': ['', 'Days', 'Direct bookings', 'Bookings per day'], 'align': ['l', 'r', 'r', 'r'],
+                      'rows': rows},
+            'text': ' '.join(lines)}
+
+
+def _prev_month_start(month):
+    y, m = map(int, month.split('-'))
+    return f'{y - 1}-12-01' if m == 1 else f'{y}-{m - 1:02d}-01'
 
 
 def _serp_last_month(ctx, month, sq):

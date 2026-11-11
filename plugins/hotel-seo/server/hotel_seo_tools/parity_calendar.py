@@ -192,3 +192,24 @@ def import_calendars(files, out_dir):
                      m['unknown_statuses'] else [])
     (out / 'parity-calendar.md').write_text('\n'.join(L), encoding='utf-8')
     return {'files_written': [str(out / 'parity-calendar.json'), str(out / 'parity-calendar.md')], **result}
+
+
+def stored_months(hotel_dir, hotel_name):
+    """This hotel's months from the imported calendar (<hotel dir>/parity/parity-calendar.json, or the older
+    <hotel dir>/parity-calendar.json) and the file they came from. When the calendar covers several hotels, only the
+    months whose hotel name contains every word of this hotel's name; none matching -> all of them.
+    ([], None) when nothing was imported."""
+    from pathlib import Path
+    files = sorted((f for f in (Path(hotel_dir) / 'parity' / 'parity-calendar.json',
+                                Path(hotel_dir) / 'parity-calendar.json') if f.exists()), key=lambda f: f.stat().st_mtime)
+    if not files:
+        return [], None
+    try:
+        months = json.loads(files[-1].read_text(encoding='utf-8')).get('months') or []
+    except (ValueError, OSError):
+        return [], None
+    if len({m.get('hotel') for m in months}) > 1:
+        words = {w for w in re.findall(r'[a-z0-9]+', str(hotel_name).lower()) if len(w) > 2}
+        mine = [m for m in months if words and words <= set(re.findall(r'[a-z0-9]+', str(m.get('hotel', '')).lower()))]
+        months = mine or months
+    return months, files[-1]

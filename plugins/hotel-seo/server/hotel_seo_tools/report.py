@@ -708,22 +708,11 @@ def parity_calendar_block(hotel_dir, hotel_name):
     `parity` block and lead lines. When the files cover several hotels, only this hotel's months are used (matched
     on its name); none matching -> all of them. None when no calendar was imported."""
     from . import parity_calendar
-    files = sorted((f for f in (Path(hotel_dir) / 'parity' / 'parity-calendar.json',
-                                Path(hotel_dir) / 'parity-calendar.json') if f.exists()), key=lambda f: f.stat().st_mtime)
-    if not files:
-        return None
-    try:
-        months = json.loads(files[-1].read_text(encoding='utf-8')).get('months') or []
-    except (ValueError, OSError):
-        return None
-    if len({m.get('hotel') for m in months}) > 1:
-        words = {w for w in re.findall(r'[a-z0-9]+', hotel_name.lower()) if len(w) > 2}
-        mine = [m for m in months if words and words <= set(re.findall(r'[a-z0-9]+', str(m.get('hotel', '')).lower()))]
-        months = mine or months
+    months, src = parity_calendar.stored_months(hotel_dir, hotel_name)
     if not months:
         return None
     out = parity_calendar.report_block(months)
-    out['parity']['note'] += f" Source: {files[-1].parent.name}/{files[-1].name}."
+    out['parity']['note'] += f" Source: {src.parent.name}/{src.name}."
     return out
 
 

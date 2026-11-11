@@ -428,6 +428,13 @@ report; a group gets one per hotel plus a Group Monthly Summary.
    named), `description_correct` and `errors` (each wrong fact vs hotel-facts.json, e.g. "says check-in 14:00; fact:
    15:00"). Then `import_monthly_manual(..., {"ai_panel": {"checked": "<today>", "results": [...], "not_run": {...}}})`.
    Desktop chat or a run without the Chrome tools: skip the panel and say so; the report shows "not run", never zeros.
+4c. **Best Rate calendar (parity and bookings, per hotel, optional):** the month's
+   `disparity-calendar-<hotel>-<YYYY-MM>.csv` (Date, Weekday, Hotel, Parity Status, Bookings, Day Type). Look in
+   `<hotel dir>/parity/`, the hotel folder and the work folder first; if it isn't there, ask the user once, before
+   building, for that month's file (name the hotel and month). They give it → copy it into `<hotel dir>/parity/` and
+   run `import_parity_calendar([every CSV in <hotel dir>/parity/], "<hotel dir>/parity")` (all of them, so earlier
+   months stay for the comparison). They skip it, don't have it, or don't answer → go on without it: the report leaves
+   the section out and does not list it as missing, and you don't ask again for that month.
 5. **Work done:** collect lists execute changes and `work-log.csv`. Ask the user once for work done by hand this month
    (Business Profile, design, content outside execute) and add each with `add_work_log`, then re-run collect for that
    hotel (it is quick when the other data is cached). Business Profile changes sent with `gbp_apply` are in
