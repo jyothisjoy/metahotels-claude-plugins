@@ -248,8 +248,12 @@ def build_html(doc):
         import base64
         logo = lambda n: 'data:image/png;base64,' + base64.b64encode((TEMPLATES / 'assets' / n).read_bytes()).decode()
         css = (TEMPLATES / 'monthly.css').read_text(encoding='utf-8')
+        # page-footer logo: a margin box can't size an image, so the 600 px PNG is given a resolution that prints it
+        # 22 mm wide (22 mm = 83 CSS px; 600 / 83 = 7.2x)
+        footer_logo = logo('metahotels-logo.png')
         return env.get_template('monthly.html.j2').render(doc=doc, css=Markup(css), logo=logo('metahotels-logo.png'),
-                                                          logo_on_dark=logo('metahotels-logo-on-dark.png'))
+                                                          logo_on_dark=logo('metahotels-logo-on-dark.png'),
+                                                          footer_logo=footer_logo)
     css = (TEMPLATES / 'list.css').read_text(encoding='utf-8')
     return env.get_template('list.html.j2').render(doc=doc, css=Markup(css))
 

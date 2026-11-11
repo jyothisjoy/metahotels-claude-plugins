@@ -1,6 +1,6 @@
 [project]
 name = "hotel-seo-tools"
-version = "2.1.0"
+version = "2.1.1"
 description = "MCP tools for the MetaHotels hotel-seo skill: crawls, site audit, booking engine, parity, indexing, monitors, Business Profile, PDF and Google Docs lists"
 requires-python = ">=3.11"
 dependencies = [

@@ -249,6 +249,9 @@ New in 2.1.0:
 - **Questions for the Hotel:** a Business Profile sheet, name / address / phone conflicts, wrong facts from AI
   assistants and unsourced local claims.
 
+**2.1.1:** the Monthly Report PDF matches the reference design more closely (type sizes and spacing, page count under
+each timeline date, two-column lists only when long, check lists in two panels, MetaHotels logo in the page footer).
+
 Run `/hotel-seo init` (or `hotel-seo-auth`) once: the Google sign-in now includes Business Profile by default and tests
 each Business Profile API; enable the **My Business Lodging API** on the Cloud project if it says so.
 

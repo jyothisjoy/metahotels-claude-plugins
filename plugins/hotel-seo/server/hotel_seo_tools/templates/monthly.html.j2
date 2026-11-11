@@ -55,10 +55,10 @@
   <div class="timeline">
     {% for t in c.timeline %}
     <div class="tl">
-      <div class="when">{{ t.when }}</div>
+      <div class="when">{{ t.when }}{% if t.sub %}<span class="sub">{{ t.sub }}</span>{% endif %}</div>
       <div class="what">
         <div class="tl-title">{{ t.title | rich }}</div>
-        {% if t['items'] %}<ul>{% for i in t['items'] %}<li><code>{{ i }}</code></li>{% endfor %}</ul>{% endif %}
+        {% if t['items'] %}<ul{% if t['items'] | length > 6 %} class="cols"{% endif %}>{% for i in t['items'] %}<li>{{ i | rich }}</li>{% endfor %}</ul>{% endif %}
       </div>
     </div>
     {% endfor %}
@@ -66,7 +66,10 @@
   {% endif %}
   {% if c.list %}<ul class="list">{% for li in c.list %}<li>{{ li | rich }}</li>{% endfor %}</ul>{% endif %}
   {% if c.checks %}
-  <div class="checks">{% for li in c.checks %}<div class="check"><span class="tick">✓</span> {{ li | rich }}</div>{% endfor %}</div>
+  {% set half = (c.checks | length + 1) // 2 %}
+  <div class="checks">{% for col in [c.checks[:half], c.checks[half:]] if col %}<div class="panel">
+    {% for li in col %}<div class="check"><span class="tick">✓</span> {{ li | rich }}</div>{% endfor %}
+  </div>{% endfor %}</div>
   {% endif %}
   {% if c.callout %}<div class="callout"><strong>{{ c.callout.label }}</strong> {{ c.callout.text | rich }}</div>{% endif %}
   {% if c.note %}<p class="note">{{ c.note | rich }}</p>{% endif %}
@@ -80,8 +83,10 @@
 <style>
 {{ css }}
 @page {
-  @bottom-left { content: "{{ doc.monthly.footer | replace('"', "'") }}"; font: 7.5pt Arial, Helvetica, sans-serif; color: #6b7480; vertical-align: top; padding-top: 4mm; }
-  @bottom-right { content: "MetaHotels · " counter(page); font: bold 7.5pt Arial, Helvetica, sans-serif; color: #18a058; vertical-align: top; padding-top: 4mm; }
+  @bottom-left { content: "{{ doc.monthly.footer | replace('"', "'") }}"; font: 8pt Arial, Helvetica, sans-serif; color: #8a96a3;
+                 vertical-align: top; margin-top: 4.5mm; border-top: 1px solid #e2e7ed; padding-top: 2.4mm; }
+  @bottom-right { content: image-set(url("{{ footer_logo }}") 7.2x) "  · " counter(page); font: 8pt Arial, Helvetica, sans-serif; color: #8a96a3;
+                  vertical-align: top; margin-top: 4.5mm; border-top: 1px solid #e2e7ed; padding-top: 1.2mm; }
 }
 @page :first { margin: 0; @bottom-left { content: none; } @bottom-right { content: none; } }
 </style>

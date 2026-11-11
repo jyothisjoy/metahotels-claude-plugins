@@ -937,8 +937,8 @@ def _assemble(ctx, month, data, serp_d, manual, nar):
         for g in sorted(groups.values(), key=lambda g: min(g['dates'])):
             d1, d2 = min(g['dates']), max(g['dates'])
             when = _short_date(d1) + ('' if d1 == d2 else f' – {_short_date(d2)}')
-            tl.append({'when': when, 'title': g['title'] + (f" ({len(g['pages'])} page{'s' if len(g['pages']) != 1 else ''})"
-                                                            if g['pages'] else ''),
+            n = len(g['pages'])
+            tl.append({'when': when, 'sub': f"{n} page{'s' if n != 1 else ''}" if n else '', 'title': g['title'],
                        'items': [urlparse(p).path or p for p in sorted(g['pages'])]})
         comps.append({'timeline': tl})
     else:
@@ -1353,7 +1353,7 @@ def _comp_blocks(c):
                               'rows': [[x['eyebrow'], f"**{x['value']}**", x['label']] for x in c['funnel']]}})
     if 'timeline' in c:
         for t in c['timeline']:
-            out.append({'p': f"**{t['when']}:** {t['title']}"})
+            out.append({'p': f"**{t['when']}:** {t['title']}" + (f" ({t['sub']})" if t.get('sub') else '')})
             if t.get('items'):
                 out.append({'ul': [f'`{i}`' for i in t['items']]})
     if 'list' in c:
