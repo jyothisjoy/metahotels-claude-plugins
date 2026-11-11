@@ -5,8 +5,10 @@ Status per agent and scope:
   degraded  it runs with a named gap (printed in its report chapter)
   blocked   it cannot run: its categories show "not assessed: <reason>" and the Health Score is rescaled without them
 After a run: complete / partial (turn budget hit, partial file validates) / not assessed (failed twice).
-Everything is written to <run>/agent-status.json, which the report cover and the run notes show.
+Everything is written to <run>/agent-status.json, which the report cover and the run notes show. report.build uses
+an agent's output only when this record says complete / partial for the same file (sha256); see report.gate.
 """
+import hashlib
 import json
 import re
 import time
@@ -363,5 +365,8 @@ def record(run_dir, agent, result, attempt):
         status = 'not assessed'
     doc[agent] = {'status': status, 'attempt': attempt, 'errors': result.get('errors', [])[:10],
                   'warnings': result.get('warnings', [])[:10], 'at': time.strftime('%Y-%m-%d %H:%M')}
+    ff = rd / 'findings' / f'{agent}.json'
+    if ff.exists():     # build_audit_report drops the agent if the file changes after this validation
+        doc[agent]['sha256'] = hashlib.sha256(ff.read_bytes()).hexdigest()
     f.write_text(json.dumps(doc, indent=1, ensure_ascii=False), encoding='utf-8')
     return doc[agent]

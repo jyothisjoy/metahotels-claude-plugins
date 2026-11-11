@@ -121,7 +121,12 @@ Discounts and benefits read on the engine go into `hotel-facts.json` with source
 **Categories and score.** Booking path & facts 15%, Technical 18.7%, Content 19.55%, On-Page 17%, Schema 8.5%,
 Performance 8.5%, AI Search 8.5%, Images 4.25% (claude-seo's weights scaled to 85%). A category score is the share of
 its checks that pass, weighted by severity (Critical 4, High 3, Medium 2, Low 1) — computed in code. Local, Maps and
-Backlinks are scored separately; Lighthouse Agentic Browsing is reported as X/N.
+Backlinks are scored separately; Lighthouse Agentic Browsing is reported as X/N. The Health Score always states its
+coverage ("score covers X% of weighted checks"); below 70% it is "not scored". One failing Critical booking-path
+check (dead booking link, Book link to another hotel, key page noindexed, canonical to an error on a key page) caps it
+at 59; two or more make it "Blocked" (no number). Findings and checks of an agent that did not pass
+`validate_agent_output` never reach the report (constants in `report.py`: `COVERAGE_MIN`, `HEALTH_CAP`,
+`BOOKING_PATH_CRITICAL`).
 
 **Severity.** Critical (blocks indexing, sends guests to the wrong place, security / penalty risk), High (significant
 ranking or booking impact), Medium (optimisation), Low (polish), Info (awareness only). **Floor:** anything on the

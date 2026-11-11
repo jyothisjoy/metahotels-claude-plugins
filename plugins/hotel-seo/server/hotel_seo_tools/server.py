@@ -836,7 +836,8 @@ def validate_agent_output(run_dir: str, agent: str, scope: str, crawl_dir: str, 
     """After an agent finishes: check findings/<agent>.json against the contract (schema, coverage of the hotel's key
     pages, counts equal to audit_site's, no invented URLs, severity, evidence, fix, checks, actions, agent rules:
     INP not FID, Lighthouse X/N, backlink validator, FLOW credit, [CONFIRM] guard, no secrets) and record the status in
-    <run>/agent-status.json. attempt=2 on the re-run; a second failure is recorded as "not assessed"."""
+    <run>/agent-status.json. attempt=2 on the re-run; a second failure is recorded as "not assessed".
+    build_audit_report uses only agents recorded valid here, for the unchanged file."""
     res = preflight.validate(run_dir, agent, scope, crawl_dir, group_dir)
     res['recorded'] = preflight.record(run_dir, agent, res, attempt)
     return res

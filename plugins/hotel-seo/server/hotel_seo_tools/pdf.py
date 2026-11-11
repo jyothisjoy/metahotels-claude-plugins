@@ -163,6 +163,14 @@ def build_plan_page_sections(doc):
     return out
 
 
+def health_text(sc):
+    """The Health Score as shown: "72/100", "Blocked" or "not scored" (report.score_all); older reports: the number."""
+    if sc.get('health_label'):
+        return sc['health_label']
+    h = sc.get('health')
+    return f'{h}/100' if h is not None else 'not assessed'
+
+
 def normalize(doc):
     """Audit Report / Group Summary extras -> plain sections every renderer understands (idempotent):
     a "Scores" section (Health Score, categories, separate scores, agent status) at the top."""
@@ -172,7 +180,7 @@ def normalize(doc):
     sc = doc.get('scores')
     pre = []
     if sc and sc.get('categories'):
-        h = sc.get('health')
+        from .report import COVERAGE_MIN, HEALTH_CAP
         def _row(c):
             na = c.get('score') is None
             return [c['name'], f"{c['weight']}%" if c.get('weight') else 'separate',
@@ -181,10 +189,16 @@ def normalize(doc):
                     c.get('not_measured', 0) or ('–' if na else 0),
                     (c.get('basis') or '').replace('not assessed: ', '')]
         rows = [_row(c) for c in sc['categories']]
-        blocks = [{'p': f"**Health Score: {h if h is not None else 'not assessed'}/100**. Weighted average of the "
+        note = sc.get('health_note') or ''
+        blocks = [{'p': f"**Health Score: {health_text(sc)}**." +
+                        (f' {note[:1].upper()}{note[1:]}.' if note else '') +
+                        ' Weighted average of the '
                         'category scores; a category score is the share of its checks that pass, weighted by '
                         'severity (Critical 4, High 3, Medium 2, Low 1). Categories not assessed are left out and the '
-                        'weights rescaled. Local, Maps and Backlinks are shown separately.' +
+                        f'weights rescaled; below {COVERAGE_MIN}% coverage there is no score. One Critical '
+                        'booking-path failure (dead or wrong-hotel booking link, key page noindexed or canonicalised '
+                        f'to an error) caps the score at {HEALTH_CAP}; two or more mark it Blocked. Local, Maps and '
+                        'Backlinks are shown separately.' +
                         (' Left out of this Health Score: ' + ', '.join(
                             c['name'] for c in sc['categories'] if c.get('weight') and c.get('score') is None) + '.'
                          if any(c.get('weight') and c.get('score') is None for c in sc['categories']) else '')},
@@ -211,7 +225,9 @@ def normalize(doc):
         pre.append({'title': 'Scores', 'blocks': blocks, 'generated': True})
     if doc.get('counts') and not doc.get('lead'):
         c = doc['counts']
-        doc['lead'] = (f"**Health Score {sc.get('health') if sc else 'n/a'}/100** · {sum(c.values())} findings: "
+        doc['lead'] = (f"**Health Score {health_text(sc) if sc else 'n/a'}**"
+                       + (f" ({sc['health_note']})" if sc and sc.get('health_note') else '')
+                       + f" · {sum(c.values())} findings: "
                        f"{c.get('Critical', 0)} Critical, {c.get('High', 0)} High, {c.get('Medium', 0)} Medium, "
                        f"{c.get('Low', 0)} Low, {c.get('Info', 0)} Info.")
     doc['sections'] = pre + doc['sections'] + build_plan_page_sections(doc)

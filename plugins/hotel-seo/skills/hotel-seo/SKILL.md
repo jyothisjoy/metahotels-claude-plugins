@@ -238,7 +238,10 @@ Fully automatic apart from **one intake round** (step 3). Anything you can't get
    ```
 10. **Check every agent:** `validate_agent_output(run_dir, <agent>, scope, crawl_dir, "<domain>")` for each (seo-flow:
     `seo-flow-<stage>`). Invalid or missing → re-run that agent once, passing the errors, then validate with
-    `attempt=2`. Still invalid → it stays "not assessed"; carry on.
+    `attempt=2`. Still invalid → it stays "not assessed"; carry on. This is binding in code: `build_audit_report`
+    uses an agent's findings and checks only when `<run>/agent-status.json` records it valid (complete / partial)
+    and the file is unchanged since; anything else (invalid, no record, edited after validation) is left out and
+    shown as "not assessed: <reason>". Re-validate after any edit to a findings file.
 11. **Assemble:** `build_audit_report("<domain>", slug)` per hotel; group only: `build_group_summary("<domain>")`.
     With `<hotel dir>/parity/parity-calendar.json` present, the Audit Report gets the **Rate parity (Best Rate
     calendar)** table, and when the site was not the best rate on 20%+ of recorded days, that line at the top. Parity is
@@ -283,7 +286,8 @@ Fully automatic apart from **one intake round** (step 3). Anything you can't get
     spreadsheet comes back. A homepage `noindex`, defacement text or an open MCP route is raised first, as urgent.
 
 **Desktop chat (no Agent tool):** run each agent's instructions yourself, one after another (read its file in
-`agents/`), writing the same findings files, and validate each the same way.
+`agents/`), writing the same findings files, and validate each the same way with `validate_agent_output` (it
+writes the status record; an agent never validated is left out of the report).
 
 ### Build Plan JSON (`build-plan.json`, rendered by render_report)
 

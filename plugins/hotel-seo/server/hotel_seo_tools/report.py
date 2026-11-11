@@ -14,8 +14,19 @@ Category score = sum of severity weights of passed checks / sum over measured ch
 Medium 2, Low 1, Info 0); not_measured checks are left out; a category with nothing measured drops out and the
 remaining weights are rescaled. Local, Maps, Backlinks, GEO, Lighthouse agentic X/N and Agent-UX are shown next to
 the Health Score, not in it.
+
+Trust rules (binding, in code):
+  - An agent's findings and checks are used only when <run>/agent-status.json (written by validate_agent_output)
+    says it validated (complete / partial) and the file has not changed since. Anything else (invalid, not
+    assessed, missing record, edited after validation, broken JSON) is left out and the agent shows as
+    "not assessed: <reason>"; expected agents with no output show as "not assessed: did not run".
+  - Coverage: the share of the weighted categories backed by measured checks. Below COVERAGE_MIN the Health Score
+    is "not scored" (the rescaled number is kept as health_raw, never shown as the score).
+  - One failing Critical check from BOOKING_PATH_CRITICAL caps the Health Score at HEALTH_CAP; two or more distinct
+    ones make it "Blocked" (no number).
 """
 import csv
+import hashlib
 import json
 import re
 from collections import defaultdict
@@ -42,6 +53,20 @@ CATEGORY_AGENTS = {'Booking path & facts': [], 'Technical': ['seo-technical', 's
                    'Backlinks': ['seo-backlinks']}
 CHAPTER_ORDER = ['Booking path & facts', 'Technical', 'Content', 'On-Page', 'Schema', 'Performance', 'AI Search',
                  'Images', 'Local', 'Maps', 'Backlinks']
+# Agent statuses in agent-status.json whose output may reach the client.
+VALID_AGENT_STATUSES = ('complete', 'partial')
+# Health Score is "not scored" when its measured checks cover less than this share (%) of the category weights.
+COVERAGE_MIN = 70
+# One failing check below caps the Health Score at HEALTH_CAP; two or more distinct ones -> "Blocked".
+# value True = it counts only when a key page (CRITICAL_TYPES) is affected. Critical checks of the core table that
+# break the way guests reach the booking engine: dead / wrong-hotel book links, key pages out of Google.
+HEALTH_CAP = 59
+BOOKING_PATH_CRITICAL = {
+    'core:booking_link_dead': False,
+    'core:booking_link_other_hotel': False,
+    'core:noindex_on_key_page': False,          # key pages by definition
+    'core:canonical_broken': True,              # only when it hits the home, room, offer, contact or booking page
+}
 
 # audit_site check -> (category, base severity, finding title, generic fix, re-check builder)
 CORE = {
@@ -173,11 +198,12 @@ def core_findings(crawl_dir, reg, slug):
         items = by_check.get(check, [])
         if check == 'link_broken' and any('[sitewide]' in i['detail'] for i in items):
             sev = 'Critical'
+        types = ({i['page_type'] for i in items} | {_page_type_guess(i['url'], reg) for i in items}) if items else set()
         checks.append({'id': f'core:{check}', 'category': cat, 'title': title,
-                       'result': 'fail' if items else 'pass', 'severity': sev, 'source': 'audit_site'})
+                       'result': 'fail' if items else 'pass', 'severity': sev, 'source': 'audit_site',
+                       'key_page': bool(types & CRITICAL_TYPES)})
         if not items:
             continue
-        types = {i['page_type'] for i in items} | {_page_type_guess(i['url'], reg) for i in items}
         sev = floor(sev, types)
         urls = sorted({i['url'] for i in items})
         rows = [[i['url'], i['detail']] for i in sorted(items, key=lambda x: x['url'])]
@@ -306,10 +332,79 @@ def _agent_files(d):
             if f.stem.startswith('seo-flow'):
                 continue                    # FLOW output feeds the Build Plan; it is not scored
             try:
-                out[f.stem] = json.loads(f.read_text(encoding='utf-8'))
+                data = json.loads(f.read_text(encoding='utf-8'))
+                out[f.stem] = data if isinstance(data, dict) else {'_invalid': 'not a JSON object'}
             except ValueError as e:
                 out[f.stem] = {'_invalid': str(e)}
+            out[f.stem]['_sha256'] = file_sha256(f)
     return out
+
+
+def file_sha256(f):
+    return hashlib.sha256(Path(f).read_bytes()).hexdigest()
+
+
+def _status_record(*run_dirs):
+    """<run>/agent-status.json (validate_agent_output) of each run folder, later folders winning."""
+    rec = {}
+    for d in run_dirs:
+        f = paths.resolve(d) / 'agent-status.json'
+        if f.exists():
+            try:
+                rec.update(json.loads(f.read_text(encoding='utf-8')))
+            except ValueError:
+                pass
+    return rec
+
+
+def gate(name, data, rec):
+    """None when this agent's output may be used in the report; else why it is "not assessed"."""
+    if '_invalid' in data:
+        return 'invalid JSON: ' + data['_invalid'][:120]
+    r = rec.get(name)
+    if not isinstance(r, dict):
+        return 'output not validated (no validate_agent_output record)'
+    if r.get('status') not in VALID_AGENT_STATUSES:
+        err = (r.get('errors') or [''])[0]
+        return (f"failed validation{' twice' if (r.get('attempt') or 1) >= 2 else ''}"
+                + (f': {str(err)[:160]}' if err else f" ({r.get('status')})"))
+    if r.get('sha256') and data.get('_sha256') and r['sha256'] != data['_sha256']:
+        return 'findings file changed after validation (validate it again)'
+    return None
+
+
+def _preflight_notes(group_dir, slug):
+    """{agent: note} for agents agent_preflight marked blocked (latest preflight file)."""
+    found = sorted(paths.resolve(group_dir).glob('agent-preflight-*.json'))
+    if not found:
+        return {}
+    try:
+        pf = json.loads(found[-1].read_text(encoding='utf-8'))
+    except ValueError:
+        return {}
+    out = {}
+    for k, v in {**(pf.get('site_agents') or {}), **((pf.get('hotels') or {}).get(slug) or {})}.items():
+        if isinstance(v, dict) and v.get('status') == 'blocked':
+            out[k] = v.get('note') or 'blocked in preflight'
+    return out
+
+
+def gated_agents(agents, rec, expected=(), blocked=None):
+    """Split agent files into (usable {name: data}, status {name: str}). Excluded and absent agents are
+    "not assessed: <reason>"."""
+    usable, status = {}, {}
+    for name, data in agents.items():
+        why = gate(name, data, rec)
+        if why:
+            status[name] = 'not assessed: ' + why
+        else:
+            usable[name] = data
+            status[name] = rec[name]['status']
+    for name in expected:
+        if name not in status:
+            status[name] = 'not assessed: ' + ((blocked or {}).get(name) and
+                                               'blocked in preflight: ' + blocked[name] or 'did not run')
+    return usable, status
 
 
 def _belongs(finding, slug, reg):
@@ -345,10 +440,12 @@ def merge(core, agent_findings):
 
 
 def _basis(name, sources, ran):
-    """Plain note on what a category's score rests on, naming the agents that did not run."""
+    """Plain note on what a category's score rests on, naming the agents that did not run or were left out."""
     want = CATEGORY_AGENTS.get(name, [])
-    missing = [a for a in want if a not in (ran or {})]
-    failed = [f'{a} ({ran[a]})' for a in want if a in (ran or {}) and ran[a] not in ('complete', 'partial')]
+    ran = ran or {}
+    missing = [a for a in want if a not in ran or str(ran[a]) == 'not assessed: did not run']
+    failed = [f'{a} ({ran[a]})' for a in want if a in ran and a not in missing
+              and ran[a] not in VALID_AGENT_STATUSES]
     code = sorted(s for s in sources if not s.startswith('seo-'))
     agents = sorted(s for s in sources if s.startswith('seo-'))
     if not sources:
@@ -361,23 +458,29 @@ def _basis(name, sources, ran):
         parts.append(', '.join(agents))
     note = ' + '.join(parts)
     if missing:
-        note += f"; {', '.join(missing)} did not run" + ('' if agents else ', so this score covers the code checks only')
+        note += f"; {', '.join(missing)} did not run"
     if failed:
         note += '; ' + ', '.join(failed)
+    if (missing or failed) and not agents:
+        note += ', so this score covers the code checks only'
     return note
 
 
-def scores(checks, ran=None):
-    """ran = {agent: status} for the agents whose output was found; used only for the 'basis' note."""
-    by_cat = defaultdict(lambda: {'passed': 0, 'failed': 0, 'not_measured': 0, 'w_pass': 0, 'w_all': 0,
+def score_all(checks, ran=None):
+    """Category scores + the Health Score with its coverage, cap and status.
+    ran = {agent: status} (from gated_agents); used only for the 'basis' note.
+    Returns {'health', 'health_raw', 'health_status', 'health_label', 'health_note', 'coverage',
+    'booking_path_fails', 'categories'}. health is the number to show (None when not scored or Blocked)."""
+    by_cat = defaultdict(lambda: {'passed': 0, 'failed': 0, 'not_measured': 0, 'w_pass': 0, 'w_all': 0, 'w_nm': 0,
                                   'sources': set()})
     for c in checks:
         b = by_cat[c['category']]
         b['sources'].add(c.get('source') or 'code')
+        w = SEV_WEIGHT.get(c['severity'], 1)
         if c['result'] == 'not_measured':
             b['not_measured'] += 1
+            b['w_nm'] += w
             continue
-        w = SEV_WEIGHT.get(c['severity'], 1)
         b['w_all'] += w
         if c['result'] == 'pass':
             b['passed'] += 1
@@ -388,14 +491,54 @@ def scores(checks, ran=None):
     for name in list(WEIGHTS) + SEPARATE:
         b = by_cat.get(name)
         score = round(100 * b['w_pass'] / b['w_all']) if b and b['w_all'] else None
+        cov = round(100 * b['w_all'] / (b['w_all'] + b['w_nm'])) if score is not None else 0
         cats.append({'name': name, 'weight': WEIGHTS.get(name), 'score': score,
                      'passed': b['passed'] if b else 0, 'failed': b['failed'] if b else 0,
-                     'not_measured': b['not_measured'] if b else 0,
+                     'not_measured': b['not_measured'] if b else 0, 'coverage': cov,
                      'basis': _basis(name, b['sources'] if b and b['w_all'] else set(), ran)})
     scored = [c for c in cats if c['weight'] and c['score'] is not None]
     tw = sum(c['weight'] for c in scored)
-    health = round(sum(c['score'] * c['weight'] for c in scored) / tw) if tw else None
-    return health, cats
+    raw = round(sum(c['score'] * c['weight'] for c in scored) / tw) if tw else None
+    coverage = round(sum(c['weight'] * c['coverage'] for c in cats if c['weight']) / sum(WEIGHTS.values()))
+    fails, seen = [], set()
+    for c in checks:
+        if (c.get('id') in BOOKING_PATH_CRITICAL and c.get('id') not in seen and c['result'] == 'fail'
+                and c['severity'] == 'Critical' and (not BOOKING_PATH_CRITICAL[c['id']] or c.get('key_page'))):
+            seen.add(c['id'])
+            fails.append(c.get('title') or c['id'])
+    cov_txt = f'score covers {coverage}% of weighted checks'
+    if raw is None:
+        status, health, note = 'not scored', None, 'no weighted checks were measured'
+    elif len(fails) >= 2:
+        status, health = 'blocked', None
+        note = (f'Blocked: {len(fails)} Critical booking-path checks fail ({"; ".join(fails)}); '
+                f'no score is given until they are fixed')
+    elif coverage < COVERAGE_MIN:
+        status, health = 'not scored', None
+        note = f'not scored: only {coverage}% of weighted checks were measured (minimum {COVERAGE_MIN}%)'
+        if fails:
+            note += f'; a Critical booking-path check also fails ({fails[0]})'
+    elif fails:
+        status, health = 'capped', min(raw, HEALTH_CAP)
+        note = f'capped at {HEALTH_CAP}: a Critical booking-path check fails ({fails[0]})'
+    else:
+        status, health, note = 'scored', raw, ''
+    label = {'blocked': 'Blocked', 'not scored': 'not scored'}.get(status, f'{health}/100')
+    return {'health': health, 'health_raw': raw, 'health_status': status, 'health_label': label,
+            'health_note': '; '.join(x for x in (note, cov_txt) if x), 'coverage': coverage,
+            'booking_path_fails': fails, 'categories': cats}
+
+
+def scores(checks, ran=None):
+    """(Health Score to show or None, categories). score_all has the coverage, cap and status."""
+    s = score_all(checks, ran)
+    return s['health'], s['categories']
+
+
+def health_fields(s):
+    """The score_all fields a report's "scores" object carries next to health and categories."""
+    return {k: s[k] for k in ('health_raw', 'health_status', 'health_label', 'health_note', 'coverage',
+                              'booking_path_fails')}
 
 
 def _section(f, n):
@@ -555,12 +698,12 @@ def build(group_dir, slug, run_date=None):
     core, core_checks = core_findings(crawl_dir, reg, slug) if crawl_dir else ([], [])
     bf, bchecks = booking_findings(hdir, slug)
     agents = {**{k: v for k, v in _agent_files(grun).items()}, **_agent_files(hrun)}
-    a_findings, a_checks, separate, what_works, status = [], [], {}, defaultdict(list), {}
+    # only agents that passed validate_agent_output reach the report; the rest are "not assessed" (with the reason)
+    agents, status = gated_agents(agents, _status_record(grun, hrun),
+                                  SITE_AGENTS + [a for a in HOTEL_AGENTS if not a.startswith('seo-flow')],
+                                  _preflight_notes(group_dir, slug))
+    a_findings, a_checks, separate, what_works = [], [], {}, defaultdict(list)
     for name, data in agents.items():
-        if '_invalid' in data:
-            status[name] = 'invalid JSON: ' + data['_invalid'][:120]
-            continue
-        status[name] = data.get('status', 'complete')
         is_site = data.get('scope') == 'site'
         for f in data.get('findings', []):
             if not is_site or _belongs(f, slug, reg):
@@ -577,17 +720,19 @@ def build(group_dir, slug, run_date=None):
             what_works[name].append(w)
     findings = merge(core + bf, a_findings)
     checks = core_checks + bchecks + a_checks
-    health, cats = scores(checks, status)
+    sa = score_all(checks, status)
+    health, cats = sa['health'], sa['categories']
     seo = [f for f in findings if f['owner'] == 'seo']
     web = [f for f in findings if f['owner'] == 'web']
     counts = {s: sum(1 for f in seo if f['severity'] == s) for s in SEV_RANK}
     extra = {'short_name': hotel['name'], 'hotel_slug': slug, 'separate_scores': separate,
              'agent_status': status, 'what_works': dict(what_works), 'counts': counts,
              'subtitle': f"Full audit of {hotel['name']} ({', '.join(hotel['paths'])}) · Health Score "
-                         f"{health if health is not None else 'n/a'} · {len(seo)} findings "
+                         f"{sa['health_label']} ({sa['coverage']}% of weighted checks) · {len(seo)} findings "
                          f"({counts['Critical']} Critical, {counts['High']} High)"}
     hrun.mkdir(parents=True, exist_ok=True)
     report = _doc('Audit Report', hotel['name'], reg['group']['site'], seo, health, cats, extra)
+    report['scores'].update(health_fields(sa))
     report['sections'] += keyword_sections(hdir, hotel, slug)
     pc = parity_calendar_block(hdir, hotel['name'])
     if pc:
@@ -600,13 +745,14 @@ def build(group_dir, slug, run_date=None):
     web_doc.pop('scores', None)
     (hrun / 'audit-report.json').write_text(json.dumps(report, indent=1, ensure_ascii=False), encoding='utf-8')
     (hrun / 'web-team.json').write_text(json.dumps(web_doc, indent=1, ensure_ascii=False), encoding='utf-8')
-    envelope = {'summary': {'health_score': health, 'business_type': 'hotel', 'counts': counts},
+    envelope = {'summary': {'health_score': health, 'business_type': 'hotel', 'counts': counts, **health_fields(sa)},
                 'categories': [dict(c, findings=[{k: f[k] for k in ('title', 'severity', 'fix')} | {
                     'description': f['evidence']['summary']} for f in seo if f['category'] == c['name']],
                                     what_works=[]) for c in cats],
                 'separate_scores': separate, 'agent_status': status}
     (hrun / 'audit-data.json').write_text(json.dumps(envelope, indent=1, ensure_ascii=False), encoding='utf-8')
-    return {'hotel': slug, 'health': health, 'categories': {c['name']: c['score'] for c in cats},
+    return {'hotel': slug, 'health': health, 'health_label': sa['health_label'], 'health_note': sa['health_note'],
+            'coverage': sa['coverage'], 'categories': {c['name']: c['score'] for c in cats},
             'findings': len(seo), 'web_team': len(web), 'counts': counts, 'agent_status': status,
             'files': {'audit_report': str(hrun / 'audit-report.json'), 'web_team': str(hrun / 'web-team.json'),
                       'audit_data': str(hrun / 'audit-data.json')}}
@@ -654,24 +800,27 @@ def build_group(group_dir, run_date=None):
             continue
         d = json.loads(f.read_text(encoding='utf-8'))
         cats = {c['name']: c['score'] for c in d['scores']['categories']}
-        rows.append([h['name'], d['scores']['health'] if d['scores']['health'] is not None else 'n/a',
+        rows.append([h['name'], d['scores'].get('health_label') or (d['scores']['health'] if d['scores']['health']
+                                                                     is not None else 'n/a'),
                      d['counts']['Critical'], d['counts']['High'],
                      ', '.join(f"{k} {v}" for k, v in cats.items() if v is not None and k in WEIGHTS)])
         statuses[h['slug']] = d.get('agent_status', {})
     grun = gd / 'group' / f'audit-{run_date}'
     crawl_dir = _latest(gd, 'crawl-')
     core, core_checks = core_findings(crawl_dir, reg, 'group') if crawl_dir else ([], [])
+    gfiles, site_status = gated_agents(_agent_files(grun), _status_record(grun), SITE_AGENTS,
+                                       _preflight_notes(group_dir, ''))
+    statuses['site-wide'] = site_status
     site_f = []
-    for name, data in _agent_files(grun).items():
-        for f in data.get('findings', []) if isinstance(data, dict) else []:
+    for name, data in gfiles.items():
+        for f in data.get('findings', []):
             if not f.get('pages') or f.get('hotel') == 'group':
                 site_f.append(f)
     findings = merge(core, site_f)
-    gfiles = {k: v for k, v in _agent_files(grun).items() if isinstance(v, dict) and '_invalid' not in v}
     # the group page covers site-wide work only; per-hotel agents are reported in each hotel's Audit Report
-    ran = {**{a: 'complete' for a in HOTEL_AGENTS}, **{k: v.get('status', 'complete') for k, v in gfiles.items()}}
-    health, cats = scores(core_checks + [dict(c, source=k) for k, d in gfiles.items() for c in d.get('checks', [])],
-                          ran)
+    ran = {**{a: 'complete' for a in HOTEL_AGENTS}, **site_status}
+    sa = score_all(core_checks + [dict(c, source=k) for k, d in gfiles.items() for c in d.get('checks', [])], ran)
+    health, cats = sa['health'], sa['categories']
     own = []
     for h in reg['hotels']:
         km = gd / 'hotels' / h['slug'] / 'keywords' / 'keyword-map.json'
@@ -689,8 +838,9 @@ def build_group(group_dir, run_date=None):
                findings, health, cats, {'short_name': reg['group'].get('name') or 'Group', 'agent_status': statuses,
                                         'subtitle': f"{len(reg['hotels'])} hotels · site-wide findings appear here "
                                                     'once'})
+    doc['scores'].update(health_fields(sa))
     doc['sections'] = pre + doc['sections']
     grun.mkdir(parents=True, exist_ok=True)
     (grun / 'group-summary.json').write_text(json.dumps(doc, indent=1, ensure_ascii=False), encoding='utf-8')
     return {'file': str(grun / 'group-summary.json'), 'hotels': len(reg['hotels']), 'site_findings': len(findings),
-            'site_health': health}
+            'site_health': health, 'site_health_label': sa['health_label'], 'site_health_note': sa['health_note']}
