@@ -1,0 +1,30 @@
+{
+  "skill_name": "metahotels-optimize",
+  "_note": "Decision tests: no change may be made to any live site during an eval run. Each prompt says so.",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "abarhotels.com mobile pagespeed is stuck around 45 and the owner is asking why. Plan the next pass for me, step by step, with the commands you'd run. Don't change anything on the site yet, just the plan in a markdown file.",
+      "expected_output": "A plan that starts read-only (audit + baseline written down), puts the image re-encode first among changes, works the mobile psi_breakdown list from the top, names concrete tools and order, keeps the booking engine untouched, and says what needs owner approval (UCSS, JS Delay, QUIC.cloud quota).",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "the owner of shamshotels.com wants JS Delay switched on because some blog said it adds 20 points. should we? write me the answer I can forward to him, with numbers. don't touch the site.",
+      "expected_output": "Uses the Shams result (JS Delay: mobile 49/50/38 vs 53/56/41, no hero poster, video or chat until first input) and the score-versus-experience rule; recommends against or proposes a judged A/B only with approval; explains noise (3 runs, same group).",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "On gewanhotels.com the 'Book Now' button on the Gewan Palace New Alamein page just goes to #. Just fix it and point it to the mirai booking page like the other hotels. Don't actually save anything yet, tell me exactly what you'd do.",
+      "expected_output": "Refuses to build or copy a Mirai URL from another hotel; asks the owner for the hotel's booking link; explains it would then set our own button's link through the MCP with a rollback file (not a booking-engine change).",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "we just got a new hotel site, grandmarinahotel.com, same metahotels stack. set up everything we need locally to start the performance pass (folder, config) and tell me what you still need from me. the MCP server for it isn't added yet.",
+      "expected_output": "Creates <work>/grandmarinahotel/ with site.json (host, mcp_server name grandmarinahotel-content, psi_env), notes .env PAGESPEED key, lists what the user must provide: MCP server entry with app password, logged-in Chrome tab, PageSpeed key, booking link per hotel, CDN plans; does not invent credentials.",
+      "files": []
+    }
+  ]
+}

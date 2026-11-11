@@ -1,0 +1,6 @@
+# Auto detect text files and normalise to LF in the repository AND in checkouts: the bash tools fail
+# with CRLF line endings (Windows clones with core.autocrlf=true would otherwise get them).
+* text=auto eol=lf
+*.sh text eol=lf
+*.png binary
+*.woff2 binary

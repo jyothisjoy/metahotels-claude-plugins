@@ -13,7 +13,7 @@ technical, sitemap, performance, agent readiness, backlinks, content (Opus), sch
 FLOW — with MetaHotels' hotel rules, on top of hotel-seo's own crawl, audit, Search Console, GA4, Keyword Planner,
 Mirai, booking engine and Booking.com data.
 
-The same `metahotels` marketplace also lists **metahotels-optimize** (the site performance pass; its code lives in `jyothisjoy/metahotels-optimize`, which needs the same GitHub access): `/plugin install metahotels-optimize@metahotels`, then `/metahotels-optimize:optimize --init`.
+The same `metahotels` marketplace also lists **metahotels-optimize** (the site performance pass; its code lives in `plugins/metahotels-optimize` of this repo): `/plugin install metahotels-optimize@metahotels`, then `/metahotels-optimize:optimize --init`.
 
 ## Before you start (once per person)
 

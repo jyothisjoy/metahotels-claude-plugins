@@ -1,0 +1,20 @@
+{
+  "host": "example-hotel.com",
+  "mcp_server": "examplehotel-content",
+  "psi_env": ".env",
+  "post_types": ["post", "page", "offer", "hotel_room", "facility"],
+  "languages": ["en", "ar"],
+  "pages": {
+    "inner": "/rooms-suites/",
+    "carousel": "/dining/"
+  },
+  "selectors": {},
+  "markers": {
+    "pluginEntrance": "id=\"examplehotel-perf-entrance\"",
+    "pluginDialogCss": "examplehotel-perf-e-dialog-css"
+  },
+  "booking_links": {
+    "_comment": "exactly as the owner gave them, with the date; never built or copied from another hotel"
+  },
+  "notes": []
+}

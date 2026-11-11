@@ -1,0 +1,10 @@
+{
+  "name": "metahotels-optimize",
+  "version": "1.0.0",
+  "description": "Complete performance pass for MetaHotels hotel websites (WordPress + Elementor + LiteSpeed, Mirai booking engine): setup, site onboarding, audit, image re-encode, root causes, LiteSpeed and site-plugin batches, regression checks and the owner report.",
+  "author": {
+    "name": "MetaHotels"
+  },
+  "license": "UNLICENSED",
+  "keywords": ["wordpress", "elementor", "litespeed", "pagespeed", "core-web-vitals", "hotels", "performance"]
+}

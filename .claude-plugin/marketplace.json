@@ -15,10 +15,7 @@
     },
     {
       "name": "metahotels-optimize",
-      "source": {
-        "source": "github",
-        "repo": "jyothisjoy/metahotels-optimize"
-      },
+      "source": "./plugins/metahotels-optimize",
       "description": "Complete performance pass for MetaHotels hotel websites (WordPress + Elementor + LiteSpeed, Mirai booking engine): /metahotels-optimize:optimize --init, then /metahotels-optimize:optimize <site>.",
       "version": "1.0.0",
       "category": "productivity"

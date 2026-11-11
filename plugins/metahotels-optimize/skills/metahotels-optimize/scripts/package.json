@@ -1,0 +1,10 @@
+{
+  "name": "perf-toolkit",
+  "private": true,
+  "description": "Headless measurement / regression tools for WordPress performance passes. See ../CLAUDE.md.",
+  "dependencies": {
+    "pixelmatch": "5.3.0",
+    "pngjs": "7.0.0",
+    "puppeteer-core": "23.11.1"
+  }
+}
