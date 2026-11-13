@@ -105,7 +105,10 @@ Scope: ONE hotel. Every JSON-LD block on its pages must be accounted for.
 3. Write the corrected **Hotel** block for this hotel (hotel-addendum.md field list; facts only from the facts file or
    the live site; [CONFIRM] otherwise), plus Organization / WebSite / BreadcrumbList as needed. Give it as a `code`
    block and as a `schema_snippet` action with `conditions` naming the page, e.g. `["page:<hotel main page URL>"]`
-   (execute turns that into the Elementor display condition). Existing snippets: `site_mcp_read(site,
+   (execute turns that into the Elementor display condition). `code` is the JSON-LD object or the complete
+   `<script type="application/ld+json">...</script>` block and nothing else: valid JSON, with "@context". Execute
+   refuses anything else, because Elementor Custom Code prints the code as it is (bare JSON shows on the page as
+   text). Schema never goes in page copy, `post_content`, `elementor_text` or `text_replace`. Existing snippets: `site_mcp_read(site,
    "elementor-list-custom-code", {})` to find the one to replace (`replace_snippet_id`).
 4. Restate `jsonld_invalid` with the exact fixed block. FAQPage is Info only; never HowTo / SpecialAnnouncement.
 

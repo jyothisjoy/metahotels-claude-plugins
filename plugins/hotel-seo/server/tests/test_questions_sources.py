@@ -179,6 +179,7 @@ def test_nap_correction_only_where_the_phrase_is_on_the_page(hotel):
     corr = questions.corrections('example-hotels.com', 'ex')
     phone = [c for c in corr if c['question'] == ids['phone']]
     assert [(c['url'], c['find'], c['replace']) for c in phone] == [(PAGE, '+971 4 111 2222', '+971 4 999 8888')]
+    assert phone[0]['match_mode'] == 'phone' and phone[0]['pages'] == [PAGE]
     # the restaurant number on the other page is not the hotel's phone: left alone
     assert not any('555' in c['find'] for c in corr)
     name = [c for c in corr if c['question'] == ids['name']]

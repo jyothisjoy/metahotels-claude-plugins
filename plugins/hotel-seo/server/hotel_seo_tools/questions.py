@@ -875,7 +875,7 @@ def build(group_dir, slug, run_date=None):
     if old.get('imported'):
         data['imported'] = old['imported']
     qf.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding='utf-8')
-    xlsx = _write_xlsx(data, hdir / 'Reports', hotel)
+    xlsx = _write_xlsx(data, paths.reports_dir(hdir), hotel)
     return {'file': str(qf), 'xlsx': str(xlsx), 'questions': len(qs), 'rooms': len(rooms), 'distances': len(dists),
             'facts': len(basics), 'business_profile': len(gbp_rows),
             'ai_answer_errors': sum(1 for i in qs if i.get('type') == 'ai_error'),
@@ -943,7 +943,7 @@ def edit(group_dir, slug, edits):
     data['items'] = [i for i in items.values() if i['id'] not in renumber]
     data['dropped_keys'] = sorted(dropped)
     qf.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding='utf-8')
-    xlsx = _write_xlsx(data, hdir / 'Reports', hotel)
+    xlsx = _write_xlsx(data, paths.reports_dir(hdir), hotel)
     return {'questions': sum(1 for i in data['items'] if i['sheet'] == 'Questions'), 'dropped': [k for k, v in
             renumber.items() if v is None], 'merged': {k: v for k, v in renumber.items() if v}, 'problems': problems,
             'xlsx': str(xlsx)}
@@ -999,6 +999,9 @@ def _write_xlsx(data, out_dir, hotel):
               None),
              ('Distances and facts about the area: if you don\'t know, write "Don\'t know". We then take it out of the '
               'text; you don\'t need to look it up.', None),
+             ('Rooms: the website follows your booking engine. Leave a room blank if the booking engine is right; '
+              'fill it in only where the booking engine is wrong (then we also tell whoever manages the engine).',
+              None),
              ('', None),
              *[(f'{s}: {n} item(s)', Font(bold=True)) for s, n in counts.items() if n],
              ('', None),
@@ -1230,6 +1233,12 @@ def _claim_outcomes(hdir, answered, today):
             for st, c, qid in outcome.values() if st.startswith('remove')]
 
 
+def _first_num(v):
+    """The first number in "35 m²", "35m2", 4 or "Max 4 guests"; None when there is none."""
+    m = re.search(r'\d+(?:[.,]\d+)?', str(v if v is not None else ''))
+    return float(m.group(0).replace(',', '.')) if m else None
+
+
 def _num(v):
     try:
         return float(str(v).replace(',', '.').split()[0])
@@ -1265,12 +1274,21 @@ def _nap_corrections(i, want, texts):
         site = {_digits9(v['value']) for v in i['nap_values'] if v['source'] == 'Website'}
         other = {_digits9(v['value']) for v in i['nap_values'] if v['source'] != 'Website'}
         wrong = (other | (site if len(site) == 1 else site & other)) - {_digits9(want), ''}
+        # one correction per wrong number, over every page that shows it: execute replaces it with replace-text in
+        # "phone" mode (every format, tel: links, and the header / footer template it usually comes from; Nov 2026:
+        # the Arabic number sat in one shared template behind 16 pages). Sites without replace-text get one per page.
+        by_number = {}
         for url, text in texts.items():
             for m in PHONE_RUN.finditer(text or ''):
                 run = m.group(0).strip(' .-()')
                 if _digits9(run) in wrong:
-                    out.append({'type': 'text_replace', 'url': url, 'find': run, 'replace': want,
-                                'question': i['id'], 'why': why})
+                    g = by_number.setdefault(_digits9(run), {'find': run, 'finds': {}})
+                    g['finds'].setdefault(url, run)
+        for g in by_number.values():
+            pages = list(g['finds'])
+            out.append({'type': 'text_replace', 'url': pages[0], 'find': g['find'], 'replace': want,
+                        'match_mode': 'phone', 'sitewide': True, 'pages': pages, 'finds': g['finds'],
+                        'question': i['id'], 'why': why})
         return out
     for o in olds:
         if len(o) < 6 or o.lower() in want.lower():
@@ -1293,6 +1311,15 @@ def corrections(group_dir, slug):
     out = []
     for i in data['items']:
         a = i.get('answer') or {}
+        engine = {}
+        if i['sheet'] == 'Rooms' and not a:
+            # The booking engine's /search page is right unless the hotel says otherwise in the Rooms sheet: with no
+            # answer for the room, the site follows the engine's size and maximum guests.
+            engine = {k: v for k, v in (('size_m2', _first_num(i.get('engine_size'))),
+                                        ('max_adults', _first_num(i.get('engine_guests')))) if v is not None}
+            a = {k: (int(v) if float(v).is_integer() else v) for k, v in engine.items()}
+        src = (lambda what: f"Booking engine ({i['room']}): {what}; the site follows the engine") if engine else             (lambda what: f"Hotel answer {i['id']}: {what}")
+        tag = {'finding': 'booking-room_size_mismatch', 'source': 'booking engine'} if engine else {}
         if i['sheet'] == 'Rooms' and i.get('page') and _num(a.get('size_m2')) is not None:
             want = _num(a['size_m2'])
             text = texts.get(i['page'], '')
@@ -1302,7 +1329,7 @@ def corrections(group_dir, slug):
                 if _num(m.group(1)) != want or '–' in m.group(0) or '-' in m.group(0):
                     new = f"{a['size_m2']} {m.group(2)}"
                     out.append({'type': 'text_replace', 'url': i['page'], 'find': m.group(0), 'replace': new,
-                                'question': i['id'], 'why': f"Hotel answer {i['id']}: {i['room']} is {a['size_m2']} m²"})
+                                'question': i['id'], 'why': src(f"{i['room']} is {a['size_m2']} m²"), **tag})
         if i['sheet'] == 'Rooms' and i.get('page') and _num(a.get('max_adults')) is not None:
             want = int(_num(a['max_adults']) + (_num(a.get('max_children')) or 0))
             text = texts.get(i['page'], '')
@@ -1312,7 +1339,7 @@ def corrections(group_dir, slug):
                 if int(m.group(1)) != want:
                     out.append({'type': 'text_replace', 'url': i['page'], 'find': m.group(0),
                                 'replace': m.group(0).replace(m.group(1), str(want), 1), 'question': i['id'],
-                                'why': f"Hotel answer {i['id']}: {i['room']} sleeps up to {want}"})
+                                'why': src(f"{i['room']} sleeps up to {want}"), **tag})
         if i['sheet'] == 'Distances' and _num(a.get('road_km')) is not None:
             want = _num(a['road_km'])
             for p in i.get('phrases') or []:

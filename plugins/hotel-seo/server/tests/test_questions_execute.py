@@ -140,3 +140,22 @@ def test_execute_reports_split_done_agency_and_waiting(site):
     assert 'Robots fine' not in titles                        # no action needed
     wait = next(s for s in ag['sections'] if s['title'].startswith('Do not change yet'))
     assert {row[0] for row in wait['blocks'][1]['table']['rows']} >= {'Room sizes', 'Loyalty tiers'}
+
+
+def test_unanswered_rooms_follow_the_booking_engine(site):
+    """The engine's /search page is right unless the hotel says otherwise in the Rooms sheet."""
+    r = questions.build('example-hotels.com', 'ex')
+    corr = questions.corrections('example-hotels.com', 'ex')
+    assert [(c['find'], c['replace'], c['source'], c['finding']) for c in corr] == [
+        ('53 sqm', '68 sqm', 'booking engine', 'booking-room_size_mismatch')]
+    room = next(i for i in questions.load('example-hotels.com', 'ex')['items'] if i['sheet'] == 'Rooms')
+    assert execute._answer_state('R1', room, 'Studio Apartment: 68 m²') == 'yes'     # not "waiting" any more
+    assert execute._answer_state('R1', room, 'Studio Apartment: 53 m²') == 'value'
+    # the hotel's sheet answer wins over the engine
+    wb = load_workbook(r['xlsx'])
+    wb['Rooms'].cell(row=2, column=10, value=60)
+    filled = site / 'filled.xlsx'
+    wb.save(filled)
+    questions.import_answers('example-hotels.com', 'ex', str(filled))
+    corr = questions.corrections('example-hotels.com', 'ex')
+    assert [(c['find'], c['replace']) for c in corr] == [('53 sqm', '60 sqm')] and 'source' not in corr[0]

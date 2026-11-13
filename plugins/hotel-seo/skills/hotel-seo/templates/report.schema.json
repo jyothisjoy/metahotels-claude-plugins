@@ -1014,7 +1014,8 @@
            "type": "string"
           },
           "code": {
-           "type": "string"
+           "type": "string",
+           "description": "the JSON-LD: either the object or the full <script type=\"application/ld+json\">...</script> block; nothing else (execute checks and wraps it)"
           },
           "conditions": {
            "type": "array",
@@ -1089,7 +1090,43 @@
          "required": [
           "url",
           "content"
-         ]
+         ],
+         "description": "Only for a page NOT built with Elementor (its text is not in post content): on an Elementor page use elementor_text or text_replace. Never JSON-LD."
+        },
+        {
+         "properties": {
+          "type": {
+           "const": "text_replace"
+          },
+          "url": {
+           "type": "string"
+          },
+          "find": {
+           "type": "string",
+           "description": "the exact text on the page now (a phrase, a heading, a button label); for a phone number any format"
+          },
+          "replace": {
+           "type": "string",
+           "description": "the new text, exactly as it should read"
+          },
+          "match_mode": {
+           "enum": [
+            "exact",
+            "phone"
+           ],
+           "description": "phone: the same number in every format and tel: link"
+          },
+          "sitewide": {
+           "type": "boolean",
+           "description": "true: every page of this hotel (and the header / footer templates), not just url"
+          }
+         },
+         "required": [
+          "url",
+          "find",
+          "replace"
+         ],
+         "description": "Change a phrase wherever it is stored: page text, Elementor widgets, header / footer / global templates, Custom Code, menus (find-text / replace-text). Never JSON-LD."
         },
         {
          "properties": {
@@ -2070,7 +2107,8 @@
           "type": "string"
          },
          "code": {
-          "type": "string"
+          "type": "string",
+          "description": "the JSON-LD: either the object or the full <script type=\"application/ld+json\">...</script> block; nothing else (execute checks and wraps it)"
          },
          "conditions": {
           "type": "array",
@@ -2145,7 +2183,43 @@
         "required": [
          "url",
          "content"
-        ]
+        ],
+        "description": "Only for a page NOT built with Elementor (its text is not in post content): on an Elementor page use elementor_text or text_replace. Never JSON-LD."
+       },
+       {
+        "properties": {
+         "type": {
+          "const": "text_replace"
+         },
+         "url": {
+          "type": "string"
+         },
+         "find": {
+          "type": "string",
+          "description": "the exact text on the page now (a phrase, a heading, a button label); for a phone number any format"
+         },
+         "replace": {
+          "type": "string",
+          "description": "the new text, exactly as it should read"
+         },
+         "match_mode": {
+          "enum": [
+           "exact",
+           "phone"
+          ],
+          "description": "phone: the same number in every format and tel: link"
+         },
+         "sitewide": {
+          "type": "boolean",
+          "description": "true: every page of this hotel (and the header / footer templates), not just url"
+         }
+        },
+        "required": [
+         "url",
+         "find",
+         "replace"
+        ],
+        "description": "Change a phrase wherever it is stored: page text, Elementor widgets, header / footer / global templates, Custom Code, menus (find-text / replace-text). Never JSON-LD."
        },
        {
         "properties": {
@@ -3002,7 +3076,8 @@
        "type": "string"
       },
       "code": {
-       "type": "string"
+       "type": "string",
+       "description": "the JSON-LD: either the object or the full <script type=\"application/ld+json\">...</script> block; nothing else (execute checks and wraps it)"
       },
       "conditions": {
        "type": "array",
@@ -3077,7 +3152,43 @@
      "required": [
       "url",
       "content"
-     ]
+     ],
+     "description": "Only for a page NOT built with Elementor (its text is not in post content): on an Elementor page use elementor_text or text_replace. Never JSON-LD."
+    },
+    {
+     "properties": {
+      "type": {
+       "const": "text_replace"
+      },
+      "url": {
+       "type": "string"
+      },
+      "find": {
+       "type": "string",
+       "description": "the exact text on the page now (a phrase, a heading, a button label); for a phone number any format"
+      },
+      "replace": {
+       "type": "string",
+       "description": "the new text, exactly as it should read"
+      },
+      "match_mode": {
+       "enum": [
+        "exact",
+        "phone"
+       ],
+       "description": "phone: the same number in every format and tel: link"
+      },
+      "sitewide": {
+       "type": "boolean",
+       "description": "true: every page of this hotel (and the header / footer templates), not just url"
+      }
+     },
+     "required": [
+      "url",
+      "find",
+      "replace"
+     ],
+     "description": "Change a phrase wherever it is stored: page text, Elementor widgets, header / footer / global templates, Custom Code, menus (find-text / replace-text). Never JSON-LD."
     },
     {
      "properties": {

@@ -111,7 +111,6 @@ with `add_facts` (source `hotel (<who>, <channel> <date>)`).
 
 ## D. Standing access
 
-- [ ] The Google sign-in includes Docs (`init --check` → Google Docs output OK); otherwise documents come as PDF and Word only.
 - [ ] metahotels.m@gmail.com has Search Console and GA4 access for every hotel on the rollout list (`init --check` shows how many properties it sees).
 - [ ] `MIRAI_USER` and `MIRAI_PASS` (Mirai XML API) in the `.env` of the work folder on each machine, or the Mirai masterkey (individual hotel views) for the reservations export.
 - [ ] Each site's row in `sites.csv` logs in (`sites_csv_status`, `site_mcp_status`): a 401 means the user name or

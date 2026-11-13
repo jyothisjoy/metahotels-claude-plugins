@@ -37,13 +37,87 @@ BATCH_ORDER = ['booking-path', 'hotel-answers', 'seo-fields', 'redirects', 'elem
 TYPE_BATCH = {'seo_fields': 'seo-fields', 'redirect': 'redirects', 'elementor_text': 'elementor-text',
               'schema_snippet': 'schema', 'alt_text': 'alt-text', 'post_status': 'post-status',
               'post_content': 'elementor-text', 'menu': 'menus', 'page_create': 'new-pages', 'chrome': 'chrome',
-              'rankmath_setting': 'group', 'text_replace': 'hotel-answers'}
+              'rankmath_setting': 'group', 'text_replace': 'elementor-text'}
 NEEDS_TOOL = {'seo_fields': 'seo-update-posts', 'redirect': 'redirects-create', 'alt_text': 'update-media',
               'elementor_text': 'elementor-update-element', 'schema_snippet': 'elementor-set-custom-code',
               'rankmath_setting': 'seo-update-settings', 'post_status': 'set-post-status',
               'post_content': 'update-post', 'menu': 'update-menu-item', 'page_create': 'create-post'}
 PRICE = re.compile(r'(?:AED|USD|EUR|SAR|EGP|\$|€)\s?\d|\d\s?(?:AED|USD|EUR|SAR|EGP|dirhams?)\b|\d+\s?%\s*(?:off|discount)'
                    r'|\b(?:discount|save)\s+\d+\s?%', re.I)
+
+# ---------------------------------------------------------------- schema code and the JSON-LD guard
+# Elementor Custom Code prints its code word for word. Bare JSON (no <script type="application/ld+json">) lands in the
+# page as text: Nov 2026, a schema batch dumped the JSON-LD on the live site. Every schema write goes through
+# schema_code(); page text, widget text and replacements never carry JSON-LD (no_jsonld()).
+LD_SCRIPT = re.compile(r'<script\b[^>]*\btype\s*=\s*["\']?application/ld\+json["\']?[^>]*>(.*?)</script\s*>',
+                       re.I | re.S)
+JSONLD_TEXT = re.compile(r'application/ld\+json|"@context"\s*:|"@type"\s*:\s*"|https?://schema\.org["\']?\s*[,}]', re.I)
+
+
+def schema_code(code):
+    """The snippet code for one or more JSON-LD blocks: each block parsed, checked and written back as
+    <script type="application/ld+json">...</script> ("</" escaped so a value can't close the tag). Accepts a JSON-LD
+    object or list, a JSON string, or <script type="application/ld+json"> blocks. ValueError for invalid JSON, HTML or
+    text outside the blocks (it would print on the page), or JSON without "@context"."""
+    if isinstance(code, (dict, list)):
+        datas = [code]
+    else:
+        s = str(code or '').strip()
+        if not s:
+            raise ValueError('the schema code is empty')
+        blocks = LD_SCRIPT.findall(s)
+        if blocks:
+            rest = re.sub(r'<!--.*?-->', '', LD_SCRIPT.sub('', s), flags=re.S).strip()
+            if rest:
+                raise ValueError('text outside the <script type="application/ld+json"> block would print on the '
+                                 f'page: {rest[:80]!r}')
+        elif s.startswith('<'):
+            raise ValueError('the schema code is HTML, not JSON-LD in <script type="application/ld+json">: '
+                             f'{s[:80]!r}')
+        else:
+            blocks = [s]
+        datas = []
+        for b in blocks:
+            try:
+                datas.append(json.loads(b))
+            except ValueError as e:
+                raise ValueError(f'invalid JSON-LD ({e}): Google ignores the block and nothing is written') from e
+    out = []
+    for d in datas:
+        nodes = d if isinstance(d, list) else [d]
+        if not nodes or not all(isinstance(n, dict) for n in nodes):
+            raise ValueError('JSON-LD must be an object or a list of objects')
+        if not all('@context' in n for n in nodes):
+            raise ValueError('a JSON-LD block has no "@context" (https://schema.org)')
+        body = json.dumps(d, ensure_ascii=False, indent=1).replace('</', '<\\/').replace('<!--', '<\\!--')
+        out.append(f'<script type="application/ld+json">\n{body}\n</script>')
+    return '\n'.join(out)
+
+
+def no_jsonld(value, where):
+    """ValueError when page text (content, widget settings, a replacement) carries JSON-LD: it would show as text."""
+    def strings(v):
+        if isinstance(v, str):
+            yield v
+        elif isinstance(v, dict):
+            for x in v.values():
+                yield from strings(x)
+        elif isinstance(v, list):
+            for x in v:
+                yield from strings(x)
+    if any(JSONLD_TEXT.search(t) for t in strings(value)):
+        raise ValueError(f'{where} contains JSON-LD (schema): it would print as text on the page. Schema goes in a '
+                         'schema_snippet action (Elementor Custom Code), never in page text')
+
+
+def _schema_checks(urls):
+    """Re-checks after a schema write: every block parses and no JSON-LD shows as page text."""
+    out = []
+    for u in urls:
+        out += [{'type': 'jsonld_valid', 'url': u},
+                {'type': 'text_absent', 'url': u, 'text': '"@context"', 'scope': 'visible'},
+                {'type': 'text_absent', 'url': u, 'text': 'schema.org', 'scope': 'visible'}]
+    return out
 
 
 def _norm(u):
@@ -72,6 +146,16 @@ class Site:
         self.integrations = integ
         self._ids = {}
         self.types = {}
+        self.single = True          # set by plan(): a single-hotel site (shared templates are this hotel's)
+        self.hotel_paths = []       # set by plan() on a group site: the hotel's URL paths
+
+    def owns(self, url):
+        """Whether a page belongs to the hotel being run (always on a single-hotel site)."""
+        if self.single or not self.hotel_paths:
+            return True
+        p = _norm(url or '/')
+        p = re.sub(r'^/[a-z]{2}(?:-[a-z]{2})?/', '/', p)          # /ar/..., /en-gb/...
+        return any(p.startswith('/' + h.strip('/') + '/') for h in self.hotel_paths if h.strip('/'))
 
     def read(self, tool, args):
         r = sites.call(self.site, tool, args)
@@ -142,6 +226,11 @@ def _answer_state(qid, item, text):
     """yes / no / value / waiting for one question the action depends on."""
     from . import questions as qm
     a = (item or {}).get('answer') or {}
+    if not a and (item or {}).get('sheet') == 'Rooms':
+        # no answer in the Rooms sheet: the booking engine's values stand (the engine is right unless the hotel says
+        # otherwise there)
+        a = {k: v for k, v in (('size_m2', qm._first_num(item.get('engine_size'))),
+                               ('max_adults', qm._first_num(item.get('engine_guests')))) if v is not None}
     if not a:
         return 'waiting'
     if item['sheet'] == 'Questions':
@@ -207,6 +296,9 @@ def plan(group_dir, slug, only=None):
         slug = reg['hotels'][0]['slug']
     site = reg['group']['site']
     s = Site(site)
+    s.single = bool(single)
+    if not single and slug != 'group':
+        s.hotel_paths = list(next((h for h in reg['hotels'] if h['slug'] == slug), {}).get('paths') or [])
     hdir = grp.site_dir(group_dir, reg) if slug == 'group' else grp.hotel_dir(group_dir, slug, reg)
     run = _latest(hdir, 'audit-')
     if not run:
@@ -281,37 +373,75 @@ def plan(group_dir, slug, only=None):
                 item['batch'] = 'booking-path' if sec.get('category') == 'Booking path & facts' and a['type'] != 'chrome' \
                     else (('site-settings' if single else 'group') if group_wide else TYPE_BATCH.get(a['type'], 'chrome'))
             try:
-                item.update(_resolve(s, a, pages_spec))
+                res = _resolve(s, a, pages_spec)
             except Exception as e:  # noqa: BLE001
                 skipped.append({'finding': fid, 'action': a['type'], 'act': a, 'reason': f'could not resolve: {str(e)[:200]}'})
                 continue
-            item['validation'] = _validate_calls(s, item.get('calls') or [])
-            if item['validation'].get('ok') is False:
-                skipped.append({'finding': fid, 'action': a['type'], 'act': a,
-                                'reason': 'the site rejected it in a dry run: ' + item['validation'].get('error', '')})
-                continue
-            planned.append(item)
+            if a['type'] == 'schema_snippet':
+                item['checks'] = list(item['checks']) + _schema_checks(res.pop('check_urls', []))
+            for k, part in enumerate(_split(res)):
+                it = dict(item, **part)
+                if part.get('batch_override'):
+                    it['batch'] = it.pop('batch_override')
+                if 'checks_extra' in it:
+                    it['checks'] = list(it['checks']) + it.pop('checks_extra')
+                if k:
+                    n += 1
+                    it['id'] = f'a{n}'
+                it['validation'] = _validate_calls(s, it.get('calls') or [])
+                if it['validation'].get('ok') is False:
+                    skipped.append({'finding': fid, 'action': a['type'], 'act': a,
+                                    'reason': 'the site rejected it in a dry run: ' + it['validation'].get('error', '')})
+                    continue
+                planned.append(it)
     if qdata:
-        for c in qm.corrections(group_dir, slug):
+        for c in _expand_corrections(qm.corrections(group_dir, slug), s):
             n += 1
-            item = {'id': f'a{n}', 'finding': f"hotel-answer-{c['question']}", 'title': c['why'],
-                    'category': 'Hotel answers', 'action': c, 'batch': 'hotel-answers',
-                    'checks': [{'type': 'text_present', 'url': c['url'], 'text': c['replace']},
-                               {'type': 'text_absent', 'url': c['url'], 'text': c['find']}]}
+            pages = c.get('pages') or [c['url']]
+            finds = c.get('finds') or {}
+            by_engine = c.get('source') == 'booking engine'      # no sheet answer: the site follows the engine
+            item = {'id': f'a{n}', 'finding': c.get('finding') or f"hotel-answer-{c['question']}", 'title': c['why'],
+                    'category': 'Booking path & facts' if by_engine else 'Hotel answers', 'action': c,
+                    'batch': 'booking-path' if by_engine else 'hotel-answers',
+                    'checks': [x for p in pages for x in (
+                        {'type': 'text_present', 'url': p, 'text': c['replace']},
+                        {'type': 'text_absent', 'url': p, 'text': finds.get(p, c['find'])})]}
             try:
-                item.update(_resolve(s, c, pages_spec))
+                res = _resolve(s, c, pages_spec)
             except Exception as e:  # noqa: BLE001
                 skipped.append({'finding': item['finding'], 'action': 'text_replace', 'page': c['url'],
                                 'find': c['find'], 'replace': c['replace'],
                                 'reason': f'could not change it through MCP: {str(e)[:200]}'})
                 continue
-            planned.append(item)
+            for k, part in enumerate(_split(res)):
+                it = dict(item, **part)
+                if part.get('batch_override'):
+                    it['batch'] = it.pop('batch_override')
+                if k:
+                    n += 1
+                    it['id'] = f'a{n}'
+                it['validation'] = _validate_calls(s, it.get('calls') or [])
+                if it['validation'].get('ok') is False:
+                    skipped.append({'finding': item['finding'], 'action': 'text_replace', 'page': c['url'],
+                                    'find': c['find'], 'replace': c['replace'],
+                                    'reason': 'the site rejected it in a dry run: ' + it['validation'].get('error', '')})
+                    continue
+                planned.append(it)
     if slug != 'group' and not any(x['action'].get('field') == 'website' for x in gbp_acts):
         hotel = next((h for h in reg['hotels'] if h['slug'] == slug), {})
         hotel_url = site.rstrip('/') + ('/' if single else '/' + ((hotel.get('paths') or ['/'])[0]).lstrip('/'))
         gbp_acts += [x for x in _gbp_report_actions(hdir, hotel_url)
                      if not only or x['finding'] in only or x['category'] in only]
-    gbp_items, gbp_skipped, gbp_note, n = _gbp_plan(group_dir, slug, hdir, gbp_acts, n)
+    replies = None
+    if slug != 'group':
+        from . import gbp_reviews
+        sheet = gbp_reviews.latest_sheet(hdir)
+        if sheet and (not only or 'gbp-review-replies' in only or 'Local' in only):
+            try:
+                replies = gbp_reviews.read_sheet(sheet)
+            except Exception as e:  # noqa: BLE001 - a broken sheet: say so, plan the rest
+                replies = {'xlsx': str(sheet), 'replies': [], 'problems': [f'the review sheet could not be read: {e}']}
+    gbp_items, gbp_skipped, gbp_note, n = _gbp_plan(group_dir, slug, hdir, gbp_acts, n, replies)
     planned += gbp_items
     skipped += gbp_skipped
     batches = defaultdict(list)
@@ -347,7 +477,28 @@ def plan(group_dir, slug, only=None):
                        if out['batches'].get(GBP_BATCH) else '')}
 
 
-DRY_RUN_TOOLS = {'seo-update-posts', 'seo-update-settings'}
+DRY_RUN_TOOLS = {'seo-update-posts', 'seo-update-settings', 'replace-text'}
+
+
+def _split(res):
+    """_resolve gives one plan item, or several under "parts" (e.g. a shared template on a group site)."""
+    return res['parts'] if 'parts' in res else [res]
+
+
+def _expand_corrections(corr, s):
+    """A phone correction covering several pages ("pages") is one replace-text item; a site without replace-text
+    gets one item per page, as before."""
+    if 'replace-text' in s.tools and 'find-text' in s.tools:
+        return corr
+    out = []
+    for c in corr:
+        if not c.get('pages'):
+            out.append(c)
+            continue
+        for p in c['pages']:
+            out.append({k: v for k, v in c.items() if k not in ('pages', 'finds', 'sitewide', 'match_mode')}
+                       | {'url': p, 'find': (c.get('finds') or {}).get(p, c['find'])})
+    return out
 
 
 def _validate_calls(s, calls):
@@ -357,9 +508,11 @@ def _validate_calls(s, calls):
         if tool in DRY_RUN_TOOLS:
             try:
                 res = s.write(tool, dict(args, dry_run=True))
-                errs = res.get('errors') or {}
+                errs = res.get('errors') or res.get('failed') or {}
                 if errs or res.get('success') is False:
                     return {'ok': False, 'error': json.dumps(errs or res, ensure_ascii=False)[:300]}
+                if tool == 'replace-text' and not (res.get('would_replace') or res.get('total_matches')):
+                    return {'ok': False, 'error': f'"{args.get("find")}" was not found any more (already changed?)'}
                 checked.append(tool)
             except Exception as e:  # noqa: BLE001
                 return {'ok': False, 'error': str(e)[:300]}
@@ -432,33 +585,54 @@ def _resolve(s, a, pages_spec):
                 'undo': [['update-media', {'items': [dict({'attachment_id': mid} if mid else {'url': a['image']},
                                                            alt_text=alt or '')]}]] if alt is not None else None,
                 'media': item}
-    if t in ('elementor_text', 'post_content'):
+    if t == 'post_content':
+        no_jsonld(a['content'], 'the page content')
         pid = s.post_id(a['url'])
-        if t == 'post_content':
-            cur = s.read('get-post', {'post_id': pid, 'include_elementor': False})
-            old = (cur.get('post') or cur).get('content', '')
-            return {'page': a['url'], 'post_id': pid, 'field': 'content', 'current': old[:300], 'new': a['content'][:300],
-                    'calls': [['update-post', {'post_id': pid, 'content': a['content']}]],
-                    'undo': [['update-post', {'post_id': pid, 'content': old}]]}
+        cur = s.read('get-post', {'post_id': pid, 'include_elementor': True})
+        post = cur.get('post') or cur
+        if (post.get('elementor') or {}).get('element_count'):
+            return _elementor_body(s, a, pid)
+        old = post.get('content', '')
+        return {'page': a['url'], 'post_id': pid, 'field': 'content', 'current': old[:300], 'new': a['content'][:300],
+                'calls': [['update-post', {'post_id': pid, 'content': a['content']}]],
+                'undo': [['update-post', {'post_id': pid, 'content': old}]]}
+    if t == 'elementor_text':
+        no_jsonld(a['settings'], 'the Elementor settings')
+        pid = s.post_id(a['url'])
         st = s.read('elementor-get-structure', {'post_id': pid, 'search': a['find'][:60], 'include_settings': True})
         els = st.get('elements') or []
+        where, shared = pid, None
+        if not els and 'find-text' in s.tools:
+            # not on the page itself: a header / footer / global widget template (find-text searches them all)
+            where, el_id, shared = _find_element(s, a['find'])
+            st = s.read('elementor-get-structure', {'post_id': where, 'search': a['find'][:60],
+                                                    'include_settings': True})
+            els = [e for e in st.get('elements') or [] if e.get('id') == el_id]
         if len(els) != 1:
             raise LookupError(f'"{a["find"][:60]}" matches {len(els)} Elementor elements on {a["url"]}: needs one')
         el = els[0]
         settings = _rendered_settings(el, a['settings'])
         old = {k: (el.get('settings') or {}).get(k) for k in settings}
-        return {'page': a['url'], 'post_id': pid, 'field': 'elementor ' + ', '.join(settings), 'current': old,
-                'new': settings, 'calls': [['elementor-update-element', {'post_id': pid, 'element_id': el['id'],
-                                                                          'settings': settings}]],
-                'undo': [['elementor-update-element', {'post_id': pid, 'element_id': el['id'], 'settings': old}]]}
+        out = {'page': a['url'] if not shared else f"{shared['title']} (template, shows on many pages)",
+               'post_id': where, 'field': 'elementor ' + ', '.join(settings), 'current': old,
+               'new': settings, 'calls': [['elementor-update-element', {'post_id': where, 'element_id': el['id'],
+                                                                         'settings': settings}]],
+               'undo': [['elementor-update-element', {'post_id': where, 'element_id': el['id'], 'settings': old}]]}
+        if shared:
+            out['shared'] = shared['shared']
+            if not s.single:
+                out['batch_override'] = 'group'
+        return out
     if t == 'schema_snippet':
         cur = None
         if a.get('replace_snippet_id'):
             cur = s.read('elementor-get-custom-code', {'post_id': a['replace_snippet_id']})
-        conds = []
+        code = schema_code(a['code'])
+        conds, check_urls = [], []
         for c in a['conditions']:
             if str(c).startswith('page:'):
                 url = c.split(':', 1)[1]
+                check_urls.append(url)
                 if _norm(url) == '/':
                     conds.append('include/singular/front_page')
                 else:
@@ -466,14 +640,16 @@ def _resolve(s, a, pages_spec):
                     conds.append(f"include/singular/{s.types.get(_norm(url), 'page')}/{pid}")
             else:
                 conds.append(c)
-        args = {'title': a['title'], 'code': a['code'], 'conditions': conds, 'status': 'publish',
+                if 'general' in str(c):
+                    check_urls.append('/')
+        args = {'title': a['title'], 'code': code, 'conditions': conds, 'status': 'publish',
                 'location': 'elementor_head'}
         if a.get('replace_snippet_id'):
             args['post_id'] = a['replace_snippet_id']
         old = (cur or {}).get('snippet') or cur
         return {'page': ', '.join(a['conditions']), 'field': 'schema snippet', 'current': (old or {}).get('code', '')[:200]
-                if isinstance(old, dict) else None, 'new': a['code'][:200],
-                'calls': [['elementor-set-custom-code', args]],
+                if isinstance(old, dict) else None, 'new': code[:200],
+                'calls': [['elementor-set-custom-code', args]], 'check_urls': check_urls or ['/'],
                 'undo': [['elementor-set-custom-code', {'post_id': a['replace_snippet_id'], 'code': old.get('code')}]]
                 if a.get('replace_snippet_id') and isinstance(old, dict) else 'draft-created'}
     if t == 'rankmath_setting':
@@ -517,15 +693,21 @@ def _resolve(s, a, pages_spec):
             raise ValueError('the page still has [CONFIRM] facts or is held for the hotel')
         if PRICE.search(body):
             raise ValueError('the page copy contains a price or discount: never published by execute')
+        content = spec.get('content_html') or _copy_html(spec.get('copy', ''))
+        no_jsonld(content, f"the copy of page {a['page_id']}")
+        jsonld = schema_code(spec['jsonld']) if spec.get('jsonld') else None
         return {'page': spec.get('url'), 'field': 'new page', 'current': None,
                 'new': {k: spec.get(k) for k in ('title', 'url', 'seo_title', 'meta_description')},
                 'calls': [['create-post', {'post_type': spec.get('post_type', 'page'), 'title': spec['title'],
                                            'slug': spec['url'].strip('/').split('/')[-1],
-                                           'content': spec.get('content_html') or _copy_html(spec.get('copy', '')),
-                                           'status': 'publish'}]],
+                                           'content': content, 'status': 'publish'}]],
                 'then': {'seo_fields': {k: spec[k] for k in ('seo_title', 'meta_description') if spec.get(k)},
-                         'schema': spec.get('jsonld')}, 'undo': 'draft-created'}
+                         'schema': jsonld}, 'undo': 'draft-created',
+                **({'checks_extra': _schema_checks([spec['url']])} if jsonld else {})}
     if t == 'text_replace':
+        no_jsonld(a['replace'], 'the replacement text')
+        if 'replace-text' in s.tools and 'find-text' in s.tools:
+            return _resolve_replace_text(s, a)
         pid = s.post_id(a['url'])
         calls, undo = [], []
         if 'elementor-get-structure' in s.tools:
@@ -553,6 +735,109 @@ def _resolve(s, a, pages_spec):
         return {'page': a['where'], 'field': 'Claude in Chrome', 'current': None, 'new': a['steps'], 'calls': [],
                 'via': 'chrome', 'undo': 'manual: reverse the steps by hand'}
     raise ValueError(f'unknown action type {t}')
+
+
+def _find_posts(s, args):
+    """find-text, following the cursor: every post with a match."""
+    posts, after = [], 0
+    for _ in range(20):
+        res = s.read('find-text', dict(args, limit=200, **({'after_id': after} if after else {})))
+        posts += res.get('posts') or []
+        if not res.get('more'):
+            break
+        after = res.get('next_after_id') or 0
+    return posts, res.get('notes') or []
+
+
+def _find_element(s, find):
+    """(post id, element id, shared summary or None) of the one Elementor element anywhere on the site (pages and
+    templates) whose text contains find; LookupError when there is none or more than one."""
+    posts, _ = _find_posts(s, {'find': find, 'fields': ['elementor']})
+    hits = {(p['post_id'], m.get('element_id')): p for p in posts for m in p.get('matches') or []
+            if m.get('field') == 'elementor' and m.get('element_id')}
+    if len(hits) != 1:
+        where = ', '.join(f"{p.get('title')} ({p.get('post_type')})" for p in {k[0]: v for k, v in hits.items()}.values())
+        raise LookupError(f'"{find[:60]}" is in {len(hits)} Elementor elements on the site'
+                          + (f' ({where[:200]})' if where else '') + ': needs exactly one')
+    (pid, el_id), p = next(iter(hits.items()))
+    return pid, el_id, ({'title': p.get('title'), 'shared': p['shared']} if p.get('shared') else None)
+
+
+def _resolve_replace_text(s, a):
+    """A text replacement through find-text / replace-text: the text is found wherever it is stored (page fields,
+    Elementor widgets, header / footer / global templates, Custom Code, menus) and replaced only in the posts this
+    hotel owns. A page-specific fix (url) changes that page and the shared templates that print the text on it; a
+    site-wide one ("sitewide" / "pages", e.g. a phone number) every page of the hotel. On a group site shared
+    templates show on other hotels' pages too: they become a separate item in the group batch."""
+    mode = 'phone' if a.get('match_mode') == 'phone' else 'exact'
+    base = {'find': a['find'], 'match_mode': mode}
+    if a.get('language'):
+        base['language'] = a['language']
+    sitewide = bool(a.get('sitewide') or a.get('pages'))
+    page_pid = None if sitewide else s.post_id(a['url'])
+    posts, notes = _find_posts(s, base)
+    own, shared, other = [], [], []
+    for p in posts:
+        if p.get('shared'):
+            shared.append(p)
+        elif (page_pid is not None and p['post_id'] == page_pid) or (page_pid is None and s.owns(p.get('url', ''))):
+            own.append(p)
+        else:
+            other.append(p)
+    if not own and not shared:
+        raise LookupError(f'"{a["find"]}" was not found in any editable text of this hotel\'s pages'
+                          + (f' (only on {len(other)} other page(s))' if other else '')
+                          + (f": {'; '.join(notes)[:200]}" if notes else '')
+                          + ' (it may come from the booking engine or an image)')
+
+    def where(ps):
+        return [f"{p.get('title') or p.get('post_type')}: " + ', '.join(sorted({
+            m.get('path') or m.get('field', '') for m in p.get('matches') or []}))[:120] for p in ps]
+
+    def item(ps, label):
+        ids = sorted({int(p['post_id']) for p in ps})
+        args = dict(base, replace=a['replace'], post_ids=ids, max_posts=min(200, max(len(ids), 1)))
+        undo = dict(base, find=a['replace'], replace=a['find'], post_ids=ids, max_posts=args['max_posts'])
+        if mode == 'phone':
+            undo['match_mode'] = 'phone'
+        return {'page': label, 'post_ids': ids, 'field': 'text' + (' (phone, every format)' if mode == 'phone' else ''),
+                'current': {'find': a['find'], 'found_in': where(ps)}, 'new': a['replace'],
+                'calls': [['replace-text', args]],
+                # a deletion (empty replacement) has nothing to search for again: put it back by hand
+                'undo': [['replace-text', undo]] if a['replace'] else f'manual: add back "{a["find"]}"',
+                **({'post_id': ids[0]} if len(ids) == 1 else {}), **({'notes': notes} if notes else {})}
+    label = 'every page of the hotel' if sitewide else a['url']
+    if s.single or not shared:
+        it = item(own + shared, label)
+        if shared:
+            it['shared'] = [p.get('title') for p in shared]
+        if other:
+            it['left_alone'] = f'{len(other)} other page(s) with the same text (not this hotel / not this page)'
+        return it
+    parts = [item(own, label)] if own else []
+    parts.append(dict(item(shared, 'shared templates / snippets / menus: ' + ', '.join(
+        p.get('title') or '' for p in shared)[:160]), batch_override='group',
+        shared=[{'title': p.get('title'), 'conditions': p.get('conditions'), 'why': p.get('shared')} for p in shared]))
+    return {'parts': parts}
+
+
+def _elementor_body(s, a, pid):
+    """New body copy for a page built with Elementor: update-post would save text the page never shows. The copy goes
+    into the page's one text-editor widget; with none or several, say which one with an elementor_text action."""
+    st = s.read('elementor-get-structure', {'post_id': pid, 'include_settings': True})
+    eds = [e for e in st.get('elements') or [] if (e.get('widget_type') or e.get('widgetType')) == 'text-editor']
+    if len(eds) != 1:
+        raise LookupError(f"{a['url']} is built with Elementor and has {len(eds)} text widgets: the copy can't go in "
+                          'post content (the page would not show it). Give an elementor_text action with find = the '
+                          'current text of the widget to change')
+    el = eds[0]
+    old = (el.get('settings') or {}).get('editor')
+    new = a['content'] if a['content'].lstrip().startswith('<') else _copy_html(a['content'])
+    return {'page': a['url'], 'post_id': pid, 'field': 'elementor text (page body)', 'current': (old or '')[:300],
+            'new': new[:300], 'calls': [['elementor-update-element', {'post_id': pid, 'element_id': el['id'],
+                                                                       'settings': {'editor': new}}]],
+            'undo': [['elementor-update-element', {'post_id': pid, 'element_id': el['id'],
+                                                   'settings': {'editor': old or ''}}]]}
 
 
 def run_batch(plan_file, batch, approved=False):
@@ -585,16 +870,16 @@ def run_batch(plan_file, batch, approved=False):
     before = json.loads(before_f.read_text(encoding='utf-8')) if before_f.exists() else {}
     changes = json.loads(changes_f.read_text(encoding='utf-8')) if changes_f.exists() else []
     done, failed, post_ids = [], None, set()
+    todo = [it for it in items if it.get('via') != 'chrome' and it['id'] not in pl.get('done', [])]
+    sent = _send_media_chunks(s, todo) if batch == 'alt-text' else {}
     try:
-        for it in items:
-            if it.get('via') == 'chrome' or it['id'] in pl.get('done', []):
-                continue
+        for it in todo:
             before[it['id']] = {'current': it.get('current'), 'undo': it.get('undo'), 'action': it['action']}
             before_f.write_text(json.dumps(before, indent=1, ensure_ascii=False), encoding='utf-8')
             try:
-                results = []
-                for tool, args in it['calls']:
-                    results.append(s.write(tool, args))
+                results = sent.get(it['id'])
+                if results is None:
+                    results = [_write_call(s, tool, args) for tool, args in it['calls']]
                 if it['action']['type'] == 'page_create':
                     res = results[-1]
                     pid = (res.get('post') or res).get('id') or res.get('post_id')
@@ -612,6 +897,7 @@ def run_batch(plan_file, batch, approved=False):
                                          if isinstance(i, int)]
                 if it.get('post_id'):
                     post_ids.add(it['post_id'])
+                post_ids.update(it.get('post_ids') or [])
                 changes.append({'id': it['id'], 'finding': it['finding'], 'page': it.get('page'),
                                 'field': it.get('field'), 'old': it.get('current'), 'new': it.get('new'),
                                 'at': time.strftime('%Y-%m-%d %H:%M:%S'), 'created_post_id': it.get('created_post_id'),
@@ -642,6 +928,45 @@ def run_batch(plan_file, batch, approved=False):
     return {'batch': batch, 'done': len(done), 'of': len(items), 'failed': failed, 'cache_purged': purge,
             'recheck': rechecked, 'changes_file': str(changes_f), 'before_file': str(before_f),
             'undo': f'undo_execute("{plan_file}")'}
+
+
+MEDIA_CHUNK = 50
+
+
+def _write_call(s, tool, args):
+    """One write. replace-text: report per-post failures as an error, and call again while it says more posts remain
+    (changed posts no longer match, so the same call picks up the rest)."""
+    res = s.write(tool, args)
+    if tool != 'replace-text':
+        return res
+    for _ in range(20):
+        if res.get('failed'):
+            raise RuntimeError('replace-text: ' + json.dumps(res['failed'], ensure_ascii=False)[:300])
+        if not res.get('more'):
+            return res
+        res = s.write(tool, args)
+    return res
+
+
+def _send_media_chunks(s, items):
+    """Alt text for many images: one update-media call per 50 images instead of one per image. Returns
+    {item id: [result]} for the items sent; a chunk that fails is left out, so its items run one by one and the batch
+    stops at the image that fails."""
+    single = [it for it in items if len(it.get('calls') or []) == 1 and it['calls'][0][0] == 'update-media'
+              and len(it['calls'][0][1].get('items') or []) == 1]
+    out = {}
+    for i in range(0, len(single), MEDIA_CHUNK):
+        chunk = single[i:i + MEDIA_CHUNK]
+        if len(chunk) < 2:
+            break
+        try:
+            res = s.write('update-media', {'items': [it['calls'][0][1]['items'][0] for it in chunk]})
+        except Exception:  # noqa: BLE001 - fall back to one call per image
+            continue
+        if res.get('success') is False or res.get('errors') or res.get('failed'):
+            continue
+        out.update({it['id']: [res] for it in chunk})
+    return out
 
 
 def hotel_preferences(hotel_dir):
@@ -791,7 +1116,7 @@ def undo(plan_file):
             s = s or Site(pl['site'])
             if isinstance(u, list):
                 for tool, args in u:
-                    s.write(tool, args)
+                    _write_call(s, tool, args)
             elif u == 'delete-created' and ch.get('created_ids'):
                 s.write('redirects-delete', {'ids': ch['created_ids'], 'confirm': True})
             elif u == 'draft-created' and ch.get('created_post_id'):
@@ -848,9 +1173,25 @@ GBP_BATCH = 'business-profile'
 # site field: "description" would read as a meta description)
 GBP_FIELDS = {'description': 'profile text', 'website': 'website link', 'phone': 'phone number',
               'regular_hours': 'opening hours', 'special_hours': 'special hours',
-              'additional_categories': 'extra categories', 'attributes': 'amenities (attributes)'}
+              'additional_categories': 'extra categories', 'attributes': 'amenities (attributes)',
+              'review_replies': 'review replies (review sheet)'}
 GBP_LOCKED = {'title', 'name', 'business_name', 'address', 'primary_category'}
 GBP_UTM = 'utm_source=google&utm_medium=organic&utm_campaign=gbp'      # the team's link (SKILL.md, Business Profile)
+# Nov 2026 run: Google refuses a "from the business" description on hotel (lodging) profiles; it writes its own.
+GBP_NO_DESCRIPTION = ("Google doesn't allow a business description on hotel profiles (it writes its own): not "
+                      'changed, and not agency work')
+# fields the API may refuse for hotels that the dashboard still allows: on refusal they become Claude in Chrome steps
+GBP_CHROME_FALLBACK = {'attributes': 'Edit profile → Amenities', 'additional_categories': 'Edit profile → Business '
+                       'category → Add another category'}
+
+
+def _gbp_chrome_steps(key, val):
+    if key == 'attributes':
+        what = [f'{k}: {v}' for k, v in (val or {}).items()] if isinstance(val, dict) else [str(val)]
+    else:
+        what = [str(x) for x in (val if isinstance(val, list) else [val])]
+    return ['business.google.com (or Google Search → the hotel → Edit profile), signed in as a Manager of the profile',
+            GBP_CHROME_FALLBACK[key] + ':'] + [f'set {w}' for w in what] + ['Save. Google may review it before it shows.']
 
 
 def gbp_url_with_utm(url):
@@ -865,6 +1206,8 @@ def gbp_url_with_utm(url):
 def _gbp_change(a):
     """(key, value) for gbp_write.propose from one "gbp" action; ValueError when execute never makes it."""
     field = str(a.get('field', '')).strip()
+    if field == 'description':
+        raise ValueError(GBP_NO_DESCRIPTION)
     if field in GBP_LOCKED:
         raise ValueError(f'Business Profile {field} is locked (it can send the profile back to verification): '
                          'never through execute; only as its own Business Profile change when the user asks for it')
@@ -919,9 +1262,16 @@ def _gbp_propose(item, out_dir):
     return item
 
 
-def _gbp_plan(group_dir, slug, hdir, acts, n):
-    """The business-profile batch: (items, skipped, note, n). One proposal (change id) per field."""
+def _gbp_plan(group_dir, slug, hdir, acts, n, replies=None):
+    """The business-profile batch: (items, skipped, note, n). One proposal (change id) per field, plus one for the
+    review replies marked "Send? = Yes" in the hotel's latest review sheet (gbp_reviews.read_sheet)."""
     from . import gbp
+    replies = replies if replies and (replies.get('replies') or replies.get('problems')) else None
+    if replies:
+        acts = acts + [{'finding': 'gbp-review-replies', 'title': 'Google review replies (review sheet)',
+                        'category': 'Local', 'action': {'type': 'gbp', 'field': 'review_replies',
+                                                        'value': replies.get('replies'), 'sheet': replies['xlsx']},
+                        'sheet_problems': replies.get('problems') or []}]
     if not acts:
         return [], [], None, n
 
@@ -941,6 +1291,11 @@ def _gbp_plan(group_dir, slug, hdir, acts, n):
     items, skipped, seen = [], [], set()
     out_dir = hdir / 'gbp' / 'changes'
     for x in acts:
+        if x.get('sheet_problems'):
+            skipped.append({'finding': x['finding'], 'action': 'gbp', 'act': {'type': 'gbp', 'field': 'review_replies'},
+                            'reason': 'the review sheet has problems (nothing from it is posted): '
+                                      + '; '.join(x['sheet_problems'])[:400]})
+            continue
         try:
             key, val = _gbp_change(x['action'])
             if key in seen:
@@ -953,10 +1308,20 @@ def _gbp_plan(group_dir, slug, hdir, acts, n):
         it = {'id': f'a{n}', 'finding': x['finding'], 'title': x.get('title'), 'category': x.get('category'),
               'action': x['action'], 'batch': GBP_BATCH, 'via': 'business_profile', 'page': 'Google Business Profile',
               'field': f'Business Profile: {GBP_FIELDS[key]}', 'gbp_key': key, 'gbp_value': val, 'location': loc,
-              'checks': [], **({'hotel_confirmed': x['hotel_confirmed']} if x.get('hotel_confirmed') else {})}
+              'checks': [], **({'hotel_confirmed': x['hotel_confirmed']} if x.get('hotel_confirmed') else {}),
+              **({'review_sheet': x['action']['sheet']} if x['action'].get('sheet') else {})}
         try:
             items.append(_gbp_propose(it, out_dir))
         except Exception as e:  # noqa: BLE001 - Google's validation or sign-in: skip this field, say why
+            if key in GBP_CHROME_FALLBACK:
+                # the API refuses it for this profile, the dashboard doesn't: a Chrome step (MetaHotels, not agency)
+                items.append(dict(it, batch='chrome', via='chrome', page='Google Business Profile (dashboard)',
+                                  field=f'Business Profile: {GBP_FIELDS[key]} (Chrome)', current=None,
+                                  new=_gbp_chrome_steps(key, val), undo='manual: reverse the steps by hand',
+                                  action={'type': 'chrome', 'where': 'Google Business Profile',
+                                          'steps': _gbp_chrome_steps(key, val), 'gbp_field': key},
+                                  note=f'the Business Profile API refused it ({str(e)[:160]}): do it in the dashboard'))
+                continue
             n -= 1           # the id is reused by the next item
             skipped.append({'finding': x['finding'], 'action': 'gbp', 'act': x['action'],
                             'reason': f'Business Profile rejected it in the dry run: {str(e)[:300]}'})
@@ -1024,6 +1389,13 @@ def _run_gbp(pf, pl, batch, items):
         changes_f.write_text(json.dumps(changes, indent=1, ensure_ascii=False), encoding='utf-8')
         pl.setdefault('done', []).append(it['id'])
         done.append(it['id'])
+        if it.get('review_sheet'):
+            from . import gbp_reviews
+            try:
+                gbp_reviews.mark_sheet(it['review_sheet'], [r['review_id'] for r in it.get('gbp_value') or []],
+                                       f"Posted {time.strftime('%Y-%m-%d')}, change {it['change_id']}")
+            except Exception:  # noqa: BLE001 - the replies are posted; the sheet note is a convenience
+                pass
         rechecked.append({'finding': it['finding'], 'status': status, 'passed': int(status == 'Done'), 'checks': 1,
                           'via': 'business_profile', 'read_back': read_back or 'sent'})
     pl.setdefault('approved', []).append({'batch': batch, 'at': time.strftime('%Y-%m-%d %H:%M')})

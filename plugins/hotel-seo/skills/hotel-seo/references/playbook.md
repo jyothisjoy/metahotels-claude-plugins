@@ -277,8 +277,8 @@ Chrome where no tool exists (wp-admin screens, Search Console, Bing Webmaster):
 
 ## 8. Document format
 
-Each document is JSON rendered by `render_report` as PDF, Word and a Google Doc (re-rendering updates the same Doc and
-keeps the file number):
+Each document is JSON rendered by `render_report` as a PDF, into the run's dated folder `Reports/<YYYY-MM-DD>/`
+(re-rendering the same document that day keeps its file number; no Word file, no Google Doc):
 - **File names:** "31 - Rose Park Al Barsha Audit Report (24 Oct).pdf", "Build Plan", "Web Team List", "Group Summary",
   "Execute Report"; re-checks "Audit Report Re-check 2" and "Audit Report Open Items after Re-check 2". The running
   number counts across all hotels in the work folder.

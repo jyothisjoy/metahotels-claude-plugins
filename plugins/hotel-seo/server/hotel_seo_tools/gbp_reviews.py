@@ -351,6 +351,186 @@ def pending(group_dir, slug, location='', since_days=0, limit=200):
                      'then gbp_review_drafts_check(drafts_file).') if rows else 'No review needs a reply.'}
 
 
+# ---------------------------------------------------------------- the review sheet (Excel)
+#
+# The replies the plugin wrote, in a sheet the user or the hotel can read and edit before anything is posted:
+# <hotel dir>/Reports/<date>/NN - <Hotel> Review Replies (<d Mon>).xlsx. Grey cells are the review; yellow cells
+# ("Final reply", "Send?", "Notes") are theirs. read_sheet() / import_sheet() take the rows marked "Yes", lint the
+# final reply again and give the gbp_propose changes; that is what gets posted (after the user approves the change id).
+
+SHEET_TITLE = 'Review Replies'
+COLS = [('review_id', 'Review ID', 14), ('date', 'Date', 11), ('stars', 'Stars', 7), ('reviewer', 'Reviewer', 18),
+        ('language', 'Language', 9), ('comment', 'Review', 60), ('comment_translated', "Google's translation", 40),
+        ('existing_reply', 'Current reply', 36), ('reason', 'Why it needs a reply', 22),
+        ('reply', 'Reply written by the plugin', 55), ('final', 'Final reply (edit here)', 55),
+        ('send', 'Send? (Yes / No)', 11), ('notes', 'Notes', 28), ('status', 'Status', 22)]
+EDITABLE = {'final', 'send', 'notes'}
+YES_RX = re.compile(r'^\s*(?:y|yes|ok|send|نعم)\s*\.?\s*$', re.I)
+
+
+def _sheet_name(hotel_name, today):
+    name = f"{hotel_name} {SHEET_TITLE} ({today.day} {today.strftime('%b')}).xlsx"
+    return re.sub(r'[<>:"/\\|?*]', '-', name)
+
+
+def write_sheet(drafts_file, today=None):
+    """The review sheet for a drafts file (after check_drafts): one row per review, the plugin's reply copied into
+    "Final reply". 1-2 star reviews start as "Send? = No" (the user sees them first); a skipped review is "No"."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from . import pdf
+    today = today or date.today()
+    f = paths.resolve(drafts_file)
+    d = json.loads(f.read_text(encoding='utf-8'))
+    hdir = f.parent.parent
+    out = paths.reports_dir(hdir, today.isoformat())
+    out.mkdir(parents=True, exist_ok=True)
+    navy, yellow, grey, red = (PatternFill('solid', fgColor=c) for c in ('12355B', 'FFF4C2', 'F2F4F7', 'FDE2E1'))
+    thin = Side(style='thin', color='D6DBE1')
+    box = Border(left=thin, right=thin, top=thin, bottom=thin)
+    wrap, rtl = Alignment(wrap_text=True, vertical='top'), Alignment(wrap_text=True, vertical='top',
+                                                                      horizontal='right', readingOrder=2)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'How to use'
+    lines = [(f"{d.get('hotel', '')}: Google review replies", Font(bold=True, size=14, color='12355B')),
+             (f"{len(d.get('replies', []))} review(s) that need a reply, read on {d.get('created', '')}.", None), ('', None),
+             ('Edit only the yellow cells. "Final reply" is what is posted on Google, exactly as written.', None),
+             ('"Send?": Yes to post the reply, No to leave the review unanswered for now.', None),
+             ('1-2 star reviews start as No: read them first and say how the hotel wants to answer.', None),
+             ('Arabic reviews get an Arabic reply. Keep it to 2-4 sentences; no prices, offers, booking numbers or '
+              'room numbers.', None), ('', None),
+             ('Nothing is posted until MetaHotels has checked the sheet and you approve the change on screen.',
+              Font(bold=True))]
+    for r, (text, font) in enumerate(lines, 1):
+        ws.cell(row=r, column=1, value=text).font = font or Font()
+    ws.column_dimensions['A'].width = 110
+    s = wb.create_sheet('Replies')
+    s.append([c[1] for c in COLS])
+    for c in s[1]:
+        c.fill, c.font, c.alignment, c.border = navy, Font(bold=True, color='FFFFFF'), wrap, box
+    for r in d.get('replies', []):
+        low = bool(r.get('check_with_user_first'))
+        reply = '' if r.get('skip') else (r.get('reply') or '').strip()
+        row = dict(r, final=reply, send='No' if (low or r.get('skip') or not reply) else 'Yes',
+                   notes='Complaint: show the user first' if low else ('skipped by the plugin' if r.get('skip') else ''),
+                   status='')
+        s.append([row.get(k, '') if not isinstance(row.get(k), list) else ', '.join(row[k]) for k, _, _ in COLS])
+        n = s.max_row
+        for col, (k, _, _) in enumerate(COLS, 1):
+            cell = s.cell(row=n, column=col)
+            cell.border = box
+            cell.fill = yellow if k in EDITABLE else (red if low and k == 'stars' else grey)
+            cell.alignment = rtl if r.get('language') == 'ar' and k in ('comment', 'reply', 'final') else wrap
+    for col, (_, _, w) in enumerate(COLS, 1):
+        s.column_dimensions[chr(64 + col)].width = w
+    s.freeze_panes = 'C2'
+    info = wb.create_sheet('Info')
+    for k, v in (('drafts_file', str(f)), ('location', d.get('location', '')), ('hotel', d.get('hotel', '')),
+                 ('created', today.isoformat())):
+        info.append([k, v])
+    info.sheet_state = 'hidden'
+    name = _sheet_name(d.get('hotel', ''), today)
+    same = list(out.glob(f'* - {name}'))
+    num = re.match(r'(\d+) - ', same[0].name).group(1) if same else pdf.next_file_number()
+    x = out / f'{num} - {name}'
+    wb.save(x)
+    d['review_sheet'] = str(x)
+    f.write_text(json.dumps(d, indent=1, ensure_ascii=False), encoding='utf-8')
+    return x
+
+
+def latest_sheet(hdir):
+    """The newest review sheet of a hotel (any dated report folder), or None."""
+    found = sorted(paths.resolve(hdir).joinpath('Reports').rglob(f'* {SHEET_TITLE} (*).xlsx'),
+                   key=lambda p: p.stat().st_mtime)
+    return found[-1] if found else None
+
+
+def read_sheet(xlsx):
+    """The rows marked "Send? = Yes" that are not posted or proposed yet, linted again with their final reply.
+    Returns {"replies": [{review_id, reply}], "problems", "warnings", "location", "drafts_file", "show_user_first"}."""
+    from openpyxl import load_workbook
+    x = paths.resolve(xlsx)
+    wb = load_workbook(x, data_only=True)
+    info = {str(r[0]): r[1] for r in wb['Info'].iter_rows(values_only=True) if r and r[0]} if 'Info' in wb.sheetnames \
+        else {}
+    d = {}
+    if info.get('drafts_file') and paths.resolve(info['drafts_file']).exists():
+        d = json.loads(paths.resolve(info['drafts_file']).read_text(encoding='utf-8'))
+    by_id = {r.get('review_id'): r for r in d.get('replies', [])}
+    contact = contacts(d['facts_file']) if d.get('facts_file') else d.get('contacts') or {}
+    ws = wb['Replies']
+    head = [c.value for c in ws[1]]
+    idx = {k: head.index(label) for k, label, _ in COLS if label in head}
+    replies, problems, warnings, flagged, rows = [], [], [], [], {}
+    for n, row in enumerate(ws.iter_rows(min_row=2, values_only=True), 2):
+        get = (lambda k: row[idx[k]] if k in idx and idx[k] < len(row) else None)
+        rid = str(get('review_id') or '').strip()
+        if not rid:
+            continue
+        status = str(get('status') or '').lower()
+        if not YES_RX.match(str(get('send') or '')) or status.startswith(('posted', 'proposed')):
+            continue
+        final = str(get('final') or '').strip()
+        review = by_id.get(rid) or {'review_id': rid, 'stars': get('stars'), 'language': get('language') or '',
+                                    'comment': get('comment') or '', 'first_name': ''}
+        if not final:
+            problems.append(f'row {n} ({rid}): "Send?" is Yes but "Final reply" is empty')
+            continue
+        res = lint_reply(final, review, d.get('hotel', info.get('hotel', '')), d.get('city', ''), contact)
+        problems += [f'row {n}: {p}' for p in res['problems']]
+        warnings += [f'row {n}: {w}' for w in res['warnings']]
+        if review.get('check_with_user_first'):
+            flagged.append({'review_id': rid, 'stars': review.get('stars'), 'comment': str(review.get('comment'))[:400],
+                            'reply': final})
+        replies.append({'review_id': rid, 'reply': final})
+        rows[rid] = n
+    return {'xlsx': str(x), 'replies': replies, 'problems': problems, 'warnings': warnings,
+            'show_user_first': flagged, 'location': info.get('location') or d.get('location', ''),
+            'drafts_file': info.get('drafts_file', ''), 'rows': rows}
+
+
+def mark_sheet(xlsx, review_ids, status):
+    """Write a status ("Proposed, change <id>", "Posted <date>") on the rows of these reviews."""
+    from openpyxl import load_workbook
+    x = paths.resolve(xlsx)
+    wb = load_workbook(x)
+    ws = wb['Replies']
+    head = [c.value for c in ws[1]]
+    ci, si = head.index('Review ID') + 1, head.index('Status') + 1
+    want = set(review_ids)
+    for r in range(2, ws.max_row + 1):
+        if str(ws.cell(row=r, column=ci).value or '') in want:
+            ws.cell(row=r, column=si, value=status)
+    wb.save(x)
+
+
+def import_sheet(xlsx):
+    """The edited review sheet -> one gbp_write proposal of the rows marked Yes (sends nothing). Problems block it."""
+    r = read_sheet(xlsx)
+    out = {k: r[k] for k in ('xlsx', 'problems', 'warnings', 'show_user_first', 'location')}
+    out['replies'] = len(r['replies'])
+    if r['problems'] or not r['replies']:
+        out['next'] = ('Fix the problems in the sheet (or set "Send?" to No) and import it again; nothing was proposed.'
+                       if r['problems'] else 'No row is marked "Send? = Yes" (or every one was already proposed).')
+        return out
+    if not r['location']:
+        out['problems'] = ['the sheet has no Business Profile location (Info sheet): link the hotel with gbp_link']
+        return out
+    from . import gbp_write
+    hdir = paths.resolve(r['drafts_file']).parent.parent if r['drafts_file'] else paths.owner_dir(paths.resolve(xlsx).parent)
+    res = gbp_write.propose(r['location'], {'review_replies': r['replies']}, out_dir=str(hdir / 'gbp' / 'changes'))
+    if not res.get('checked'):
+        out['problems'] = [res.get('reason') or 'the proposal failed']
+        return out
+    mark_sheet(xlsx, [x['review_id'] for x in r['replies']], f"Proposed, change {res['change_id']}")
+    out.update(change_id=res['change_id'], change_file=res['change_file'], preview=res.get('preview', ''),
+               next='Show the user every reply (the 1-2 star ones first) and the preview word for word; '
+                    'gbp_apply(change_file, confirm=change_id) only after they approve that id in a later message.')
+    return out
+
+
 def check_drafts(file):
     """Lint every reply of a drafts file. Returns the ready `changes` for gbp_propose only when nothing blocks."""
     f = paths.resolve(file)
@@ -371,12 +551,14 @@ def check_drafts(file):
                             'comment': (r.get('comment') or '')[:400], 'reply': r.get('reply', '')})
     ok = not problems and bool(ready)
     hdir = f.parent.parent
+    sheet = str(write_sheet(f)) if ok else ''
     return {'ready': ok, 'replies': len(ready), 'skipped': skipped, 'problems': problems, 'warnings': warnings,
             'show_user_first': flagged, 'location': d.get('location', ''),
-            'changes': {'review_replies': ready} if ok else None,
-            'out_dir': str(hdir / 'gbp' / 'changes'),
+            'review_sheet': sheet, 'out_dir': str(hdir / 'gbp' / 'changes'),
             'next': ('Fix every problem in the drafts file and check again; nothing can be sent yet.' if problems else
                      'Nothing to send.' if not ready else
-                     'Show the user every reply (the 1-2 star ones first) and read each warning. Then '
-                     f'gbp_propose(location, changes, out_dir) and show its preview word for word; gbp_apply only '
-                     'after the user approves that change id in a later message.')}
+                     f'The review sheet is ready: {sheet}. Give it to the user (and the hotel, for the 1-2 star '
+                     'ones) to read and edit: "Final reply" is what gets posted, "Send?" Yes / No. When it comes '
+                     'back, gbp_review_sheet_import(<sheet>) checks it again and proposes the Yes rows (or the '
+                     'execute business-profile batch picks them up); gbp_apply only after the user approves the '
+                     'change id in a later message.')}

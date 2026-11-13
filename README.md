@@ -4,8 +4,8 @@ Private. One marketplace (`metahotels`, repo `jyothisjoy/metahotels-claude-plugi
 plugins: **hotel-seo** and **metahotels-optimize**.
 
 **hotel-seo:** give Claude a hotel website — or a hotel group's website — and get, for every
-hotel separately, a full **Audit Report**, a ground-up **Build Plan** and a **Web Team List** as PDF, Word and Google
-Docs, plus a **Questions for the Hotel** spreadsheet. Then re-check the fixes, or have Claude apply them to the site in
+hotel separately, a full **Audit Report**, a ground-up **Build Plan** and a **Web Team List** as PDF, plus a
+**Questions for the Hotel** spreadsheet, each run in its own dated folder (`Reports/<YYYY-MM-DD>/`). Then re-check the fixes, or have Claude apply them to the site in
 batches you approve (using the hotel's answers), which ends with an **Execute Report** and an **Agency Fix List** for
 what's left. Each month, `/hotel-seo monthly` makes the client **Monthly Report**. Between runs, `/hotel-seo monitor`
 watches each site for what changed; `/hotel-seo write` writes hotel copy to one standard; `/hotel-seo check` fact-checks
@@ -145,10 +145,16 @@ marker is removed); "no" or no answer keeps it out. Where the hotel gave a diffe
 with the answer. Site text that contradicts an answer (a wrong apartment size, a wrong distance) becomes a correction in
 its own "hotel-answers" batch, shown for your approval like every other change.
 
-After the run it writes two documents (PDF + Word): the **Execute Report** (every change: page, before → after, live
-re-check result, what waits for the hotel, how to undo) and the **Agency Fix List** (every SEO fix execute could not
-do, step by step with the exact text to paste and where in WordPress, ready to send to the SEO agency; new pages to
-create; items that wait for the hotel). Developer items stay in the Web Team List.
+After the run it writes two PDFs: the **Execute Report** (every change: page, before → after, live re-check result,
+what waits for the hotel, how to undo, and what is still to run with execute) and the **Agency Fix List** (only the
+SEO fixes execute cannot make, step by step with the exact text to paste and where in WordPress, ready to send to
+the SEO agency; new pages to create; items that wait for the hotel). Developer items stay in the Web Team List.
+Site text (hotel answers, booking-engine room facts, phone numbers) is changed with the site's `find-text` /
+`replace-text` tools, so text in Elementor widgets and in header / footer templates is reached too. Schema is
+checked and wrapped in `<script type="application/ld+json">` before it is written.
+
+Google review replies come as a **Review Replies** spreadsheet (the plugin's reply, a "Final reply" to edit and
+"Send? Yes / No"); replies are posted only from that sheet, after you approve the change id.
 
 ### Rate parity (Disparity / Best Rate calendar)
 
@@ -252,6 +258,25 @@ New in 2.1.0:
 **2.1.1:** the Monthly Report PDF matches the reference design more closely (type sizes and spacing, page count under
 each timeline date, two-column lists only when long, check lists in two panels, MetaHotels logo in the page footer).
 
+**2.2.0:**
+- **Execute reaches Elementor and templates:** site text (the hotel's answers, the booking engine's room facts, phone
+  numbers) is changed with the site's `find-text` / `replace-text` tools, in page widgets and header / footer / global
+  templates; one item per wrong phone number in every format and `tel:` link; on a group site, shared templates are
+  their own group-batch item. Body copy on an Elementor page goes into its text widget, never post content.
+- **Schema can't be dumped on the page:** every snippet is parsed and rewritten as `<script type="application/ld+json">`
+  in `<head>`; bare text, HTML or invalid JSON is refused, JSON-LD in page copy is refused, and the schema re-check
+  fails if `"@context"` shows as page text.
+- **No agency leftovers:** the Agency Fix List keeps only what execute cannot do. Unapproved batches, Chrome steps, group
+  items and alt text still to run are in the Execute Report ("Still to run with execute"); hreflang goes to the Web
+  Team; Business Profile amenities / categories the API refuses become Chrome steps; no Business Profile description on
+  hotel profiles (Google doesn't allow one). Alt text is sent 50 images per call.
+- **Review Replies spreadsheet:** the plugin's replies with an editable "Final reply" and "Send? Yes / No"; replies are
+  posted only from the sheet (`gbp_review_sheet_import`, or execute's business-profile batch).
+- **The booking engine wins conflicts:** its `/search` page beats the site, Booking.com and the hotel's other messages,
+  unless the hotel says otherwise in the Questions sheet. Engine-vs-site room facts are fixed by execute, not asked.
+- **One dated folder per run** (`Reports/<YYYY-MM-DD>/`), **PDF only** (no Word file, no Google Docs; the sign-in no
+  longer asks for Drive).
+
 Run `/hotel-seo init` (or `hotel-seo-auth`) once: the Google sign-in now includes Business Profile by default and tests
 each Business Profile API; enable the **My Business Lodging API** on the Cloud project if it says so.
 
@@ -263,7 +288,6 @@ each Business Profile API; enable the **My Business Lodging API** on the Cloud p
 | `git` or `uv` not found in the desktop app | Fully quit and reopen the app after installing them. |
 | `/hotel-seo` tools missing | Start a new session; then `/hotel-seo init --check`. |
 | Google says "This app isn't verified" | Click **Advanced → Go to MetaHotels SEO**, then Continue. |
-| No Google Doc link, only PDF and Word | The Google sign-in has no Docs permission yet: run `/hotel-seo init` again. |
 | An agent shows "degraded" or "not assessed" | The report says why (usually a missing key or an unreachable page); `/hotel-seo init --check` shows the fix. |
 | Performance: "Chrome UX Report API is not enabled" | In the Cloud console project of your `PAGESPEED_API_KEY`, enable **Chrome UX Report API** and allow it on the key. |
 | Monthly Report marked "provisional" | It was run before the 4th of the next month; Search Console data isn't final yet. Run it again later. |
@@ -286,7 +310,7 @@ plugins/hotel-seo/
                           findings-register.schema.json)
   server/                 hotel-seo-tools MCP server (Python, run with uv): crawl, audit, site kinds (single / group),
                           keyword map, Booking.com facts, maps, agent preflight and validation, report builder and
-                          renderers (PDF / Word / Google Docs), hotel questions (xlsx), re-check, site MCP client,
+                          PDF renderer, hotel questions and review replies (xlsx), re-check, site MCP client,
                           execute and its reports, monthly report (GA4, Search Console, Serper, Mirai, parity),
                           monitor, Business Profile, page consistency, Best Rate calendar;
                           vendor/claude_seo/ = 26 claude-seo scripts (MIT) and their tests

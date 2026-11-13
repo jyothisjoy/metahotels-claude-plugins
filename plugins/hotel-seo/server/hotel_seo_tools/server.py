@@ -19,7 +19,7 @@ from mcp.server.fastmcp import FastMCP
 from . import (__version__, apikeys, audit, bing, booking_engine, bookingcom, checks, codechecks, docs, execute,
                facts, gbp, geo, group, health, imports, indexing, keyword_map, keywords, librecrawl, librecrawl_proc,
                mirai, monitor, monthly, pagecheck, parity, paths, pdf, preflight, questions, report,
-               seo_check as seo_check_mod, sites, word)
+               seo_check as seo_check_mod, sites)
 from . import execute_report
 
 mcp = FastMCP('hotel-seo-tools')
@@ -241,14 +241,14 @@ def test_redirects(out_dir: str, pairs: list[dict] | None = None, file: str = ''
 
 @mcp.tool()
 def render_report(out_dir: str, json_path: str = '', data: dict | None = None, crawl_dir: str = '', facts_file: str = '',
-                  allow_unverified: bool = False, keep_html: bool = False, google_doc: bool = True, folder_id: str = '',
-                  docx: bool = True) -> dict:
-    """Render one document (Audit Report, Build Plan, Web Team List, Group Summary, Execute Report, Re-check, Monthly
-    Report or Group Monthly Summary) to PDF,
-    the same content as Word (.docx) and as a Google Doc (re-rendering updates the same Doc and keeps the file number).
+                  allow_unverified: bool = False, keep_html: bool = False) -> dict:
+    """Render one document (Audit Report, Build Plan, Web Team List, Group Summary, Execute Report, Agency Fix List,
+    Re-check, Monthly Report or Group Monthly Summary) to PDF. PDF only: no Word file, no Google Doc.
+    out_dir "<hotel dir>/Reports" is written to the run's dated folder "<hotel dir>/Reports/<YYYY-MM-DD>/" (a dated
+    folder is kept as given); re-rendering the same document that day keeps its file number.
     Give json_path (e.g. <hotel dir>/audit-<date>/audit-report.json from build_audit_report) or the same object as
-    data. Findings with more than 25 URLs: the first 25 show in the document; every URL goes to a CSV next to it and a
-    Google Sheet linked from the finding. No page or item limit.
+    data. Findings with more than 25 URLs: the first 25 show in the document; every URL goes to a CSV next to it,
+    named in the finding. No page or item limit.
 
     [CONFIRM] guard: with crawl_dir and/or facts_file (<hotel dir>/hotel-facts.json), every fact-like phrase (sizes,
     distances, counts, prices, times, "24-hour", tiers, stars) must be on the live site, in the hotel's confirmed facts
@@ -278,16 +278,13 @@ def render_report(out_dir: str, json_path: str = '', data: dict | None = None, c
                 'next': 'Mark each phrase [CONFIRM], correct it to what the site says, or add it to hotel-facts.json '
                         'with its source (add_facts); then render again.'}
     pdf.validate(doc)
+    if paths.resolve(out_dir).name == 'Reports':
+        out_dir = str(paths.reports_dir(out_dir))
     stem = pdf.file_name(doc, paths.resolve(out_dir))[:-4]
-    url_lists = _off_loop(docs.prepare_url_lists, doc, out_dir, stem, folder_id, google_doc)
+    url_lists = _off_loop(docs.prepare_url_lists, doc, out_dir, stem)
     result = _off_loop(pdf.render, doc, out_dir, keep_html=keep_html)
     out = {'rendered': True, **result, 'url_lists': url_lists,
            'confirm_guard': {k: v for k, v in guard.items() if k != 'unverified'}}
-    if docx:
-        try:
-            out['docx'] = _off_loop(word.render, doc, result['file'])
-        except Exception as e:  # noqa: BLE001 - the PDF is done; say what failed
-            out['docx_error'] = f'{type(e).__name__}: {str(e)[:300]}'
     title = doc.get('title')
     if title in ('Audit Report', 'Web Team List'):
         from .checks import lint_checks
@@ -296,10 +293,10 @@ def render_report(out_dir: str, json_path: str = '', data: dict | None = None, c
             out['checks_warning'] = {'gaps': lint, 'next': 'Re-check can only prove what the checks cover: add one '
                                      'check per URL / row (schema_block_equals for a replacement block, '
                                      'schema_count for deleted lines) to the finding, then render again.'}
-    # Per-hotel settings in <hotel dir>/hotel.json (out_dir is <hotel dir>/Reports). Abar, Nov 2026: the MD sees every
-    # change before it goes live, and sizes are in sq ft.
+    # Per-hotel settings in <hotel dir>/hotel.json (out_dir is <hotel dir>/Reports/<date>). Abar, Nov 2026: the MD sees
+    # every change before it goes live, and sizes are in sq ft.
     try:
-        hj = paths.resolve(out_dir).parent / 'hotel.json'
+        hj = paths.owner_dir(out_dir) / 'hotel.json'
         hdata = json.loads(hj.read_text(encoding='utf-8')) if hj.exists() else {}
         prefs, approvals = hdata.get('preferences') or {}, hdata.get('approvals') or []
     except (ValueError, OSError):
@@ -324,9 +321,6 @@ def render_report(out_dir: str, json_path: str = '', data: dict | None = None, c
                                    'AI-sounding phrases plainly per references/content-writing.md, remove invisible '
                                    'characters), read each warning and fix it unless it is right as written, then '
                                    'render again.'}
-    if google_doc:
-        out['google_doc'] = _off_loop(docs.publish, doc, out_dir, result['file'], folder_id=folder_id,
-                                      docx_file=out.get('docx', ''))
     return out
 
 
@@ -636,13 +630,28 @@ def gbp_review_drafts_check(file: str) -> dict:
     """Lint every reply in a review-replies drafts file: language matches the review, at most 600 characters, no
     prices / offers / codes / links, no surnames, booking or room numbers or other personal data, no arguing, an
     apology and a confirmed hotel email or phone (hotel-facts.json) for 1-2 star reviews, no AI tells or keyword
-    stuffing. Problems block sending; when there are none it returns `changes` ({"review_replies": [...]}), `location`
-    and `out_dir` for gbp_propose. Show the user the 1-2 star ones first (show_user_first)."""
+    stuffing. Problems block it; when there are none it writes the review sheet (review_sheet: <hotel dir>/Reports/
+    <date>/NN - <Hotel> Review Replies (<date>).xlsx): every review with the plugin's reply, a yellow "Final reply"
+    and "Send? (Yes / No)" the user or hotel edits (1-2 star reviews start as No). Show the user the 1-2 star ones
+    first (show_user_first). Replies are posted only from that sheet: gbp_review_sheet_import."""
     from . import gbp_reviews
     try:
         return gbp_reviews.check_drafts(file)
     except (FileNotFoundError, ValueError) as e:
         return {'ready': False, 'error': str(e)}
+
+
+@mcp.tool()
+def gbp_review_sheet_import(xlsx: str) -> dict:
+    """Read the edited review sheet (from gbp_review_drafts_check): the rows marked "Send? = Yes" that are not proposed
+    yet, each "Final reply" linted again (problems block it). When clean, makes one gbp_write proposal of those
+    replies (sends nothing) and writes "Proposed, change <id>" in the sheet's Status. Show the preview word for word;
+    gbp_apply(change_file, confirm=change_id) only after the user approves that id in a later message."""
+    from . import gbp_reviews
+    try:
+        return gbp_reviews.import_sheet(xlsx)
+    except (FileNotFoundError, KeyError, ValueError) as e:
+        return {'replies': 0, 'error': f'{type(e).__name__}: {e}'}
 
 
 @mcp.tool()
@@ -1066,7 +1075,7 @@ def execute_reports(group_dir: str, slug: str, plan_file: str = '') -> dict:
     """After an execute run: build the Execute Report (every change made: page, before -> after, live re-check; what
     waits for the hotel; undo) and the Agency Fix List (every SEO finding execute did not finish, step by step with
     the exact text to paste, for the SEO agency; developer items stay in the Web Team List). Render both with
-    render_report(out_dir, json_path=..., google_doc=false) for PDF + Word."""
+    render_report(out_dir, json_path=...) for the PDFs."""
     try:
         return execute_report.build(group_dir, slug, plan_file)
     except (FileNotFoundError, LookupError, StopIteration) as e:
@@ -1083,7 +1092,7 @@ def hotel_questions(group_dir: str, slug: str) -> dict:
     Profile, Booking.com), Business Profile amenities and policies only the hotel can settle (the latest
     gbp/amenities-<date>.json), wrong facts AI assistants gave (the latest monthly AI answer check) and unsourced area
     facts in new copy (copy/claims-<date>.json from save_claims), as an xlsx for the hotel to fill
-    (Reports/NN - <Hotel> Questions for the Hotel (date).xlsx). The reports' markers become [CONFIRM Q7] /
+    (Reports/<date>/NN - <Hotel> Questions for the Hotel (date).xlsx). The reports' markers become [CONFIRM Q7] /
     [CONFIRM R2] so each gap points at its row. Ids and imported answers are kept on a re-run (after a monthly AI
     check or a write session). Then read hotel-questions.json and call edit_hotel_questions to word the questions for
     hotel staff."""

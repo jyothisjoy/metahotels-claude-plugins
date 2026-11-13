@@ -485,8 +485,8 @@ def presend(list_json, crawl_dir='', progress=None):
     dest.write_text(json.dumps(out, indent=1, ensure_ascii=False), encoding='utf-8')
     lint = lint_checks(doc)
     coverage = list_coverage(doc, crawl_dir, src.parent)
-    try:                                 # <hotel dir>/Reports/<list>.json -> <hotel dir>/hotel.json
-        units = json.loads((src.parent.parent / 'hotel.json').read_text(encoding='utf-8')).get(
+    try:                                 # <hotel dir>/Reports[/<date>]/<list>.json -> <hotel dir>/hotel.json
+        units = json.loads((paths.owner_dir(src.parent) / 'hotel.json').read_text(encoding='utf-8')).get(
             'preferences', {}).get('units', '')
     except (ValueError, OSError, AttributeError):
         units = ''

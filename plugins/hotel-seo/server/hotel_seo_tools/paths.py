@@ -73,3 +73,27 @@ def work_dir():
 def resolve(path):
     p = Path(path).expanduser()
     return p if p.is_absolute() else work_dir() / p
+
+
+DAY = __import__('re').compile(r'\d{4}-\d{2}-\d{2}')
+
+
+def reports_dir(base, day=None):
+    """<hotel dir>/Reports/<YYYY-MM-DD>: one folder per run, so a second run the same week doesn't pile its files on
+    top of the first. base is the hotel (or site) folder, its Reports folder, or an already dated folder (kept)."""
+    from datetime import date
+    p = resolve(base)
+    if DAY.fullmatch(p.name) and p.parent.name == 'Reports':
+        return p
+    if p.name != 'Reports':
+        p = p / 'Reports'
+    return p / (day or date.today().isoformat())
+
+
+def owner_dir(out_dir):
+    """The hotel / site folder a report folder belongs to: <x>/Reports/<date> and <x>/Reports -> <x>."""
+    p = resolve(out_dir)
+    for c in (p, *p.parents):
+        if c.name == 'Reports':
+            return c.parent
+    return p.parent

@@ -1,9 +1,9 @@
-"""One Google sign-in for everything the plugin uses: Search Console, GA4, Google Docs output, Google Ads (Keyword
+"""One Google sign-in for everything the plugin uses: Search Console, GA4, Google Ads (Keyword
 Planner) and Google Business Profile (listings, performance, reviews, photos, hotel amenities; changes only after
 approval). Leave Ads or Business Profile out with --no-ads / --no-gbp (the old --with-ads / --with-gbp flags are still
 accepted and change nothing).
 
-Asks for the permissions on one consent screen (Docs: only files this app creates) and writes:
+Asks for the permissions on one consent screen and writes:
   ~/.metahotels-seo/google/adc.json        (GA4, Business Profile; ADC authorized_user format)
   ~/.metahotels-seo/google/gsc/token.json  (Search Console, mcp-gsc format)
 
@@ -21,16 +21,15 @@ import sys
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 from . import paths
-from .docs import DRIVE_SCOPE
 from .gbp import GBP_SCOPE
 from .keywords import ADS_SCOPE
 
-NAMES = {paths.GA_SCOPE: 'Google Analytics (GA4)', paths.GSC_SCOPE: 'Search Console', DRIVE_SCOPE: 'Google Docs',
+NAMES = {paths.GA_SCOPE: 'Google Analytics (GA4)', paths.GSC_SCOPE: 'Search Console',
          ADS_SCOPE: 'Google Ads (Keyword Planner)', GBP_SCOPE: 'Google Business Profile'}
 
 
 def scopes(no_ads=False, no_gbp=False):
-    return ([paths.GA_SCOPE, paths.GSC_SCOPE, DRIVE_SCOPE] + ([] if no_ads else [ADS_SCOPE])
+    return ([paths.GA_SCOPE, paths.GSC_SCOPE] + ([] if no_ads else [ADS_SCOPE])
             + ([] if no_gbp else [GBP_SCOPE]))
 
 

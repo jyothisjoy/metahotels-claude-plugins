@@ -117,13 +117,37 @@ def test_pending_writes_drafts_and_check_returns_changes(hotel, monkeypatch):
     doc = json.loads(f.read_text(encoding='utf-8'))
     assert doc['location'] == 'locations/1' and doc['max_chars'] == gbp_reviews.REPLY_MAX_CHARS
     chk = gbp_reviews.check_drafts(str(f))
-    assert not chk['ready'] and chk['changes'] is None and any('no reply' in p for p in chk['problems'])
-    doc['replies'][0]['reply'] = 'Thank you, Sara. We are glad the pool and the reception team looked after you.'
+    assert not chk['ready'] and not chk['review_sheet'] and any('no reply' in p for p in chk['problems'])
+    reply = 'Thank you, Sara. We are glad the pool and the reception team looked after you.'
+    doc['replies'][0]['reply'] = reply
     f.write_text(json.dumps(doc, ensure_ascii=False), encoding='utf-8')
     chk = gbp_reviews.check_drafts(str(f))
-    assert chk['ready'] and chk['location'] == 'locations/1'
-    assert chk['changes'] == {'review_replies': [{'review_id': 'r1', 'reply': doc['replies'][0]['reply']}]}
-    assert chk['out_dir'].endswith(str(Path('gbp') / 'changes'))
+    assert chk['ready'] and chk['location'] == 'locations/1' and 'changes' not in chk   # posted only from the sheet
+    x = Path(chk['review_sheet'])
+    assert x.exists() and x.parent.parent == hotel / 'Reports' and x.name.endswith(').xlsx')
+    assert 'Review Replies' in x.name and gbp_reviews.latest_sheet(hotel) == x
+    got = gbp_reviews.read_sheet(x)
+    assert got['replies'] == [{'review_id': 'r1', 'reply': reply}] and not got['problems']
+    assert got['location'] == 'locations/1'
+
+    # the hotel edits the final reply: the edited text is what is proposed, linted again
+    from openpyxl import load_workbook
+    wb = load_workbook(x)
+    ws = wb['Replies']
+    head = [c.value for c in ws[1]]
+    ws.cell(row=2, column=head.index('Final reply (edit here)') + 1, value='Use code SAVE10 for 10% off next time!')
+    wb.save(x)
+    bad = gbp_reviews.import_sheet(x)
+    assert bad['problems'] and 'change_id' not in bad
+    ws.cell(row=2, column=head.index('Final reply (edit here)') + 1, value=reply + ' See you again soon.')
+    wb.save(x)
+    calls = []
+    monkeypatch.setattr(gbp_write, 'propose', _fake_propose(calls))
+    ok = gbp_reviews.import_sheet(x)
+    assert ok['change_id'] and calls[0][1] == {'review_replies': [{'review_id': 'r1',
+                                                                  'reply': reply + ' See you again soon.'}]}
+    assert load_workbook(x)['Replies'].cell(row=2, column=head.index('Status') + 1).value.startswith('Proposed')
+    assert gbp_reviews.read_sheet(x)['replies'] == []                 # proposed rows are not proposed twice
 
 
 def test_contacts_only_from_confirmed_facts(hotel):
@@ -182,14 +206,14 @@ def test_plan_builds_business_profile_batch_and_skips_locked(audit, monkeypatch)
     r = execute.plan('example-hotels.com', 'ex')
     pl = json.loads(Path(r['plan_file']).read_text(encoding='utf-8'))
     items = pl['batches'][execute.GBP_BATCH]
-    assert [i['gbp_key'] for i in items] == ['description', 'website', 'regular_hours']
+    assert [i['gbp_key'] for i in items] == ['website', 'regular_hours']      # no description on hotel profiles
     web = next(i for i in items if i['gbp_key'] == 'website')
     assert web['gbp_value'] == 'https://example-hotels.com/?' + execute.GBP_UTM
     assert all(i['change_id'] and Path(i['change_file']).exists() and i['location'] == 'locations/1' for i in items)
-    assert [c[1] for c in audit][0] == {'description': 'Serviced apartments in Al Barsha with a rooftop pool.'}
+    assert all('description' not in c[1] for c in audit)
+    assert sum(execute.GBP_NO_DESCRIPTION in s['reason'] for s in pl['skipped']) == 2
     reasons = {(s['finding'], s['reason'].split(' ')[0]) for s in pl['skipped']}
     assert any('locked' in s['reason'] for s in pl['skipped'])                       # primary category
-    assert any('already changes' in s['reason'] for s in pl['skipped'])              # second description
     assert ('local-gbp-description', 'Business') in reasons
     assert all('primary_category' not in c[1] for c in audit)
     assert r['table'][execute.GBP_BATCH][0][-1].startswith('change ')
@@ -236,10 +260,10 @@ def test_run_batch_logs_changes_and_undo_proposes_reverse(audit, monkeypatch):
         return {'checked': True, 'change_id': c['id'], 'status': 'applied', 'results': c['results']}
     monkeypatch.setattr(gbp_write, 'apply', apply)
     res = execute.run_batch(r['plan_file'], execute.GBP_BATCH, approved=True)
-    assert res['done'] == 3 and res['failed'] is None
+    assert res['done'] == 2 and res['failed'] is None
     ed = Path(r['plan_file']).parent
     changes = json.loads((ed / 'changes.json').read_text(encoding='utf-8'))
-    assert len(changes) == 3
+    assert len(changes) == 2
     for c in changes:
         assert {'id', 'finding', 'page', 'field', 'old', 'new', 'at'} <= set(c)
         assert c['page'] == '' and c['via'] == 'business_profile' and c['field'].startswith('Business Profile: ')
@@ -251,13 +275,13 @@ def test_run_batch_logs_changes_and_undo_proposes_reverse(audit, monkeypatch):
 
     rep = execute_report.build('example-hotels.com', 'ex')
     ex_doc = json.loads(Path(rep['execute_report']).read_text(encoding='utf-8'))
-    assert any(s['title'].startswith('Google Business Profile: 3') for s in ex_doc['sections'])
+    assert any(s['title'].startswith('Google Business Profile: 2') for s in ex_doc['sections'])
     ag = json.loads(Path(rep['agency_fix_list']).read_text(encoding='utf-8'))
     assert not any('Business Profile' in s.get('title', '') or s.get('title') == 'Hours' for s in ag['sections'])
 
     audit.clear()
     u = execute.undo(r['plan_file'])
-    assert u['restored'] == 0 and len(u['business_profile']) == 3 and 'NOT undone' in u['next']
+    assert u['restored'] == 0 and len(u['business_profile']) == 2 and 'NOT undone' in u['next']
     assert all(c == ('locations/1', {'website': 'http://old.example'}) for c in audit)
 
 

@@ -742,7 +742,7 @@ def build(group_dir, slug, month=''):
     return {'file': str(md / 'monthly-report.json'), 'pages': len(doc['monthly']['pages']),
             'provisional': data.get('provisional'), 'not_available': missing,
             'narrative': 'present' if nar else 'missing: write it with save_monthly_narrative, then build again',
-            'out_dir': str(ctx['hotel_dir'] / 'Reports')}
+            'out_dir': str(paths.reports_dir(ctx['hotel_dir']))}
 
 
 def _assemble(ctx, month, data, serp_d, manual, nar):
@@ -1325,7 +1325,7 @@ def _yoy_rows(gsc, ga, mi, C, P, Y):
     return rows
 
 
-# ---------------------------------------------------------------- Word / Google Doc sections
+# ---------------------------------------------------------------- report sections (the document's text blocks)
 
 def _cell(c):
     return c.get('text', '') if isinstance(c, dict) else ('' if c is None else str(c))
@@ -1499,7 +1499,7 @@ def build_group(group_dir, month=''):
         rows.append([h['name'], fmt(v), _chg(v, vp)['change'].split(' (')[0], fmt(nb), _chg(nb, nbp)['change'].split(' (')[0],
                      fmt(ai), fmt(b) if b is not None else '–',
                      f"{_g(mi, C, 'currency') or ''} {fmt(_g(mi, C, 'revenue'))}".strip() if b is not None else '–', page1])
-        rep = sorted((gd / 'hotels' / h['slug'] / 'Reports').glob(f'* {h["name"]} Monthly Report ({label(month, True)}).pdf'))
+        rep = sorted((gd / 'hotels' / h['slug'] / 'Reports').rglob(f'* {h["name"]} Monthly Report ({label(month, True)}).pdf'))
         reports.append(f"{h['name']}: " + (f'`{rep[-1].name}`' if rep else 'not rendered yet'))
     mlabel = label(month)
     name = reg['group'].get('name') or 'Group'
@@ -1531,4 +1531,4 @@ def build_group(group_dir, month=''):
     out.mkdir(parents=True, exist_ok=True)
     (out / 'monthly-report.json').write_text(json.dumps(doc, indent=1, ensure_ascii=False), encoding='utf-8')
     return {'file': str(out / 'monthly-report.json'), 'hotels': len(rows), 'not_collected': missing,
-            'out_dir': str(gd / 'group' / 'Reports')}
+            'out_dir': str(paths.reports_dir(gd / 'group'))}

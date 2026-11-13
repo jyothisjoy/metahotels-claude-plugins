@@ -133,9 +133,28 @@ def is_confirmed_source(source):
 
 
 def is_hotel_source(source):
-    """The hotel's own answer (information sheet, email, WhatsApp, the hotel contact): it beats the booking engine
-    when they disagree; the engine is then a setting to correct, not the site."""
+    """The hotel's own answer (questionnaire, information sheet, email, WhatsApp, the hotel contact)."""
     return str(source or '').strip().lower().startswith(('hotel', 'the hotel'))
+
+
+def is_sheet_source(source):
+    """An answer the hotel wrote in the Questions for the Hotel sheet (import_hotel_answers)."""
+    return str(source or '').strip().lower().startswith('hotel questionnaire')
+
+
+def is_engine_source(source):
+    return str(source or '').strip().lower().startswith('booking engine')
+
+
+def source_rank(source):
+    """Which fact wins a conflict. The booking engine's /search page is always right, unless the hotel says otherwise
+    in the Questions for the Hotel sheet: sheet 3 > booking engine 2 > other hotel messages (email, WhatsApp) 1 >
+    everything else (site, Booking.com, AI answers) 0."""
+    if is_sheet_source(source):
+        return 3
+    if is_engine_source(source):
+        return 2
+    return 1 if is_hotel_source(source) else 0
 
 
 ROOM_FACT = re.compile(r'^\s*(?P<room>[^:]{3,80}?):\s*(?P<val>.+)$')
@@ -169,15 +188,16 @@ def room_fact(text):
 
 
 def add_facts(facts_file, facts, source):
-    """Add facts with their source. One value per fact: a hotel answer marks the booking-engine / other facts it
-    contradicts (same room, same kind) "superseded"; a later non-hotel fact that contradicts a hotel answer is
-    stored already superseded. Returns what was added, what was superseded, and the booking engine corrections."""
+    """Add facts with their source. One value per fact (same room, same kind): the higher source_rank wins and the
+    other is marked "superseded" (the booking engine beats everything except the hotel's Questions sheet answer).
+    Returns what was added, what was superseded, the booking engine corrections (the sheet overrides the engine) and
+    engine_overrides (a hotel message that the engine overrules: ask in the sheet if the hotel insists)."""
     f = paths.resolve(facts_file)
     doc = json.loads(f.read_text(encoding='utf-8')) if f.exists() else {'facts': []}
     rows = doc.setdefault('facts', [])
     have = {x.get('fact') for x in rows}
-    hotel_new = is_hotel_source(source)
-    added, superseded = [], []
+    rank_new = source_rank(source)
+    added, superseded, overruled = [], [], []
     for text in facts:
         text = str(text if isinstance(text, str) else (text or {}).get('fact', '')).strip()
         if not text or text in have:
@@ -188,26 +208,37 @@ def add_facts(facts_file, facts, source):
             xf = room_fact(x.get('fact'))
             if not (rf and xf and xf[:2] == rf[:2] and xf[2] != rf[2]) or x.get('superseded'):
                 continue
-            if hotel_new and not is_hotel_source(x.get('source')):
+            rank_old = source_rank(x.get('source'))
+            if rank_new > rank_old:
                 x['superseded'] = True
                 x['superseded_by'] = f'{text} ({source})'
                 superseded.append(x['fact'])
-            elif not hotel_new and is_hotel_source(x.get('source')):
+                if is_engine_source(source) and is_hotel_source(x.get('source')):
+                    overruled.append({'hotel_said': f"{x['fact']} ({x['source']})", 'engine_sells': text})
+            elif rank_old > rank_new:
                 rec['superseded'] = True
                 rec['superseded_by'] = f"{x['fact']} ({x['source']})"
+                if is_hotel_source(source) and is_engine_source(x.get('source')):
+                    overruled.append({'hotel_said': f'{text} ({source})', 'engine_sells': x['fact']})
         rows.append(rec)
         have.add(text)
         added.append(text)
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text(json.dumps(doc, indent=1, ensure_ascii=False), encoding='utf-8')
-    return {'added': added, 'superseded': superseded, 'engine_corrections': engine_corrections(facts_file),
-            'facts_file': str(f)}
+    out = {'added': added, 'superseded': superseded, 'engine_corrections': engine_corrections(facts_file),
+           'facts_file': str(f)}
+    if overruled:
+        out['engine_overrides'] = {'rows': overruled, 'note': 'The booking engine is right unless the hotel says '
+                                   'otherwise in the Questions for the Hotel sheet: the site follows the engine. If '
+                                   'the hotel insists, ask it in the Rooms sheet.'}
+    return out
 
 
 def engine_corrections(facts_file):
-    """Rooms where the hotel has answered and the booking engine sells something else: a booking-engine setting for
-    whoever manages Mirai, never a [CONFIRM] question and never a page edit (Abar, Nov 2026: the engine sold the
-    Two-Bedroom for 5; the hotel said 4 adults + 4 children)."""
+    """Rooms where the hotel answered in the Questions sheet and the booking engine sells something else: a booking-
+    engine setting for whoever manages Mirai, never a [CONFIRM] question and never a page edit (Abar, Nov 2026: the
+    engine sold the Two-Bedroom for 5; the hotel said 4 adults + 4 children). A hotel answer given any other way
+    (email, WhatsApp) does not override the engine."""
     f = paths.resolve(facts_file)
     if not f.exists():
         return []
@@ -215,7 +246,7 @@ def engine_corrections(facts_file):
     hotel = {}
     for x in rows:
         rf = room_fact(x.get('fact'))
-        if rf and is_hotel_source(x.get('source')) and not x.get('superseded'):
+        if rf and is_sheet_source(x.get('source')) and not x.get('superseded'):
             hotel[rf[:2]] = (x['fact'], x['source'], rf[2])
     out = []
     for x in rows:

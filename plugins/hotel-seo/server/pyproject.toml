@@ -1,7 +1,7 @@
 [project]
 name = "hotel-seo-tools"
-version = "2.1.1"
-description = "MCP tools for the MetaHotels hotel-seo skill: crawls, site audit, booking engine, parity, indexing, monitors, Business Profile, PDF and Google Docs lists"
+version = "2.2.0"
+description = "MCP tools for the MetaHotels hotel-seo skill: crawls, site audit, booking engine, parity, indexing, monitors, Business Profile and PDF reports"
 requires-python = ">=3.11"
 dependencies = [
     "mcp>=1.2,<2",
@@ -14,7 +14,6 @@ dependencies = [
     "google-ads>=32.0",  # 32+: no developer token needed (retired 9 Sep 2026)
     "azure-storage-blob>=12.19",
     "openpyxl>=3.1",
-    "python-docx>=1.1",
     # claude-seo vendored scripts (hotel_seo_tools/vendor/claude_seo, MIT)
     "lxml>=6.1.1,<7",
     "lxml_html_clean>=0.4.5,<1",

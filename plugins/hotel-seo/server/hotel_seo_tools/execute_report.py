@@ -22,6 +22,8 @@ NO_ACTION = re.compile(r'^\*\*Fix:\*\*\s*No (change|copy|action)', re.I)
 SEV = {'Critical': 0, 'High': 1, 'Medium': 2, 'Low': 3, 'Info': 4}
 HOTEL_REASONS = ('waiting for the hotel', 'the hotel said no', 'the hotel answered', 'on hold', 'price or discount',
                  'no question number')
+# skipped for a reason execute itself resolves on a later run (not agency work): listed under "Still to run"
+EXECUTE_LATER = ('group-wide', 'runs only in the group batch')
 
 
 def _short(v, n=300):
@@ -63,8 +65,14 @@ def steps_for(a):
         return [f"Open `{a.get('url')}` (Elementor or the page editor), find “{a.get('find')}” and change it to "
                 f"`{a.get('replace')}`. Update, then purge the page cache."]
     if t == 'schema_snippet':
-        return ["Elementor → Custom Code → Add New (location: <head>), paste the code below, display conditions: "
-                + ', '.join(a.get('conditions') or []) + ' → Publish.', f"`{_short(a.get('code'), 4000)}`"]
+        from .execute import schema_code
+        try:
+            code = schema_code(a.get('code'))
+        except ValueError as e:
+            return [f'The schema block in the audit is not valid ({e}): do not paste it; it is fixed in the next run.']
+        return ["Elementor → Custom Code → Add New, location **<head>**, paste the code below exactly as it is "
+                "(including the <script> lines; without them the JSON shows on the page), display conditions: "
+                + ', '.join(a.get('conditions') or []) + ' → Publish.', f"`{_short(code, 4000)}`"]
     if t == 'rankmath_setting':
         return [f"Rank Math → {a.get('group', 'settings')} → set:"] + \
             [f"{k}: `{v}`" for k, v in (a.get('settings') or {}).items()] + ['Save changes.']
@@ -182,7 +190,7 @@ def build(group_dir, slug, plan_file=''):
     skipped = {}
     for s_ in pl.get('skipped', []):
         skipped.setdefault(s_.get('finding'), []).append(s_)
-    agency, hotel_wait, no_action = [], [], []
+    agency, hotel_wait, no_action, still_to_run = [], [], [], []
     for sec in report.get('sections', []):
         if not sec.get('severity') or sec.get('owner') == 'web':
             continue
@@ -190,9 +198,28 @@ def build(group_dir, slug, plan_file=''):
         if sec.get('actions') and all(a.get('type') == 'gbp' for a in sec['actions']):
             continue        # Business Profile fixes: MetaHotels makes them (Execute Report), never the agency
         its = [i for i in by_finding.get(fid, []) if i.get('batch') != GBP_BATCH]
-        sk = [x for x in skipped.get(fid, []) if x.get('action') != 'gbp']
+        sk_all = [x for x in skipped.get(fid, []) if x.get('action') != 'gbp']
+        later = [x for x in sk_all if any(k in x.get('reason', '') for k in EXECUTE_LATER)]
+        sk = [x for x in sk_all if x not in later]
+        # planned but not run yet (batch not approved, Chrome step not done) or group-wide: execute does it on its
+        # next run, so it is not handed to the agency (Nov 2026: alt text and group items landed on the agency list)
+        pending = [i for i in its if i['id'] not in done]
+        if pending or later:
+            still_to_run.append([sec.get('title'), ', '.join(sorted({i['batch'] for i in pending}))
+                                 + ('; ' if pending and later else '') + ('group run: execute without --hotel'
+                                                                          if later else ''),
+                                 str(len(pending) + len(later))])
+            its = [i for i in its if i['id'] in done]
+            if not sk:
+                continue
         all_done = its and all(i['id'] in done for i in its) and not sk
         if all_done and (recheck.get(fid) or {}).get('status') in ('Done', 'Manual', None):
+            continue
+        if all_done:
+            # written but the live page doesn't show it: execute's own problem to look into, not the agency's
+            still_to_run.append([sec.get('title'), 'written, but the live re-check says '
+                                 + str((recheck.get(fid) or {}).get('status')) + ': check the element / template',
+                                 str(len(its))])
             continue
         if sk and all(any(k in x.get('reason', '') for k in HOTEL_REASONS) for x in sk) and not its:
             hotel_wait.append([sec.get('title'), '; '.join(x['reason'] for x in sk)])
@@ -254,6 +281,15 @@ def build(group_dir, slug, plan_file=''):
         agency.append({'title': sec.get('title'), 'severity': sec.get('severity'), 'category': sec.get('category'),
                        'why': why.strip(), 'blocks': blocks, 'checks': sec.get('checks', []),
                        'finding_id': fid, 'pages_all': pages})
+    if still_to_run:
+        if exec_doc['sections'] and exec_doc['sections'][0].get('title') == 'No changes made yet':
+            exec_doc['sections'] = []
+        exec_doc['sections'].append({
+            'number': len(exec_doc['sections']) + 1,
+            'title': f'Still to run with execute: {len(still_to_run)} finding(s)',
+            'blocks': [{'p': 'Execute can make these changes itself: they are not on the Agency Fix List. Approve the '
+                             'batch (or run the group batch) to finish them.'},
+                       {'table': {'columns': ['Finding', 'What is left', 'Items'], 'rows': still_to_run}}]})
     agency.sort(key=lambda x: (x.get('category') or '', SEV.get(x.get('severity'), 9)))
     secs, n, current = [], 0, None
     for a in agency:
@@ -300,5 +336,6 @@ def build(group_dir, slug, plan_file=''):
     (out / 'agency-fix-list.json').write_text(json.dumps(agency_doc, indent=1, ensure_ascii=False), encoding='utf-8')
     return {'execute_report': str(out / 'execute-report.json'), 'agency_fix_list': str(out / 'agency-fix-list.json'),
             'changes': len(changes), 'agency_items': n, 'waiting_for_hotel': len(hotel_wait),
-            'out_dir': str(hdir / 'Reports'),
-            'next': 'render_report each file to out_dir with google_doc=false (PDF + Word).'}
+            'still_to_run': len(still_to_run),
+            'out_dir': str(paths.reports_dir(hdir)),
+            'next': 'render_report each file to out_dir (PDF).'}

@@ -193,7 +193,9 @@ CORE = {
                               'trailing-slash style) and keep the self-canonical on the main page.', 'variant_resolved'),
 }
 # core checks the Web Team fixes (server or theme work, registry rule 1.2.3); the rest go to the SEO agency
-WEB_OWNED = {'url_variant_duplicate'}
+# hreflang is printed by the theme / Polylang settings, not per post: a developer item, never agency or execute work
+WEB_OWNED = {'url_variant_duplicate', 'hreflang_no_return', 'hreflang_bad_target', 'hreflang_invalid_code',
+             'hreflang_incomplete'}
 
 
 def _sev_max(a, b):
@@ -311,19 +313,21 @@ def booking_findings(hotel_dir, slug):
         member_bad = [m for m in cmp.get('member_discount_on_site', []) if engine_member and m['pct'] not in engine_member]
         groups = [
             ('offers_without_page', 'Packages the booking engine sells with no page on the site', 'Medium',
-             'Create a page per package (the Build Plan has the copy); facts held for the hotel.',
+             'Create a page per package (the Build Plan has the copy): what the engine sells is the confirmed fact.',
              cmp.get('offers_without_page') or [], lambda x: [x.get('rate', ''), x.get('discount_range', '')],
              ['Package / rate on the engine', 'Discount'], lambda x: None),
             ('offer_pages_without_rate', 'Offer pages for offers the booking engine no longer sells', 'High',
              'Unpublish each expired offer page and 301 it to /offers/ (dining and spa offers excepted).',
              cmp.get('offer_pages_without_rate') or [], lambda x: [x], ['Offer page'], lambda x: x),
             ('room_size_mismatch', 'Room sizes on the site differ from the booking engine', 'High',
-             'Use the booking-engine sizes on the room pages, or confirm with the hotel which is right.',
+             'Use the booking-engine sizes on the room pages: the engine /search page is right unless the hotel '
+             'says otherwise in the Rooms sheet (execute makes the change in the booking-path batch).',
              size_bad, lambda x: [x['room'], x.get('engine_size', ''), ', '.join(x.get('sizes_on_page') or []),
                                   x.get('site_page', '')], ['Room', 'Engine', 'On the page', 'Page'],
              lambda x: x.get('site_page')),
             ('member_discount_mismatch', 'Member discount on the site differs from the booking engine', 'High',
-             'Align the loyalty / member wording with the engine; held for the hotel.', member_bad,
+             'Align the loyalty / member wording with the engine (the engine is right). Execute never changes a '
+             'discount: change the wording by hand.', member_bad,
              lambda x: [x['url'], f"{x['pct']}%", ', '.join(f'{p}%' for p in sorted(engine_member)), x['context']],
              ['Page', 'Site says', 'Engine gives', 'Context'], lambda x: x['url']),
         ]
@@ -340,8 +344,7 @@ def booking_findings(hotel_dir, slug):
                  'fix': fix, 'blocks': [{'table': {'columns': cols, 'rows': [row(x) for x in items]}}],
                  'checks': [{'type': 'status', 'url': u, 'expected': 301} for u in urls]
                  if key == 'offer_pages_without_rate' else [], 'actions': []}
-            if key in ('member_discount_mismatch', 'offers_without_page', 'room_size_mismatch'):
-                f['hold'] = 'waiting for hotel confirmation'
+            # no hold: the booking engine is the source of truth (the hotel overrides it only in the Rooms sheet)
             findings.append(f)
     cf = hd / 'facts-conflicts.json'
     if cf.exists():
@@ -359,15 +362,19 @@ def booking_findings(hotel_dir, slug):
                                                       'Room sizes and occupancy agree') +
                                                      '; cancellation wording to compare by hand',
                                           'tool': 'crosscheck_facts'},
-                             'fix': 'Confirm with the hotel which value is right, then correct Booking.com (extranet) '
-                                    'or the booking engine; the site copy stays [CONFIRM] until then.',
-                             'hold': 'waiting for hotel confirmation',
+                             'fix': 'The booking engine is right: correct Booking.com (extranet) to the booking engine '
+                                    'value. The site already follows the engine.',
                              'blocks': [{'table': {'columns': ['What', 'Booking engine', 'Booking.com'],
                                                    'rows': [[c.get('kind', '') + (': ' + c.get('room_engine', '')
                                                                                   if c.get('room_engine') else ''),
                                                              str(c.get('engine')), str(c.get('bookingcom'))]
                                                             for c in conf]}}],
-                             'checks': [], 'actions': []})
+                             'checks': [], 'actions': [{'type': 'chrome', 'where': 'Booking.com extranet', 'steps': [
+                                 'admin.booking.com, signed in for this property (never type a password)',
+                                 'Property → Property page / Rooms: for each row below set the Booking.com value to '
+                                 'the booking engine value'] + [
+                                 f"{c.get('kind', '')}{(': ' + c['room_bookingcom']) if c.get('room_bookingcom') else ''}"
+                                 f" → {c.get('engine')}" for c in real] + ['Save each room.']}] if real else []})
     return findings, checks
 
 
@@ -598,7 +605,7 @@ def _section(f, n):
         blocks.append({'ul': shown})
         if len(pages) > 25:
             blocks.append({'note': f'{len(pages)} pages in total: the first 25 are shown; the full list is in the '
-                                   f'linked sheet ({f["id"]}).'})
+                                   f'URL list CSV next to this report ({f["id"]}).'})
     blocks.extend(f.get('blocks') or [])
     blocks.append({'paste' if any(k in f['fix'] for k in ('`', '"')) else 'p': '**Fix:** ' + f['fix']})
     if f.get('where'):

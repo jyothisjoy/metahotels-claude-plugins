@@ -337,8 +337,9 @@ def snapshot(site, hotel_id, out_dir, stays=None, crawl_dir='', facts_file='', p
     md = summary_md(result)
     if result['engine_corrections']:
         lines = [f"- {c['engine_sells']} → hotel says: {c['hotel_says']}" for c in result['engine_corrections']]
-        md += ('\n## Booking engine corrections (the hotel has answered; the engine sells something else)\n\n'
-               'A Mirai setting for whoever manages the engine, not a page edit. The site follows the hotel.\n\n'
+        md += ('\n## Booking engine corrections (the hotel answered in the Questions sheet; the engine sells '
+               'something else)\n\nA Mirai setting for whoever manages the engine, not a page edit. Here the site '
+               'follows the sheet answer; everywhere else the engine is right.\n\n'
                + '\n'.join(lines) + '\n')
     (out / 'booking_engine.md').write_text(md, encoding='utf-8')
     return {'files': [str(out / 'booking_engine.json'), str(out / 'booking_engine.md')],
@@ -346,8 +347,8 @@ def snapshot(site, hotel_id, out_dir, stays=None, crawl_dir='', facts_file='', p
 
 
 def _merge_facts(facts_file, facts, source):
-    # one value per fact: an engine figure that contradicts the hotel's own answer is stored superseded, and
-    # comes back as a booking engine correction (facts.add_facts)
+    # one value per fact: the engine wins over everything except the hotel's Questions sheet answer; an engine figure
+    # that contradicts a sheet answer is stored superseded and comes back as a booking engine correction
     from . import facts as fx
     return fx.add_facts(facts_file, facts, source)
 

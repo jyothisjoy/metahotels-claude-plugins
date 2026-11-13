@@ -1,6 +1,6 @@
 ---
 name: hotel-seo
-description: MetaHotels hotel SEO. Use when the user gives a hotel or hotel-group website and wants a full SEO audit and ground-up build plan (every hotel tracked separately), a re-check of fixes, the fixes applied to the site through its WordPress MCP in approved batches (execute, logins from sites.csv), a client monthly report (rankings, AI-assistant visits, work done, direct bookings), site monitoring, hotel website copy written to our standard (a title, meta, intro, FAQ, room or offer text, a new page or blog post, Business Profile text), a fact check of someone else's SEO report or advice against Google's own documentation, the Google Business Profile read or changed, whether a hotel site can be read by ChatGPT / Perplexity / Copilot / Google AI Overviews, or runs /hotel-seo (init, init --check, <domain>, <domain> --hotel <slug>, recheck, execute, monthly, monitor, write, check <report>). Runs 11 specialist agents ported from claude-seo with hotel rules, plus crawl, audit, Search Console, GA4, Keyword Planner, Mirai, booking engine, Booking.com, Business Profile and the Disparity / Best Rate calendar, and renders Audit Report, Build Plan and Web Team List as PDF, Word and Google Docs.
+description: MetaHotels hotel SEO. Use when the user gives a hotel or hotel-group website and wants a full SEO audit and ground-up build plan (every hotel tracked separately), a re-check of fixes, the fixes applied to the site through its WordPress MCP in approved batches (execute, logins from sites.csv), a client monthly report (rankings, AI-assistant visits, work done, direct bookings), site monitoring, hotel website copy written to our standard (a title, meta, intro, FAQ, room or offer text, a new page or blog post, Business Profile text), a fact check of someone else's SEO report or advice against Google's own documentation, the Google Business Profile read or changed, whether a hotel site can be read by ChatGPT / Perplexity / Copilot / Google AI Overviews, or runs /hotel-seo (init, init --check, <domain>, <domain> --hotel <slug>, recheck, execute, monthly, monitor, write, check <report>). Runs 11 specialist agents ported from claude-seo with hotel rules, plus crawl, audit, Search Console, GA4, Keyword Planner, Mirai, booking engine, Booking.com, Business Profile and the Disparity / Best Rate calendar, and renders Audit Report, Build Plan and Web Team List as PDF, plus the Questions for the Hotel and Review Replies spreadsheets, into a dated folder per run.
 ---
 
 # hotel-seo
@@ -44,13 +44,18 @@ No argument: ask for the website. A bare domain or URL in the message counts as 
 4. **Facts need evidence** ([CONFIRM] guard in `render_report`). Confirmed sources: the hotel information sheet, the hotel
    contact, the live booking engine, and Booking.com **only where the booking engine agrees**. Prices, discounts,
    offers and member benefits are never changed.
-5. **One value per fact, everywhere.** The hotel's own answer (information sheet, the hotel contact, an email or
-   WhatsApp) beats the live booking engine, which beats anything else. **Hotel answers go into `hotel-facts.json` the
-   day they arrive, whatever the channel,** with `add_facts(facts_file, facts, source="hotel (<who>, <channel> <date>)")`:
-   it marks the engine facts they contradict `"superseded"`, so the guard ignores them. Where the hotel and the engine
-   disagree (sizes, guests, beds), the site follows the hotel and `engine_corrections(facts_file)` lists the Mirai
-   settings to change: a booking-engine setting for whoever manages Mirai, never a page edit. A fact the hotel has
-   answered is never a [CONFIRM] again. Sizes are written in the hotel's unit (`hotel.json` `preferences.units`).
+5. **One value per fact, everywhere. The booking engine's `/search` page is always right**, unless the hotel says
+   otherwise in the Questions for the Hotel sheet. Order: the hotel's sheet answer > the live booking engine > the
+   hotel's other messages (email, WhatsApp, the hotel contact) > anything else (site, Booking.com, AI answers). Where
+   the site or Booking.com disagrees with the engine (room sizes, guests, beds, room names, cancellation wording),
+   nobody is asked: execute brings the site in line with the engine (booking-path batch) and Booking.com gets a Chrome
+   step to match it. **Hotel answers go into `hotel-facts.json` the day they arrive, whatever the channel,** with
+   `add_facts(facts_file, facts, source="hotel (<who>, <channel> <date>)")`; one that contradicts the engine comes back
+   in `engine_overrides` and does not change the site: tell the user, and ask it in the Rooms sheet if the hotel
+   insists. Only a sheet answer overrides the engine: the site then follows the hotel and
+   `engine_corrections(facts_file)` lists the Mirai settings to change (never a page edit). Phone, address and
+   distances are not engine facts: they still come from the hotel. A fact the hotel has answered is never a [CONFIRM]
+   again. Sizes are written in the hotel's unit (`hotel.json` `preferences.units`).
 6. **Every word we write follows one standard:** [references/content-writing.md](references/content-writing.md), for
    titles, metas, H1s, intros, FAQs, alt text, buttons, booking paragraphs, schema descriptions, Business Profile text
    and full pages. `presend_check`, `render_report` and `copy_check` report what code can check, as problems (fix) and
@@ -88,7 +93,9 @@ abarhotels.com/                   SINGLE HOTEL: everything directly here
   content/                        copy written with /hotel-seo write
   audit-<date>/                   every agent's findings/, code/ (content-scan, consistency), audit-report.json,
                                   web-team.json, build-plan.json
-  Reports/                        Audit Report, Build Plan, Web Team List, Monthly Report, URL lists (CSV)
+  Reports/<YYYY-MM-DD>/           one folder per run: Audit Report, Build Plan, Web Team List, Questions for the
+                                  Hotel, Execute Report, Agency Fix List, Review Replies, Monthly Report (PDF; sheets
+                                  as .xlsx), URL lists (CSV)
   recheck-<date>/, execute-<date>/, monthly-<YYYY-MM>/, monitor/
   monthly-settings.json, tracked-keywords.json, ai-prompts.json, work-log.csv, run-notes-<date>.md, findings-register-<date>.json
 
@@ -96,7 +103,7 @@ rosehotelsgroup.com/              HOTEL GROUP
   site.json                       "type": "group", every hotel with its own paths
   agent-preflight-<date>.json, crawl-<date>/ (+ partition.json), run-notes-<date>.md
   group/                          site-wide: audit-<date>/ (per-site agents, group-summary.json), execute-<date>/,
-                                  monthly-<YYYY-MM>/, monitor/, Reports/ (Group Summary, Group Monthly Summary)
+                                  monthly-<YYYY-MM>/, monitor/, Reports/<YYYY-MM-DD>/ (Group Summary, Group Monthly Summary)
   hotels/<slug>/                  per hotel: the same files as a single hotel's folder above
 ```
 
@@ -157,7 +164,7 @@ Fully automatic apart from **one intake round** (step 3). Anything you can't get
 1. **Set up.** Normalise the domain (no scheme, no `www.`), create `<domain>/`, read `site.json`, each hotel's
    `hotel.json` and facts, and the latest run notes if they exist. `sites_csv_status` (is the site in sites.csv?).
    **Documents already in flight?** If an Audit Report, Agency Fix List or a hand-made list for this site was issued in
-   the last 7 days (`Reports/`, or `* - <Hotel> *` PDFs anywhere in the work folder), the agency may be working on it now:
+   the last 7 days (`Reports/<date>/` folders, or `* - <Hotel> *` PDFs anywhere in the work folder), the agency may be working on it now:
    re-check it first (**/hotel-seo recheck**) and report regressions its changes caused at the top.
 2. **Crawl:** `crawl_site("https://<domain>/", "<domain>/crawl-<date>")` (10–30 min; keep working meanwhile). If the
    homepage redirects to another host, crawl the final host.
@@ -174,7 +181,7 @@ Fully automatic apart from **one intake round** (step 3). Anything you can't get
      which searches belong there), whether the **client approves every change before it goes live** (default no), and
      the **size unit** (m² or sq ft). No answer → the defaults; don't wait.
    - Then `save_group(...)`; keep its `folders`. Import sheets with `import_facts_sheet(sheet,
-     "<hotel dir>/hotel-facts.json", filled_on)`; PDF / Word sheets: read them and `add_facts(..., source="hotel info
+     "<hotel dir>/hotel-facts.json", filled_on)`; PDF or Word documents the hotel sends: read them and `add_facts(..., source="hotel info
      sheet, <date>")`. Save the settings with `hotel_settings("<hotel dir>", preferences={"client_approval": true,
      "units": "sqft"}, other_sites=[{"domain": "gulcafe.com", "terms": ["restaurant", "iftar"]}])` (it keeps every
      other key). Copy calendar CSVs into `<hotel dir>/parity/` and run `import_parity_calendar([...],
@@ -264,13 +271,14 @@ Fully automatic apart from **one intake round** (step 3). Anything you can't get
     to content-writing.md (a unit brief, then the copy, then the edit pass), in the hotel's `voice.md` (make it once
     when a hotel needs more than titles and metas).
 13. **Questions for the hotel** (after the Build Plan, before rendering): `hotel_questions("<domain>", slug)`. It
-    writes everything the hotel must confirm into `Reports/NN - <Hotel> Questions for the Hotel (<date>).xlsx`
+    writes everything the hotel must confirm into `Reports/<date>/NN - <Hotel> Questions for the Hotel (<date>).xlsx`
     and renumbers the reports' markers to `[CONFIRM Q7]` / `[CONFIRM R2]`. Sheets and sources:
     - **Questions** (Q): every [CONFIRM] in the Audit Report, Build Plan and Web Team List and every held item; wrong
       facts AI assistants gave in the latest monthly AI answer check (`monthly-<YYYY-MM>/manual.json` `ai_panel`; one
       question per fact across engines; a fact already confirmed is a fix, not a question); area facts in new copy
       with no source (`copy/claims-<date>.json`, from `save_claims`), other than distances.
-    - **Rooms** (R): size, guests, beds per room type (site vs booking engine vs Booking.com).
+    - **Rooms** (R): size, guests, beds per room type (site vs booking engine vs Booking.com). Left blank, the
+      engine's values stand; the hotel fills a room only where the engine is wrong.
     - **Distances** (D): distances on the site, Booking.com's nearby list, the keyword map's landmarks, and distance /
       travel-time claims from new copy (in the same place's row).
     - **Facts** (F): basic facts not yet confirmed; name, address, phone and website with every source's value when
@@ -294,7 +302,8 @@ Fully automatic apart from **one intake round** (step 3). Anything you can't get
     findings that reached no document: add them, or write in the run notes why they're left out) and `copy_problems`.
 15. **Render** each hotel's Audit Report, Build Plan and Web Team List (and, for a group, the Group Summary):
     `render_report(out_dir="<hotel dir>/Reports", json_path=..., crawl_dir=crawl_dir,
-    facts_file="<hotel dir>/hotel-facts.json")` (Group Summary into `<domain>/group/Reports`). If the guard
+    facts_file="<hotel dir>/hotel-facts.json")` (Group Summary into `<domain>/group/Reports`). Reports are PDF only
+    and land in that run's dated folder `Reports/<YYYY-MM-DD>/`. If the guard
     returns unverified phrases, fix them (mark [CONFIRM], correct, or add the fact with its source) and render again.
     It refuses literal `\uXXXX` codes (Arabic escaped twice: write the real characters). Fix what `copy_warning` and
     `checks_warning` report. `client_approval_warning`: this hotel approves every change first (`hotel.json`
@@ -307,7 +316,7 @@ Fully automatic apart from **one intake round** (step 3). Anything you can't get
     finding or agent behind it). Per hotel, `<hotel dir>/findings-register-<date>.json`
     ([templates/findings-register.schema.json](templates/findings-register.schema.json)): every finding with its check
     ID, evidence, verification status, severity and where it went.
-17. **Finish:** per hotel the Google Doc links and file paths, the Health Score and the Critical findings in one line
+17. **Finish:** per hotel the PDF paths, the Health Score and the Critical findings in one line
     each; the agent status table (anything degraded or not assessed, and why); missing inputs and the checks that
     couldn't run because of them; the Questions for the Hotel spreadsheet (how many questions per sheet) to send to the
     hotel; `engine_corrections` for whoever manages Mirai; the Best Rate calendar's questions for MetaHotels (no-record
@@ -395,6 +404,15 @@ writes the status record; an agent never validated is left out of the report).
    site-settings, business-profile, group — show the table (page, field, current → new) and ask the user. Only on a clear yes:
    `run_execute_batch(plan_file, batch, approved=true)`. Report what was written, what failed and the re-check result.
    A write the site accepted that the live page doesn't show is not done: say so and look at the element or template.
+   **How site text is changed:** text replacements (the hotel's answers, the engine's room facts, phone numbers) go
+   through the site's `find-text` / `replace-text` tools: they find the text wherever it is stored (page fields,
+   Elementor widgets, header / footer / global templates, Custom Code, menus) and change only this hotel's posts. A
+   phone number is one item per wrong number, in every format and `tel:` link. On a group site a match in a shared
+   template becomes its own item in the **group** batch (it shows on other hotels' pages: list them before asking).
+   Body copy on an Elementor page goes into its text widget, never into post content (the page would not show it).
+   **Schema:** every snippet is checked and rewritten as `<script type="application/ld+json">` in `<head>`; invalid
+   JSON, bare text or HTML is refused, and JSON-LD in page copy is refused. The schema batch's re-check fails if any
+   `"@context"` shows as page text.
 4. **chrome** batch: do each listed step with Claude in Chrome in a new tab of the user's own logged-in browser (never
    type a password), save before / after screenshots to `execute-<date>/chrome/`, then
    `record_chrome_step(plan_file, item_id, done, note)` for each (done=false with the reason if it could not be done).
@@ -411,11 +429,15 @@ writes the status record; an agent never validated is left out of the report).
    facts_file="<hotel dir>/hotel-facts.json")`. Every open row except DISTANCE (checked by hand) is fixed or listed as
    open.
 7. **Reports (always):** `execute_reports("<domain>", slug)`, then `render_report(out_dir=<its out_dir>,
-   json_path=<execute_report>, google_doc=false)` and the same for `<agency_fix_list>` — PDF + Word:
-   - **Execute Report**: every change made (page, before → after, live re-check), what waits for the hotel, undo.
-   - **Agency Fix List**: every SEO finding execute did not finish, step by step with the exact text to paste and
-     where in WordPress, for the SEO agency; new pages still to create; "checked, no action needed"; and the items
-     that wait for the hotel (do not change yet). Developer items stay in the Web Team List.
+   json_path=<execute_report>)` and the same for `<agency_fix_list>` (PDF, into `Reports/<date>/`):
+   - **Execute Report**: every change made (page, before → after, live re-check), what waits for the hotel, undo, and
+     **Still to run with execute**: batches not approved yet, Chrome steps not done, group-wide items (the group run)
+     and writes the live page doesn't show yet. These are MetaHotels' to finish, never the agency's.
+   - **Agency Fix List**: only what execute cannot do (no MCP tool reaches it, the site refused it), step by step with
+     the exact text to paste and where in WordPress, for the SEO agency; new pages still to create; "checked, no
+     action needed"; and the items that wait for the hotel (do not change yet). Developer items (hreflang, theme,
+     templates the tools can't write) stay in the Web Team List; Business Profile and Booking.com are never agency
+     work.
    Finish with both file paths, the counts, failures and the undo command.
 8. `--undo <plan file>`: `undo_execute(plan_file)`. Business Profile changes come back as proposals of their before
    values (`business_profile`): show each preview; `gbp_apply` only after the user approves that id.
@@ -617,9 +639,12 @@ Rules:
 - **Review replies:** the routine below.
 - **Website link:** the hotel's homepage (or the hotel's section on a group site) with
   `?utm_source=google&utm_medium=organic&utm_campaign=gbp`, ending on a 200 without redirects.
-- **Wording** of descriptions, posts and replies follows [references/content-writing.md](references/content-writing.md);
+- **Wording** of posts and replies follows [references/content-writing.md](references/content-writing.md);
   **facts** follow the [CONFIRM] rule: only what the site, `hotel-facts.json` or the booking engine shows.
-  Description: 750 characters, no links, no prices.
+- **No description on hotel profiles:** Google doesn't allow a "from the business" description on hotel (lodging)
+  profiles and writes its own. Never write one, never put it on any list; execute refuses it.
+- **Amenities and extra categories the API refuses** for a hotel become Claude in Chrome steps in execute's chrome
+  batch (business.google.com, Manager access): MetaHotels does them, not the agency.
 - **Hotel details (amenities and policies):** `gbp_amenities(domain, slug)` reads the profile's check-in/out, payment,
   breakfast, pool, parking, Wi-Fi, pets, airport shuttle, accessibility and the rest ("not set" and "exception: …" are
   different things), what Google changed itself, and compares them with `hotel-facts.json`. Show the mismatches and
@@ -645,9 +670,15 @@ The user (MetaHotels, for the hotel) approves every reply before it goes out; no
    and the confirmed hotel email or phone listed under `contacts` (none listed → add it with `add_facts` first).
    **Arabic reviews get a reply written in Arabic**, natively, not a translation of an English draft. Other
    languages: English unless the user says otherwise. `"skip": true` leaves a review for later.
-4. `gbp_review_drafts_check(file)`: fix every `problems` line (they block sending), read each warning, check again.
-5. Show the user every reply (1–2 star ones first), then `gbp_propose(location, changes, out_dir)` with the returned
-   `changes` and show the preview word for word. `gbp_apply` only after the user approves that change id.
+4. `gbp_review_drafts_check(file)`: fix every `problems` line (they block it), read each warning, check again. When
+   clean it writes the **review sheet** `Reports/<date>/NN - <Hotel> Review Replies (<date>).xlsx`: every review
+   (date, stars, reviewer, language, text, Google's translation, current reply), the plugin's reply, and the yellow
+   "Final reply", "Send? (Yes / No)" and "Notes" cells (1–2 star reviews start as No; Arabic right to left). Give
+   it to the user (and the hotel for complaints) to read and edit.
+5. **Replies are posted only from the sheet**, as edited: `gbp_review_sheet_import(<sheet>)` lints every "Yes" row's
+   final reply again (problems block it), proposes them (one change id) and writes "Proposed" in the sheet; or
+   `/hotel-seo execute` puts the "Yes" rows in its business-profile batch. Show the preview word for word;
+   `gbp_apply` only after the user approves that change id. Posted rows are marked "Posted <date>" and never sent twice.
 
 ## Tools (hotel-seo-tools MCP server)
 
@@ -658,7 +689,7 @@ Facts: `import_facts_sheet`, `bookingcom_extractor`, `import_bookingcom`, `cross
 `engine_corrections`, `booking_engine_snapshot`. Data: `mirai_reservations`, `rate_parity`, `import_parity_calendar`,
 `keyword_volumes`, `keyword_ideas`, `import_keyword_csv`, `build_keyword_map`, `assign_keyword_owners`, `geo_lookup`,
 `nearby_places`. Business Profile: `gbp_locations`, `gbp_link`, `gbp_api_check`, `gbp_report`, `gbp_amenities`, `gbp_photos`,
-`gbp_reviews_pending`, `gbp_review_drafts_check`, `gbp_propose`, `gbp_apply`, `gbp_history`. Agents:
+`gbp_reviews_pending`, `gbp_review_drafts_check`, `gbp_review_sheet_import`, `gbp_propose`, `gbp_apply`, `gbp_history`. Agents:
 `seo_check`, `seo_check_list`, `content_scan`, `download_images`, `agent_preflight`, `validate_agent_output`. Reports:
 `build_audit_report`, `build_group_summary`, `presend_check`, `render_report`, `recheck_list`, `copy_check`. Sites:
 `sites_csv_status`, `site_mcp_status`, `site_mcp_read`, `execute_plan`, `record_client_approval`, `run_execute_batch`,

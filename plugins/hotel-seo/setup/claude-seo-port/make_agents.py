@@ -192,7 +192,10 @@ Scope: ONE hotel. Every JSON-LD block on its pages must be accounted for.
 3. Write the corrected **Hotel** block for this hotel (hotel-addendum.md field list; facts only from the facts file or
    the live site; [CONFIRM] otherwise), plus Organization / WebSite / BreadcrumbList as needed. Give it as a `code`
    block and as a `schema_snippet` action with `conditions` naming the page, e.g. `["page:<hotel main page URL>"]`
-   (execute turns that into the Elementor display condition). Existing snippets: `site_mcp_read(site,
+   (execute turns that into the Elementor display condition). `code` is the JSON-LD object or the complete
+   `<script type="application/ld+json">...</script>` block and nothing else: valid JSON, with "@context". Execute
+   refuses anything else, because Elementor Custom Code prints the code as it is (bare JSON shows on the page as
+   text). Schema never goes in page copy, `post_content`, `elementor_text` or `text_replace`. Existing snippets: `site_mcp_read(site,
    "elementor-list-custom-code", {})` to find the one to replace (`replace_snippet_id`).
 4. Restate `jsonld_invalid` with the exact fixed block. FAQPage is Info only; never HowTo / SpecialAnnouncement.
 """
@@ -227,9 +230,10 @@ vertical (category, citations, schema).
 3. Citations: check presence (WebFetch) on Tripadvisor, Booking.com, Expedia / Hotels.com, Bing Places, Apple — say
    which could not be checked.
 4. `scores.local` 0-100 with claude-seo's dimension breakdown in the `.md`. Category `Local`. Business Profile fixes
-   are `gbp` actions (`owner: "seo"`; `field` description / website / phone / regular_hours / special_hours /
+   are `gbp` actions (`owner: "seo"`; `field` website / phone / regular_hours / special_hours /
    additional_categories / attributes, `value` as gbp_propose takes it, confirmed facts only; never name, address or
-   primary category): execute's business-profile batch, made by MetaHotels after approval.
+   primary category): execute's business-profile batch, made by MetaHotels after approval. **No description:** Google
+   doesn't allow a business description on hotel profiles; never propose or list one.
 """
 HOTEL['seo-maps'] = """
 ## Hotel-seo specifics

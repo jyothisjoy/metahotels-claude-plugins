@@ -491,9 +491,11 @@ def _compare(loc, crawl_dir, site):
 def _listing_checks(loc, google_updated):
     c, notes = loc.get('categories') or {}, []
     prim = (c.get('primaryCategory') or {}).get('displayName', '')
-    if prim and not re.search(r'hotel|resort|inn|lodging|motel|hostel|apartment', prim, re.I):
+    lodging = bool(re.search(r'hotel|resort|inn|lodging|motel|hostel|apartment', prim, re.I))
+    if prim and not lodging:
         notes.append(f'primary category is "{prim}", not a lodging category')
-    if not (loc.get('profile') or {}).get('description'):
+    # Google doesn't allow a business description on hotel (lodging) profiles: its absence is normal there
+    if not (loc.get('profile') or {}).get('description') and prim and not lodging:
         notes.append('no business description')
     if (loc.get('openInfo') or {}).get('status') not in (None, '', 'OPEN'):
         notes.append(f"profile status {(loc.get('openInfo') or {}).get('status')}")

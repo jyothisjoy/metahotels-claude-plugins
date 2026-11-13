@@ -59,12 +59,6 @@ def check_google():
                          'read-only' if read_only else 'the saved sign-in can also change Search Console '
                          '(submit or delete sitemaps, add or remove properties)',
                          'Run hotel-seo-auth again (one consent screen); new sign-ins are read-only.'))
-    if paths.GSC_TOKEN.exists():
-        from .docs import DRIVE_SCOPE
-        has = DRIVE_SCOPE in (json.loads(paths.GSC_TOKEN.read_text()).get('scopes') or [])
-        rows.append(_row('Google Docs output', has, 'allowed' if has else 'the sign-in has no Docs permission',
-                         'Run hotel-seo-auth again (one consent screen) to allow "files created by this app"; '
-                         'until then lists come as PDF plus a .docs.html file.'))
     from . import keywords
     ok, why = keywords.configured()
     # optional: Keyword Planner only; never fails the check

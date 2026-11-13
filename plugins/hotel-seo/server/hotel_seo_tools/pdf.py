@@ -279,7 +279,7 @@ def list_name(doc):
 
 def next_file_number():
     """Running file number across all hotels in the work folder: highest "NN - ..." PDF or spreadsheet + 1."""
-    nums = [int(m.group(1)) for ext in ('pdf', 'xlsx') for f in paths.work_dir().glob(f'**/Reports/*.{ext}')
+    nums = [int(m.group(1)) for ext in ('pdf', 'xlsx') for f in paths.work_dir().glob(f'**/Reports/**/*.{ext}')
             for m in [re.match(r'(\d+) - ', f.name)] if m]
     return max(nums, default=0) + 1
 
