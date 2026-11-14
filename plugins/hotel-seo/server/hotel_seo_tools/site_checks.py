@@ -133,7 +133,7 @@ def heading_problems(hs):
 
 def anchor_stats(main_soup, page_url, home_host):
     """In-content internal links with text, and how many of them are generic ("Read more", "Click here")."""
-    total, generic = 0, Counter()
+    total, generic, links = 0, Counter(), []
     for a in main_soup.find_all('a', href=True):
         if a['href'].startswith('#'):
             continue
@@ -146,8 +146,11 @@ def anchor_stats(main_soup, page_url, home_host):
         total += 1
         if GENERIC_ANCHOR.match(text):
             generic[text.lower()] += 1
+            if [text, href] not in links:
+                links.append([text, href])
+    # each generic link with where it goes: execute renames it after the page it opens (report.core_findings)
     return {'body_links': total, 'generic_anchor_count': sum(generic.values()),
-            'generic_anchors': dict(generic.most_common(5))}
+            'generic_anchors': dict(generic.most_common(5)), 'generic_links': links[:30]}
 
 
 def generic_over(stats):

@@ -97,10 +97,10 @@ def test_business_profile_rows_and_merge_into_facts(hotel):
     r = questions.build('example-hotels.com', 'ex')
     items = _items(r)
     b = {i['field']: i for i in _by(items, 'Business Profile')}
-    # unconfirmed values Google shows -> rows; gap from the booking engine (not the hotel's own answer) -> rows
-    assert {'pools.pool', 'wellness.spa', 'parking.parkingAvailable', 'parking.freeParking'} <= set(b)
+    # unconfirmed values Google shows -> rows; what the booking engine shows is never asked (it is proposed)
+    assert {'pools.pool', 'wellness.spa'} <= set(b)
+    assert 'parking.parkingAvailable' not in b and 'parking.freeParking' not in b
     assert b['wellness.spa']['gbp'] == 'no' and b['wellness.spa']['id'].startswith('B')
-    assert 'booking engine' in b['parking.freeParking']['why']
     assert b['pools.pool']['refs'][0]['doc'] == 'gbp/amenities-2026-11-02.json'
     # fields the Facts sheet already asks: merged into that row, same id, no Business Profile row
     assert 'policies.checkinTime' not in b and 'connectivity.freeWifi' not in b

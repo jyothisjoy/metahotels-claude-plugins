@@ -1,6 +1,7 @@
 """Business Profile hotel amenities (Lodging API) and the photo check. All Google calls are mocked."""
 import copy
 import json
+import re
 from datetime import date
 
 import pytest
@@ -63,7 +64,7 @@ def test_compare_mismatch_gap_match_unconfirmed(tmp_path):
     assert not any('breakfast' in k.lower() or 'pets' in k for k in c['changes'])
 
 
-def test_compare_hotel_beats_engine_and_same_weight_conflict_proposes_nothing(tmp_path):
+def test_compare_engine_beats_hotel_and_same_weight_conflict_proposes_nothing(tmp_path):
     ff = _facts(tmp_path, [
         {'kind': 'checkin_time', 'value': '16:00', 'fact': 'Check-in from 16:00', 'source': 'booking engine, 1 Nov 2026'},
         {'kind': 'checkin_time', 'value': '15:00', 'fact': 'Check-in 15:00', 'source': 'hotel contact, 2 Nov 2026'},
@@ -71,7 +72,7 @@ def test_compare_hotel_beats_engine_and_same_weight_conflict_proposes_nothing(tm
         {'fact': 'Wi-Fi: paid', 'source': 'booking engine, 3 Nov 2026'},
     ])
     c = gbp_lodging.compare(LODGING, ff)
-    assert c['changes']['policies.checkinTime'] == '15:00'
+    assert c['changes']['policies.checkinTime'] == '16:00'          # the booking engine is always right
     assert 'connectivity.freeWifi' not in c['changes']
     assert [x['field'] for x in c['conflicting_facts']] == ['connectivity.freeWifi']
 
@@ -128,6 +129,10 @@ def test_lodging_change_validation_and_mask(live, tmp_path):
     assert op['params']['updateMask'].split(',') == [
         'policies.checkinTime', 'policies.checkinTimeException', 'parking.freeParking', 'parking.freeParkingException',
         'wellness.spa', 'wellness.spaException']
+    # updateLodging requires metadata.updateTime in the body (not in the mask): without it Google rejects the change
+    meta = op['body'].pop('metadata')
+    assert re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ', meta['updateTime'])
+    assert not any(m.startswith('metadata') for m in op['params']['updateMask'].split(','))
     assert op['body'] == {'name': 'locations/42/lodging', 'policies': {'checkinTime': {'hours': 15, 'minutes': 0}},
                           'parking': {'freeParking': True}}
     assert op['before'] == {'policies.checkinTime': '14:00', 'parking.freeParking': 'not set', 'wellness.spa': 'no'}
@@ -155,6 +160,9 @@ def test_lodging_apply_sends_reads_back_and_logs(live, tmp_path, monkeypatch):
     a = gbp_write.apply(r['change_file'], r['change_id'])
     assert a['status'] == 'applied' and a['results'][0]['read_back'] == 'live now'
     assert live['calls'][0][2] == {'updateMask': 'policies.checkinTime,policies.checkinTimeException'}
+    sent = live['calls'][0][3]['metadata']['updateTime']                  # set when sent, not when proposed
+    proposed = json.loads(open(r['change_file'], encoding='utf-8').read())['ops'][0]['body']['metadata']['updateTime']
+    assert sent >= proposed
     assert 'Check-in time' in (tmp_path / 'log.jsonl').read_text(encoding='utf-8')
 
 

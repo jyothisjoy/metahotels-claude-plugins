@@ -1,5 +1,6 @@
 """Hotel questions -> answers -> execute gate -> execute reports; keyword reasons."""
 import json
+from pathlib import Path
 
 import pytest
 from openpyxl import load_workbook
@@ -96,22 +97,20 @@ def site(tmp_path, monkeypatch):
 
 def test_questions_build_import_and_corrections(site):
     r = questions.build('example-hotels.com', 'ex')
-    assert r['rooms'] == 1 and r['questions'] >= 1
+    # the engine shows the Studio's size and guests: never asked, so no Rooms sheet for the hotel
+    assert r['rooms'] == 0 and r['rooms_from_engine'] == 1 and r['questions'] >= 1
     rep = json.loads((site / 'audit-2026-10-25' / 'audit-report.json').read_text(encoding='utf-8'))
     text = json.dumps(rep, ensure_ascii=False)
     assert '[CONFIRM R1]' in text and '[CONFIRM Q' in text and '[CONFIRM]' not in text
     again = questions.build('example-hotels.com', 'ex')
     assert again['questions'] == r['questions']
     wb = load_workbook(r['xlsx'])
-    wb['Rooms'].cell(row=2, column=10, value=68)
-    wb['Rooms'].cell(row=2, column=11, value=2)
+    assert 'Rooms' not in wb.sheetnames
     wb['Questions'].cell(row=2, column=7, value='Yes')
     filled = site / 'filled.xlsx'
     wb.save(filled)
     imp = questions.import_answers('example-hotels.com', 'ex', str(filled))
-    assert imp['answered'] == 2 and imp['facts_added'] >= 2
-    facts = json.loads((site / 'hotel-facts.json').read_text(encoding='utf-8'))['facts']
-    assert any(f['kind'] == 'room_size' and f['value'] == '68 m²' for f in facts)
+    assert imp['answered'] == 1
     corr = questions.corrections('example-hotels.com', 'ex')
     assert [(c['find'], c['replace']) for c in corr] == [('53 sqm', '68 sqm')]     # not the One Bedroom's 70 sqm
 
@@ -142,8 +141,8 @@ def test_execute_reports_split_done_agency_and_waiting(site):
     assert {row[0] for row in wait['blocks'][1]['table']['rows']} >= {'Room sizes', 'Loyalty tiers'}
 
 
-def test_unanswered_rooms_follow_the_booking_engine(site):
-    """The engine's /search page is right unless the hotel says otherwise in the Rooms sheet."""
+def test_rooms_always_follow_the_booking_engine(site):
+    """What the engine's /search page shows is always right, whatever the hotel says."""
     r = questions.build('example-hotels.com', 'ex')
     corr = questions.corrections('example-hotels.com', 'ex')
     assert [(c['find'], c['replace'], c['source'], c['finding']) for c in corr] == [
@@ -151,11 +150,42 @@ def test_unanswered_rooms_follow_the_booking_engine(site):
     room = next(i for i in questions.load('example-hotels.com', 'ex')['items'] if i['sheet'] == 'Rooms')
     assert execute._answer_state('R1', room, 'Studio Apartment: 68 m²') == 'yes'     # not "waiting" any more
     assert execute._answer_state('R1', room, 'Studio Apartment: 53 m²') == 'value'
-    # the hotel's sheet answer wins over the engine
-    wb = load_workbook(r['xlsx'])
-    wb['Rooms'].cell(row=2, column=10, value=60)
-    filled = site / 'filled.xlsx'
-    wb.save(filled)
-    questions.import_answers('example-hotels.com', 'ex', str(filled))
+    # a hotel answer that says otherwise does not move the site: the engine value is used
+    data = questions.load('example-hotels.com', 'ex')
+    for i in data['items']:
+        if i['sheet'] == 'Rooms':
+            i['answer'] = {'size_m2': 60}
+    qf = sorted(site.glob('audit-*/hotel-questions.json'))[-1]
+    qf.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
     corr = questions.corrections('example-hotels.com', 'ex')
-    assert [(c['find'], c['replace']) for c in corr] == [('53 sqm', '60 sqm')] and 'source' not in corr[0]
+    assert [(c['find'], c['replace']) for c in corr] == [('53 sqm', '68 sqm')]
+    room = next(i for i in questions.load('example-hotels.com', 'ex')['items'] if i['sheet'] == 'Rooms')
+    assert execute._answer_state('R1', room, 'Studio Apartment: 68 m²') == 'yes'
+
+
+class _NoSite:
+    """execute.Site stand-in: no MCP tools, so nothing is resolved (the gate runs before any of that)."""
+    def __init__(self, site):
+        self.site, self.tools, self.types, self.integrations = site, set(), {}, {}
+        self.single, self.hotel_paths = True, []
+
+    def post_id(self, url):
+        raise LookupError(url)
+
+
+def test_execute_asks_before_running_without_the_hotel_answers(site, monkeypatch):
+    monkeypatch.setattr(execute, 'Site', _NoSite)
+    r = questions.build('example-hotels.com', 'ex')
+    p = execute.plan('example-hotels.com', 'ex')
+    assert p['needs_decision'] and 'plan_file' not in p
+    assert p['questions']['answered'] == 0 and p['questions']['questions'] >= 1
+    assert p['waiting_on_hotel']['findings'] >= 1 and 'ignore_unanswered=true' in p['next']
+    go = execute.plan('example-hotels.com', 'ex', ignore_unanswered=True)
+    pl = json.loads(Path(go['plan_file']).read_text(encoding='utf-8'))
+    assert pl['questions_ignored'] and go['questions']['open'] >= 1
+    # the hotel filled the sheet in place: execute imports it and plans without asking
+    wb = load_workbook(r['xlsx'])
+    wb['Questions'].cell(row=2, column=7, value='Yes')
+    wb.save(r['xlsx'])
+    again = execute.plan('example-hotels.com', 'ex')
+    assert 'needs_decision' not in again and again['questions']['answered'] >= 1

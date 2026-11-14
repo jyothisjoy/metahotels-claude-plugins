@@ -37,11 +37,16 @@ BATCH_ORDER = ['booking-path', 'hotel-answers', 'seo-fields', 'redirects', 'elem
 TYPE_BATCH = {'seo_fields': 'seo-fields', 'redirect': 'redirects', 'elementor_text': 'elementor-text',
               'schema_snippet': 'schema', 'alt_text': 'alt-text', 'post_status': 'post-status',
               'post_content': 'elementor-text', 'menu': 'menus', 'page_create': 'new-pages', 'chrome': 'chrome',
-              'rankmath_setting': 'group', 'text_replace': 'elementor-text'}
+              'rankmath_setting': 'group', 'text_replace': 'elementor-text', 'elementor_widget': 'elementor-text',
+              'phone_link': 'elementor-text', 'heading_level': 'elementor-text', 'link_text': 'elementor-text',
+              'insert_text': 'elementor-text'}
 NEEDS_TOOL = {'seo_fields': 'seo-update-posts', 'redirect': 'redirects-create', 'alt_text': 'update-media',
               'elementor_text': 'elementor-update-element', 'schema_snippet': 'elementor-set-custom-code',
               'rankmath_setting': 'seo-update-settings', 'post_status': 'set-post-status',
-              'post_content': 'update-post', 'menu': 'update-menu-item', 'page_create': 'create-post'}
+              'post_content': 'update-post', 'menu': 'update-menu-item', 'page_create': 'create-post',
+              'elementor_widget': 'elementor-update-element', 'phone_link': 'find-text',
+              'heading_level': 'elementor-update-element', 'link_text': 'elementor-update-element',
+              'insert_text': 'elementor-insert-element'}
 PRICE = re.compile(r'(?:AED|USD|EUR|SAR|EGP|\$|€)\s?\d|\d\s?(?:AED|USD|EUR|SAR|EGP|dirhams?)\b|\d+\s?%\s*(?:off|discount)'
                    r'|\b(?:discount|save)\s+\d+\s?%', re.I)
 
@@ -127,6 +132,26 @@ def _norm(u):
 
 def _payload_text(a):
     return json.dumps({k: v for k, v in a.items() if k not in ('type',)}, ensure_ascii=False)
+
+
+def _new_text(a):
+    """The text an action writes (not the text it looks for): what the price guard checks."""
+    t = a.get('type')
+    if t == 'text_replace':
+        return str(a.get('replace') or '')
+    if t in ('elementor_text', 'elementor_widget'):
+        return json.dumps(a.get('settings') or {}, ensure_ascii=False)
+    if t == 'post_content':
+        return str(a.get('content') or '')
+    if t == 'seo_fields':
+        return json.dumps(a.get('fields') or {}, ensure_ascii=False)
+    if t in ('phone_link', 'heading_level'):
+        return ''
+    if t == 'link_text':
+        return str(a.get('new_text') or '')
+    if t == 'insert_text':
+        return str(a.get('html') or a.get('text') or '')
+    return _payload_text(a)
 
 
 class Site:
@@ -225,12 +250,14 @@ QREF = re.compile(r'\[CONFIRM ([QRDFB]\d+)')
 def _answer_state(qid, item, text):
     """yes / no / value / waiting for one question the action depends on."""
     from . import questions as qm
-    a = (item or {}).get('answer') or {}
-    if not a and (item or {}).get('sheet') == 'Rooms':
-        # no answer in the Rooms sheet: the booking engine's values stand (the engine is right unless the hotel says
-        # otherwise there)
-        a = {k: v for k, v in (('size_m2', qm._first_num(item.get('engine_size'))),
-                               ('max_adults', qm._first_num(item.get('engine_guests')))) if v is not None}
+    a = dict((item or {}).get('answer') or {})
+    if (item or {}).get('sheet') == 'Rooms':
+        # the booking engine's values are always right: they replace the hotel's answer where the engine has one
+        eng = {k: v for k, v in (('size_m2', qm._first_num(item.get('engine_size'))),
+                                 ('max_adults', qm._first_num(item.get('engine_guests')))) if v is not None}
+        if 'max_adults' in eng:
+            a.pop('max_children', None)
+        a.update(eng)
     if not a:
         return 'waiting'
     if item['sheet'] == 'Questions':
@@ -287,7 +314,7 @@ def _hotel_gate(text, answers, hold_q=None):
     return True, '', [i for i in ids if i != hold_q], None
 
 
-def plan(group_dir, slug, only=None):
+def plan(group_dir, slug, only=None, ignore_unanswered=False):
     """Dry run for one hotel ('group' = the group batch: site-wide actions of a group site). On a single-hotel site
     site-wide actions are part of the hotel's own plan (batch "site-settings"). Returns batches with current -> new."""
     reg = grp.load(group_dir)
@@ -308,12 +335,30 @@ def plan(group_dir, slug, only=None):
     build = run / 'build-plan.json'
     pages_spec = json.loads(build.read_text(encoding='utf-8')).get('pages', []) if build.exists() else []
     from . import questions as qm
+    qstate = None
+    if slug != 'group':
+        qstate = qm.status(group_dir, slug)
+        if qstate.get('filled_not_imported') and qstate.get('sheet'):
+            # the hotel's answers are in the newest sheet but were never imported: take them in first
+            imp = qm.import_answers(group_dir, slug, qstate['sheet'])
+            qstate = dict(qm.status(group_dir, slug), imported_now=imp.get('answered', 0))
+        if qstate.get('exists') and qstate.get('questions') and not qstate.get('answered') and not ignore_unanswered:
+            waiting = _waiting_on_hotel(report, pages_spec)
+            return {'needs_decision': True, 'questions': qstate, 'waiting_on_hotel': waiting,
+                    'next': (f"The Questions for the Hotel sheet ({qstate['questions']} question(s)"
+                             + (f", {qstate['sheet']}" if qstate.get('sheet') else '') + ') has no answers yet, and '
+                             f"{waiting['findings']} finding(s) / {waiting['pages']} new page(s) wait on it. Ask the "
+                             'user: did the hotel send the sheet back (then import_hotel_answers with that file and '
+                             'plan again), or continue without it? Only on "continue": execute_plan(domain, slug, '
+                             'ignore_unanswered=true): everything else is planned, and what waits on the hotel stays '
+                             'skipped and listed. Nothing has been planned or written.')}
     qdata = qm.load(group_dir, slug) if slug != 'group' else None
     answers = {i['id']: i for i in (qdata or {}).get('items', [])}
     hold_qs = {i.get('finding_id'): i['id'] for i in answers.values() if i.get('type') == 'hold'}
     rooms_answered = any(i['sheet'] == 'Rooms' and i.get('answer') for i in answers.values())
     rewording = []
     planned, skipped, gbp_acts = [], [], []
+    seen_actions = {}
     n = 0
     for sec in report.get('sections', []):
         acts = sec.get('actions') or []
@@ -351,9 +396,24 @@ def plan(group_dir, slug, only=None):
                     item['action'] = a
                     item['hotel_confirmed'] = confirmed
                 text = _payload_text(a)
-            if PRICE.search(text):
-                skipped.append({'finding': fid, 'action': a['type'], 'act': a, 'reason': 'contains a price or discount: never changed'})
+            new_text = _new_text(a)
+            if PRICE.search(new_text):
+                skipped.append({'finding': fid, 'action': a['type'], 'act': a,
+                                'reason': 'writes a price or discount: never changed by execute'})
                 continue
+            if PRICE.search(text):
+                # the old text has a price and the new one doesn't (e.g. "400–1600 AED" taken out of an FAQ answer,
+                # which the copy standard forbids): execute may remove a price, never write or change one
+                item['note'] = 'removes a price from the page (no price is written)'
+            key = json.dumps({k: v for k, v in a.items() if k not in ('pages', 'finds', 'why')}, sort_keys=True,
+                             ensure_ascii=False)
+            if a['type'] != 'gbp' and key in seen_actions:
+                # the same change asked for by two findings (Nov 2026: "29 m² -> 20 m²" came from three agents): run it
+                # once; the others follow its result instead of failing as "not found any more"
+                skipped.append({'finding': fid, 'action': a['type'], 'act': a, 'same_as': seen_actions[key],
+                                'reason': f"same change as {seen_actions[key]['finding']} ({seen_actions[key]['id']})"})
+                continue
+            seen_actions[key] = {'finding': fid, 'id': item['id']}
             if a['type'] == 'gbp':           # Business Profile: its own batch, planned below
                 gbp_acts.append({'finding': fid, 'title': sec.get('title'), 'category': sec.get('category'),
                                  'action': a, **({'hotel_confirmed': item['hotel_confirmed']}
@@ -369,6 +429,11 @@ def plan(group_dir, slug, only=None):
             if a['type'] != 'chrome' and tool and tool not in s.tools:
                 item.update(batch='chrome', via='chrome',
                             note=f'{tool} is not available on this site: do it in wp-admin with Claude in Chrome')
+            elif a['type'] == 'redirect' and not _redirects_writable(s):
+                item.update(batch='chrome', via='chrome',
+                            note='the site has no redirect manager the MCP can write (neither the Redirection plugin '
+                                 'nor Rank Math → Redirections is on, or Meta MCP is older than 1.7, which added Rank '
+                                 'Math): add it in Rank Math → Redirections with Claude in Chrome')
             else:
                 item['batch'] = 'booking-path' if sec.get('category') == 'Booking path & facts' and a['type'] != 'chrome' \
                     else (('site-settings' if single else 'group') if group_wide else TYPE_BATCH.get(a['type'], 'chrome'))
@@ -393,6 +458,7 @@ def plan(group_dir, slug, only=None):
                     skipped.append({'finding': fid, 'action': a['type'], 'act': a,
                                     'reason': 'the site rejected it in a dry run: ' + it['validation'].get('error', '')})
                     continue
+                _note_translations(s, it)
                 planned.append(it)
     if qdata:
         for c in _expand_corrections(qm.corrections(group_dir, slug), s):
@@ -426,6 +492,7 @@ def plan(group_dir, slug, only=None):
                                     'find': c['find'], 'replace': c['replace'],
                                     'reason': 'the site rejected it in a dry run: ' + it['validation'].get('error', '')})
                     continue
+                _note_translations(s, it)
                 planned.append(it)
     if slug != 'group' and not any(x['action'].get('field') == 'website' for x in gbp_acts):
         hotel = next((h for h in reg['hotels'] if h['slug'] == slug), {})
@@ -452,7 +519,9 @@ def plan(group_dir, slug, only=None):
            'batches': {b: batches[b] for b in BATCH_ORDER if batches.get(b)}, 'skipped': skipped,
            'rewording': rewording, 'approved': [], 'done': [], 'recheck': {},
            'client_approval_required': bool(prefs.get('client_approval')), 'client_approval': None,
-           'units': prefs.get('units'), **({'business_profile': gbp_note} if gbp_note else {})}
+           'units': prefs.get('units'), **({'business_profile': gbp_note} if gbp_note else {}),
+           **({'questions': qstate} if qstate and qstate.get('exists') else {}),
+           **({'questions_ignored': True} if ignore_unanswered else {})}
     ed = hdir / f'execute-{date.today().isoformat()}'
     ed.mkdir(parents=True, exist_ok=True)
     f = ed / 'plan.json'
@@ -465,6 +534,7 @@ def plan(group_dir, slug, only=None):
             'rewording': rewording, 'client_approval_required': out['client_approval_required'],
             **({'units': out['units']} if out['units'] else {}),
             'skipped_reasons': skipped[:40], 'table': table,
+            **({'questions': qstate} if qstate and qstate.get('exists') else {}),
             **({'business_profile': gbp_note} if gbp_note else {}),
             'next': ('This hotel approves every change before it goes live (hotel.json preferences.client_approval): '
                      'send the client these tables first and record_client_approval(plan_file, by) once the user '
@@ -478,6 +548,15 @@ def plan(group_dir, slug, only=None):
 
 
 DRY_RUN_TOOLS = {'seo-update-posts', 'seo-update-settings', 'replace-text'}
+
+
+def _waiting_on_hotel(report, pages_spec):
+    """How much of the audit waits on the hotel's answers: findings with a [CONFIRM ...] marker or a hold, and Build
+    Plan pages held for the hotel."""
+    n = sum(1 for sec in report.get('sections', [])
+            if sec.get('hold') or '[CONFIRM' in json.dumps(sec.get('actions') or [], ensure_ascii=False))
+    pages = sum(1 for p in pages_spec if p.get('hold') or '[CONFIRM' in json.dumps(p, ensure_ascii=False))
+    return {'findings': n, 'pages': pages}
 
 
 def _split(res):
@@ -578,6 +657,16 @@ def _resolve(s, a, pages_spec):
                 'calls': [['redirects-create', {'redirects': [rule], 'on_existing': 'error'}]], 'undo': 'delete-created'}
     if t == 'alt_text':
         mid, alt = _media(s.site, a['image'])
+        for v in a.get('variants') or []:
+            if mid:
+                break
+            mid, alt = _media(s.site, v)
+        if not mid and 'find-text' in s.tools and 'replace-text' in s.tools:
+            # not a Media Library image: an <img> written into a text / HTML widget or the post content gets its alt
+            # in the tag itself (update-media can't reach it, and the page would keep alt="")
+            inline = _alt_inline(s, a)
+            if inline:
+                return inline
         item = {'id': mid} if mid else {'url': a['image']}
         return {'page': a['image'], 'field': 'alt', 'current': alt, 'new': a['alt'],
                 'calls': [['update-media', {'items': [dict({'attachment_id': mid} if mid else {'url': a['image']},
@@ -636,8 +725,14 @@ def _resolve(s, a, pages_spec):
                 if _norm(url) == '/':
                     conds.append('include/singular/front_page')
                 else:
-                    pid = s.post_id(url)
-                    conds.append(f"include/singular/{s.types.get(_norm(url), 'page')}/{pid}")
+                    try:
+                        pid = s.post_id(url)
+                        conds.append(f"include/singular/{s.types.get(_norm(url), 'page')}/{pid}")
+                    except LookupError:
+                        # an Arabic / Russian room page the REST lookup can't place (Nov 2026: 8 AR/RU room schema
+                        # snippets parked): Meta MCP 1.6+ resolves a page URL in a condition itself, against the
+                        # post's own permalink, and refuses one that matches no page
+                        conds.append('include:' + url)
             else:
                 conds.append(c)
                 if 'general' in str(c):
@@ -731,10 +826,25 @@ def _resolve(s, a, pages_spec):
                               'a widget the tools cannot reach, or the booking engine)')
         return {'page': a['url'], 'post_id': pid, 'field': 'text', 'current': a['find'], 'new': a['replace'],
                 'calls': calls, 'undo': undo}
+    if t == 'elementor_widget':
+        return _resolve_widget(s, a)
+    if t == 'heading_level':
+        return _resolve_heading(s, a)
+    if t == 'link_text':
+        return _resolve_link_text(s, a)
+    if t == 'insert_text':
+        return _resolve_insert(s, a)
+    if t == 'phone_link':
+        return _resolve_phone_link(s, a)
     if t == 'chrome':
         return {'page': a['where'], 'field': 'Claude in Chrome', 'current': None, 'new': a['steps'], 'calls': [],
                 'via': 'chrome', 'undo': 'manual: reverse the steps by hand'}
     raise ValueError(f'unknown action type {t}')
+
+
+def _match_setting(m):
+    """The setting a find-text match is in: "editor", "icon_list.2.text", "link.url". Meta MCP names it "setting"."""
+    return str(m.get('setting') or m.get('path') or '')
 
 
 def _find_posts(s, args):
@@ -792,7 +902,7 @@ def _resolve_replace_text(s, a):
 
     def where(ps):
         return [f"{p.get('title') or p.get('post_type')}: " + ', '.join(sorted({
-            m.get('path') or m.get('field', '') for m in p.get('matches') or []}))[:120] for p in ps]
+            _match_setting(m) or m.get('field', '') for m in p.get('matches') or []}))[:120] for p in ps]
 
     def item(ps, label):
         ids = sorted({int(p['post_id']) for p in ps})
@@ -819,6 +929,401 @@ def _resolve_replace_text(s, a):
         p.get('title') or '' for p in shared)[:160]), batch_override='group',
         shared=[{'title': p.get('title'), 'conditions': p.get('conditions'), 'why': p.get('shared')} for p in shared]))
     return {'parts': parts}
+
+
+TEXT_TYPES = {'text_replace', 'elementor_text', 'post_content', 'elementor_widget'}
+
+
+def _note_translations(s, it):
+    """A page's text changed in one language: its Polylang translations (Arabic, Russian...) keep the old wording
+    until someone writes theirs natively (/hotel-seo write), so the item lists them and the Execute Report shows them
+    as still to do: not a find / replace in another language, and not agency work."""
+    if it['action'].get('type') not in TEXT_TYPES or not it.get('post_id') or it.get('batch') == 'group':
+        return
+    if 'polylang-get-post-translations' not in s.tools:
+        return
+    cache = s.__dict__.setdefault('_translations', {})
+    pid = int(it['post_id'])
+    if pid not in cache:
+        try:
+            tr = s.read('polylang-get-post-translations', {'post_id': pid}).get('translations') or {}
+        except Exception:  # noqa: BLE001 - only a note
+            tr = {}
+        cache[pid] = {lang: t.get('link') for lang, t in tr.items() if isinstance(t, dict) and int(t.get('id') or 0) != pid}
+    if cache[pid]:
+        it['translations'] = cache[pid]
+
+
+# the setting that holds a widget's heading tag
+HEADING_KEY = {'heading': 'header_size', 'theme-page-title': 'header_size', 'theme-post-title': 'header_size',
+               'woocommerce-product-title': 'header_size', 'icon-box': 'title_size', 'image-box': 'title_size',
+               'call-to-action': 'title_tag', 'animated-headline': 'tag', 'flip-box': 'title_html_tag'}
+HEADING_DEFAULT = {'header_size': 'h2', 'title_size': 'h3', 'title_tag': 'h2', 'tag': 'h3', 'title_html_tag': 'h3'}
+
+
+def _element_by_text(s, pid, find, url):
+    """(post id, element, shared summary or None) of the one Elementor element showing `find`: on the page, else in
+    the template that prints it (find-text)."""
+    st = s.read('elementor-get-structure', {'post_id': pid, 'search': find[:60], 'include_settings': True})
+    els = st.get('elements') or []
+    if len(els) == 1:
+        return pid, els[0], None
+    if not els and 'find-text' in s.tools:
+        where, el_id, shared = _find_element(s, find)
+        st = s.read('elementor-get-structure', {'post_id': where, 'search': find[:60], 'include_settings': True})
+        els = [e for e in st.get('elements') or [] if e.get('id') == el_id]
+        if len(els) == 1:
+            return where, els[0], shared
+    raise LookupError(f'"{find[:60]}" matches {len(els)} Elementor elements on {url}: needs one')
+
+
+def _resolve_heading(s, a):
+    """A heading's tag one step below the heading before it (H1 -> H2, not H3), set on the widget's own tag setting:
+    the look comes from the widget style, so nothing changes visually. {"type": "heading_level", "url", "find":
+    heading text, "level": 2}."""
+    pid = s.post_id(a['url'])
+    where, el, shared = _element_by_text(s, pid, a['find'], a['url'])
+    wtype = el.get('widget_type') or el.get('widgetType') or ''
+    sett = el.get('settings') or {}
+    key = HEADING_KEY.get(wtype) or ('header_size' if 'header_size' in sett else None)
+    if not key:
+        raise LookupError(f'"{a["find"][:60]}" is in a {wtype or "widget"} with no heading-tag setting')
+    level = int(a['level'])
+    if not 1 <= level <= 6:
+        raise ValueError(f'level {level} is not a heading level')
+    old = sett.get(key) or HEADING_DEFAULT.get(key, 'h2')
+    new = {key: f'h{level}'}
+    out = {'page': a['url'] if not shared else f"{shared['title']} (template, shows on many pages)",
+           'post_id': where, 'field': f'heading tag ({wtype})', 'current': {key: old}, 'new': new,
+           'calls': [['elementor-update-element', {'post_id': where, 'element_id': el['id'], 'settings': new}]],
+           'undo': [['elementor-update-element', {'post_id': where, 'element_id': el['id'], 'settings': {key: old}}]]}
+    if shared and not s.single:
+        out['batch_override'] = 'group'
+    return out
+
+
+def _links_in(settings):
+    """[(path, url)] of every link setting in an element's settings (link, button link, repeater rows)."""
+    out = []
+
+    def walk(v, path, key):
+        if isinstance(v, dict):
+            if 'link' in key.lower() and isinstance(v.get('url'), str) and v['url']:
+                out.append((path, v['url']))
+            for k, x in v.items():
+                walk(x, f'{path}.{k}' if path else k, str(k))
+        elif isinstance(v, list):
+            for i, x in enumerate(v):
+                walk(x, f'{path}.{i}', key)
+    walk(settings or {}, '', '')
+    return out
+
+
+def _resolve_link_text(s, a):
+    """Generic link text ("view more", "read more") renamed after the page it opens. On the page: the button / box /
+    link widget whose link goes to `href` and whose text is `find` gets `new_text`. In a loop-card template (one
+    button for every card): the button shows each card's own post title (Elementor's Post Title dynamic tag), so
+    every card says where it goes. {"type": "link_text", "url", "href", "find": "view more", "new_text"}."""
+    pid = s.post_id(a['url'])
+    want = _norm(a['href'])
+    st = s.read('elementor-get-structure', {'post_id': pid, 'include_settings': True})
+    calls, undo = [], []
+    for el in st.get('elements') or []:
+        sett = el.get('settings') or {}
+        if not any(_norm(u) == want for _, u in _links_in(sett)):
+            continue
+        for k in TEXT_KEYS:
+            if isinstance(sett.get(k), str) and re.sub(r'<[^>]+>', '', sett[k]).strip().lower() == a['find'].strip().lower():
+                calls.append(['elementor-update-element', {'post_id': pid, 'element_id': el['id'],
+                                                           'settings': {k: a['new_text']}}])
+                undo.append(['elementor-update-element', {'post_id': pid, 'element_id': el['id'],
+                                                          'settings': {k: sett[k]}}])
+                break
+    if calls:
+        return {'page': a['url'], 'post_id': pid, 'field': 'link text', 'current': a['find'], 'new': a['new_text'],
+                'calls': calls, 'undo': undo}
+    if 'find-text' not in s.tools:
+        raise LookupError(f'no link to {a["href"]} with the text "{a["find"]}" on {a["url"]}')
+    # not on the page: a loop / card template prints it
+    posts, _ = _find_posts(s, {'find': a['find'], 'fields': ['elementor']})
+    loops = [p for p in posts if p.get('template_type') in ('loop-item', 'loop') or 'loop' in str(p.get('title', '')).lower()]
+    for p in loops:
+        tid = int(p['post_id'])
+        tst = {e.get('id'): e for e in s.read('elementor-get-structure', {'post_id': tid, 'include_settings': True})
+               .get('elements') or []}
+        for m in p.get('matches') or []:
+            el = tst.get(m.get('element_id')) or {}
+            key = _match_setting(m).split('.')[0]
+            if key not in TEXT_KEYS:
+                continue
+            dyn = dict((el.get('settings') or {}).get('__dynamic__') or {})
+            if key in dyn:
+                continue
+            tag = ElementorTag.post_title()
+            calls.append(['elementor-update-element', {'post_id': tid, 'element_id': el['id'],
+                                                       'settings': {'__dynamic__': dict(dyn, **{key: tag})}}])
+            undo.append(['elementor-update-element', {'post_id': tid, 'element_id': el['id'],
+                                                      'settings': {'__dynamic__': dyn or {}}}])
+        if calls:
+            out = {'page': f"{p.get('title')} (loop card template)", 'post_id': tid,
+                   'field': 'button text = each card\'s post title', 'current': a['find'], 'new': '(post title)',
+                   'calls': calls, 'undo': undo, 'shared': [p.get('title')]}
+            if not s.single:
+                out['batch_override'] = 'group'
+            return out
+    raise LookupError(f'no link to {a["href"]} with the text "{a["find"]}" on {a["url"]} or in a loop template')
+
+
+class ElementorTag:
+    """Elementor dynamic-tag values (the "__dynamic__" settings Elementor Pro stores)."""
+
+    @staticmethod
+    def post_title():
+        import secrets
+        return f'[elementor-tag id="{secrets.token_hex(4)[:7]}" name="post-title" settings="%7B%7D"]'
+
+
+def _resolve_insert(s, a):
+    """Text the page doesn't have yet (an intro under the H1, a lead paragraph, a new section): a text-editor widget
+    inserted after the page's H1, or before / after the element showing `anchor` (elementor-insert-element, Meta MCP
+    1.7). On a page not built with Elementor the text goes at the top of the post content. Skipped when its first
+    words are already on the page. {"type": "insert_text", "url", "html" (or "text"), "anchor": optional text of the
+    element to insert next to, "position": "after" (default) | "before"}."""
+    html_in = a.get('html') or _copy_html(a.get('text') or '')
+    no_jsonld(html_in, 'the new text')
+    pid = s.post_id(a['url'])
+    probe = re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', html_in)).strip()[:50]
+    if probe and 'find-text' in s.tools:
+        have = s.read('find-text', {'find': probe, 'post_ids': [pid], 'fields': ['content', 'elementor']})
+        if have.get('total_matches') or have.get('posts'):
+            raise LookupError('the text is already on the page')
+    cur = s.read('get-post', {'post_id': pid, 'include_elementor': True})
+    post = cur.get('post') or cur
+    if not (post.get('elementor') or {}).get('element_count'):
+        old = post.get('content', '') or ''
+        return {'page': a['url'], 'post_id': pid, 'field': 'new text (top of the content)', 'current': None,
+                'new': html_in[:300], 'calls': [['update-post', {'post_id': pid, 'content': html_in + '\n' + old}]],
+                'undo': [['update-post', {'post_id': pid, 'content': old}]]}
+    st = s.read('elementor-get-structure', {'post_id': pid, 'include_settings': True})
+    els = st.get('elements') or []
+    position = a.get('position') or 'after'
+    if a.get('anchor'):
+        anchor = [e for e in els if a['anchor'].lower() in json.dumps(e.get('settings') or {}, ensure_ascii=False).lower()
+                  and (e.get('el_type') or e.get('elType')) == 'widget']
+        if len(anchor) != 1:
+            raise LookupError(f'"{a["anchor"][:60]}" is in {len(anchor)} widgets on {a["url"]}: needs one')
+        args = {'anchor_id': anchor[0]['id'], 'position': position}
+        where = f'{position} "{a["anchor"][:40]}"'
+    else:
+        h1 = [e for e in els if (e.get('widget_type') or e.get('widgetType')) in HEADING_KEY
+              and str((e.get('settings') or {}).get(HEADING_KEY[e.get('widget_type') or e.get('widgetType')], '')) == 'h1']
+        if h1:
+            args, where = {'anchor_id': h1[0]['id'], 'position': 'after'}, 'under the H1'
+        else:
+            args, where = {'position': 'page_start'}, 'at the top of the page content (the H1 comes from the template)'
+    call = dict(args, post_id=pid, element={'widgetType': 'text-editor', 'settings': {'editor': html_in}})
+    return {'page': a['url'], 'post_id': pid, 'field': f'new text {where}', 'current': None, 'new': html_in[:300],
+            'calls': [['elementor-insert-element', call]], 'undo': 'delete-inserted'}
+
+
+def _resolve_widget(s, a):
+    """Settings of one Elementor widget chosen by its type on the page (e.g. the Google Maps widget, whose location is
+    its "address" setting, not a URL in the page text: Nov 2026, replace-text could not move the contact-page map).
+    {"type": "elementor_widget", "url", "widget_type": "google_maps", "settings": {"address": "25.5719418,
+    56.3435306"}, "find": optional text to pick one when the page has several}."""
+    no_jsonld(a['settings'], 'the Elementor settings')
+    pid = s.post_id(a['url'])
+    st = s.read('elementor-get-structure', {'post_id': pid, 'include_settings': True})
+    want = str(a.get('widget_type') or '').replace('-', '_')
+    els = [e for e in st.get('elements') or []
+           if str(e.get('widget_type') or e.get('widgetType') or '').replace('-', '_') == want]
+    if a.get('find') and len(els) > 1:
+        els = [e for e in els if a['find'].lower() in json.dumps(e.get('settings') or {}, ensure_ascii=False).lower()]
+    if len(els) != 1:
+        raise LookupError(f"{len(els)} {a.get('widget_type')} widgets on {a['url']}: needs exactly one"
+                          + ('' if a.get('find') else ' (give "find": text from its current settings)'))
+    el = els[0]
+    old = {k: (el.get('settings') or {}).get(k) for k in a['settings']}
+    return {'page': a['url'], 'post_id': pid, 'field': f"{a.get('widget_type')} " + ', '.join(a['settings']),
+            'current': old, 'new': a['settings'],
+            'calls': [['elementor-update-element', {'post_id': pid, 'element_id': el['id'], 'settings': a['settings']}]],
+            'undo': [['elementor-update-element', {'post_id': pid, 'element_id': el['id'], 'settings': old}]]}
+
+
+PHONE_RUN = re.compile(r'(?<![\w/:=])\+?\d[\d\s().\- ]{6,}\d(?![\w/])')
+HTML_SPLIT = re.compile(r'(<a\b[^>]*>.*?</a>|<[^>]+>)', re.I | re.S)
+RICH_KEYS = {'editor', 'html', 'description', 'description_text'}
+
+
+def _digits9(v):
+    d = re.sub(r'\D', '', str(v or ''))
+    return d[-9:] if len(d) >= 7 else ''
+
+
+def tel_href(phone):
+    d = re.sub(r'\D', '', str(phone or ''))
+    return 'tel:' + ('+' + d.lstrip('0') if str(phone).strip().startswith(('+', '00')) else d)
+
+
+def link_phone(html_text, phone):
+    """The text with each written-out occurrence of the phone number wrapped in <a href="tel:...">; numbers already
+    inside a link, a tag or an attribute are left alone."""
+    want, href, n = _digits9(phone), tel_href(phone), 0
+    parts = HTML_SPLIT.split(html_text or '')
+    for i, part in enumerate(parts):
+        if i % 2:                                 # a tag or a whole <a>...</a>: never touched
+            continue
+
+        def wrap(m):
+            nonlocal n
+            if _digits9(m.group(0)) != want:
+                return m.group(0)
+            n += 1
+            return f'<a href="{href}">{m.group(0)}</a>'
+        parts[i] = PHONE_RUN.sub(wrap, part)
+    return ''.join(parts), n
+
+
+def _resolve_phone_link(s, a):
+    """Make the hotel's phone number a tel: link wherever it is written out as plain text: rich-text widgets (text
+    editor, HTML) get the <a href="tel:"> wrapped round the number; a heading, button or icon-list row that shows the
+    number gets its own link set to tel: when it has none. Never Custom Code (the Hotel schema's "telephone" must stay
+    plain JSON: Nov 2026, a blind sitewide wrap would have broken the JSON-LD), menus or titles.
+    {"type": "phone_link", "phone": "+971 7 228 2222", "url": optional page (default every page of the hotel)}."""
+    phone = a['phone']
+    href = tel_href(phone)
+    page_pid = s.post_id(a['url']) if a.get('url') else None
+    posts, notes = _find_posts(s, {'find': phone, 'match_mode': 'phone', 'fields': ['elementor', 'content']})
+    calls, undo, ids, left, structs = [], [], set(), [], {}
+    for p in posts:
+        pid = int(p['post_id'])
+        if page_pid is not None and pid != page_pid and not p.get('shared'):
+            continue
+        if not (s.single or p.get('shared') or s.owns(p.get('url', ''))):
+            continue
+        if p.get('shared') and not s.single:
+            left.append(f"{p.get('title')} (shared template on a group site: group batch)")
+            continue
+        matches = p.get('matches') or []
+        if any(m.get('field') == 'content' for m in matches) and not any(m.get('field') == 'elementor' for m in matches):
+            cur = s.read('get-post', {'post_id': pid, 'include_elementor': False})
+            content = (cur.get('post') or cur).get('content', '') or ''
+            new, n = link_phone(content, phone)
+            if n:
+                calls.append(['update-post', {'post_id': pid, 'content': new}])
+                undo.append(['update-post', {'post_id': pid, 'content': content}])
+                ids.add(pid)
+            continue
+        by_el = {}
+        for m in matches:
+            if m.get('field') == 'elementor' and m.get('element_id'):
+                by_el.setdefault(m['element_id'], []).append(m)
+        if by_el and pid not in structs:
+            structs[pid] = {e.get('id'): e for e in s.read('elementor-get-structure', {
+                'post_id': pid, 'include_settings': True}).get('elements') or []}
+        for el_id, ms in by_el.items():
+            el = structs.get(pid, {}).get(el_id) or {}
+            sett = el.get('settings') or {}
+            wtype = el.get('widget_type') or el.get('widgetType') or ''
+            new = {}
+            for m in ms:
+                path = _match_setting(m)
+                top = path.split('.')[0]
+                if top in RICH_KEYS and isinstance(sett.get(top), str):
+                    val, n = link_phone(new.get(top, sett[top]), phone)
+                    if n:
+                        new[top] = val
+                elif wtype in ('heading', 'button') and top in ('title', 'text') and \
+                        not (sett.get('link') or {}).get('url'):
+                    new['link'] = dict(sett.get('link') or {}, url=href)
+                elif re.fullmatch(r'(icon_list|social_icon_list)\.\d+\.text', path):
+                    key, row = top, int(path.split('.')[1])
+                    rows = [dict(r) for r in (new.get(key) or sett.get(key) or [])]
+                    if row < len(rows) and not (rows[row].get('link') or {}).get('url'):
+                        rows[row]['link'] = dict(rows[row].get('link') or {}, url=href)
+                        new[key] = rows
+                elif path.endswith('url') or path.endswith('link'):
+                    continue                     # already a link (tel:, WhatsApp): nothing to do
+                else:
+                    left.append(f"{p.get('title')}: {wtype or 'widget'} {path}")
+            if new:
+                calls.append(['elementor-update-element', {'post_id': pid, 'element_id': el_id, 'settings': new}])
+                undo.append(['elementor-update-element', {'post_id': pid, 'element_id': el_id,
+                                                          'settings': {k: sett.get(k) for k in new}}])
+                ids.add(pid)
+    if not calls:
+        raise LookupError(f'"{phone}" is not written out as plain text anywhere this tool can link it'
+                          + (f" ({'; '.join(left)[:200]})" if left else '') + (f": {'; '.join(notes)[:150]}" if notes else ''))
+    out = {'page': a.get('url') or 'every page of the hotel', 'field': f'phone as a {href} link',
+           'current': phone, 'new': href, 'calls': calls, 'undo': undo, 'post_ids': sorted(ids)}
+    if left:
+        out['left_alone'] = left
+    return out
+
+
+IMG_TAG = re.compile(r'<img\b[^>]*>', re.I)
+
+
+def _with_alt(tag, alt):
+    """The <img> tag with alt set (an empty or missing alt replaced)."""
+    val = html.escape(alt, quote=True)
+    if re.search(r'\balt\s*=\s*"[^"]*"', tag, re.I):
+        return re.sub(r'\balt\s*=\s*"[^"]*"', f'alt="{val}"', tag, count=1, flags=re.I)
+    if re.search(r"\balt\s*=\s*'[^']*'", tag, re.I):
+        return re.sub(r"\balt\s*=\s*'[^']*'", f'alt="{val}"', tag, count=1, flags=re.I)
+    return re.sub(r'^<img\b', f'<img alt="{val}"', tag, count=1, flags=re.I)
+
+
+def _setting_at(settings, path):
+    cur = settings
+    for part in str(path or '').split('.'):
+        if isinstance(cur, list) and part.isdigit() and int(part) < len(cur):
+            cur = cur[int(part)]
+        elif isinstance(cur, dict) and part in cur:
+            cur = cur[part]
+        else:
+            return None
+    return cur
+
+
+def _alt_inline(s, a):
+    """replace-text calls that put the alt into the <img> tags of this image written in post content or an Elementor
+    text / HTML setting (pages and templates). None when the image is not in any editable text."""
+    name = urlparse(a['image']).path.rsplit('/', 1)[-1]
+    stem = re.sub(r'(?:-\d+x\d+)?\.\w+$', '', re.sub(r'\.(?:webp|avif)$', '', name))
+    if len(stem) < 4:
+        return None
+    posts, _ = _find_posts(s, {'find': stem, 'fields': ['content', 'elementor']})
+    tags = {}                                   # old tag -> post ids
+    for p in posts:
+        if not (s.single or p.get('shared') or s.owns(p.get('url', ''))):
+            continue
+        texts = []
+        for m in p.get('matches') or []:
+            if m.get('field') == 'content':
+                cur = s.read('get-post', {'post_id': p['post_id'], 'include_elementor': False})
+                texts.append((cur.get('post') or cur).get('content', ''))
+            elif m.get('field') == 'elementor' and m.get('element_id'):
+                st = s.read('elementor-get-structure', {'post_id': p['post_id'], 'include_settings': True})
+                el = next((e for e in st.get('elements') or [] if e.get('id') == m['element_id']), None)
+                v = _setting_at((el or {}).get('settings') or {}, _match_setting(m))
+                if isinstance(v, str):
+                    texts.append(v)
+        for text in texts:
+            for tag in IMG_TAG.findall(text or ''):
+                if stem in tag and not re.search(r'\balt\s*=\s*["\'][^"\']+["\']', tag, re.I):
+                    tags.setdefault(tag, set()).add(int(p['post_id']))
+    if not tags:
+        return None
+    calls, undo, ids = [], [], set()
+    for tag, pids in tags.items():
+        new = _with_alt(tag, a['alt'])
+        base = {'match_mode': 'exact', 'post_ids': sorted(pids), 'max_posts': min(200, len(pids))}
+        calls.append(['replace-text', dict(base, find=tag, replace=new)])
+        undo.append(['replace-text', dict(base, find=new, replace=tag)])
+        ids |= pids
+    return {'page': a['image'], 'field': 'alt (in the <img> tag)', 'current': '', 'new': a['alt'],
+            'calls': calls, 'undo': undo, 'post_ids': sorted(ids)}
 
 
 def _elementor_body(s, a, pid):
@@ -871,12 +1376,15 @@ def run_batch(plan_file, batch, approved=False):
     changes = json.loads(changes_f.read_text(encoding='utf-8')) if changes_f.exists() else []
     done, failed, post_ids = [], None, set()
     todo = [it for it in items if it.get('via') != 'chrome' and it['id'] not in pl.get('done', [])]
-    sent = _send_media_chunks(s, todo) if batch == 'alt-text' else {}
+    sent, refused = _send_media_chunks(s, todo) if batch == 'alt-text' else ({}, {})
+    media_failed = []
     try:
         for it in todo:
             before[it['id']] = {'current': it.get('current'), 'undo': it.get('undo'), 'action': it['action']}
             before_f.write_text(json.dumps(before, indent=1, ensure_ascii=False), encoding='utf-8')
             try:
+                if it['id'] in refused:
+                    raise RuntimeError(refused[it['id']])
                 results = sent.get(it['id'])
                 if results is None:
                     results = [_write_call(s, tool, args) for tool, args in it['calls']]
@@ -892,20 +1400,34 @@ def run_batch(plan_file, batch, approved=False):
                         s.write('elementor-set-custom-code', {'title': f"Schema: {it['new'].get('title')}",
                                                               'code': it['then']['schema'], 'status': 'publish',
                                                               'conditions': [f'include/singular/page/{pid}']})
+                if it['action']['type'] == 'insert_text':
+                    it['inserted'] = [[args.get('post_id'), r.get('element_id')] for (tool, args), r in
+                                      zip(it['calls'], results) if tool == 'elementor-insert-element' and r.get('element_id')]
                 if it['action']['type'] == 'redirect':
-                    it['created_ids'] = [i for r in results for i in (r.get('ids') or r.get('created') or [])
-                                         if isinstance(i, int)]
+                    # "created" is a list of rules ({"id": ...}); meta-mcp 1.7 also returns "ids". Either way undo
+                    # needs the ids to delete what this run created (Redirection or Rank Math, the same tool).
+                    it['created_ids'] = _created_ids(results)
+                    it['redirect_provider'] = next((r.get('provider') for r in results if r.get('provider')), '')
                 if it.get('post_id'):
                     post_ids.add(it['post_id'])
                 post_ids.update(it.get('post_ids') or [])
                 changes.append({'id': it['id'], 'finding': it['finding'], 'page': it.get('page'),
                                 'field': it.get('field'), 'old': it.get('current'), 'new': it.get('new'),
                                 'at': time.strftime('%Y-%m-%d %H:%M:%S'), 'created_post_id': it.get('created_post_id'),
-                                'created_ids': it.get('created_ids')})
+                                'created_ids': it.get('created_ids'),
+                                **({'inserted': it['inserted']} if it.get('inserted') else {}),
+                                **({'redirect_provider': it['redirect_provider']} if it.get('redirect_provider') else {})})
                 changes_f.write_text(json.dumps(changes, indent=1, ensure_ascii=False), encoding='utf-8')
                 pl.setdefault('done', []).append(it['id'])
                 done.append(it['id'])
             except Exception as e:  # noqa: BLE001 - stop the batch at the first error
+                if batch == 'alt-text':
+                    # one image the site can't find doesn't hold up the other 700: logged, and listed for the agency
+                    media_failed.append({'id': it['id'], 'finding': it['finding'], 'image': it.get('page'),
+                                         'error': str(e)[:300]})
+                    before.pop(it['id'], None)
+                    before_f.write_text(json.dumps(before, indent=1, ensure_ascii=False), encoding='utf-8')
+                    continue
                 failed = {'id': it['id'], 'finding': it['finding'], 'error': str(e)[:400]}
                 break
         pl.setdefault('approved', []).append({'batch': batch, 'at': time.strftime('%Y-%m-%d %H:%M')})
@@ -924,8 +1446,14 @@ def run_batch(plan_file, batch, approved=False):
         pl.setdefault('recheck', {})[r['finding']] = dict(r, at=time.strftime('%Y-%m-%d %H:%M'))
     if failed:
         pl.setdefault('failed', []).append(dict(failed, batch=batch))
+    known = {f['id'] for f in pl.get('failed', [])}
+    pl.setdefault('failed', []).extend(dict(m, batch=batch) for m in media_failed if m['id'] not in known)
     pf.write_text(json.dumps(pl, indent=1, ensure_ascii=False), encoding='utf-8')
     return {'batch': batch, 'done': len(done), 'of': len(items), 'failed': failed, 'cache_purged': purge,
+            **({'images_refused': len(media_failed), 'images_refused_examples': media_failed[:10],
+                'note': 'The site could not find these images in the Media Library or in editable text (a slider, '
+                        'the theme or another site): they are on the Agency Fix List with their alt text.'}
+               if media_failed else {}),
             'recheck': rechecked, 'changes_file': str(changes_f), 'before_file': str(before_f),
             'undo': f'undo_execute("{plan_file}")'}
 
@@ -933,10 +1461,35 @@ def run_batch(plan_file, batch, approved=False):
 MEDIA_CHUNK = 50
 
 
+def _redirects_writable(s):
+    """Whether redirects-create can store a rule here: the Redirection plugin, or Rank Math's Redirections module
+    (Meta MCP 1.7+ reports it as site_tools.rank_math_redirections). Unknown (an older status format): assume yes."""
+    st = (s.integrations or {}).get('site_tools') if isinstance(s.integrations, dict) else None
+    if not isinstance(st, dict) or 'redirection' not in st:
+        return True
+    if (st.get('redirection') or {}).get('active'):
+        return True
+    return bool((st.get('rank_math_redirections') or {}).get('active'))
+
+
+def _created_ids(results):
+    """The ids of the redirect rules a redirects-create call made."""
+    ids = []
+    for r in results:
+        for x in (r.get('ids') or []) + [c.get('id') for c in r.get('created') or [] if isinstance(c, dict)]:
+            if isinstance(x, int) and x not in ids:
+                ids.append(x)
+    return ids
+
+
 def _write_call(s, tool, args):
     """One write. replace-text: report per-post failures as an error, and call again while it says more posts remain
     (changed posts no longer match, so the same call picks up the rest)."""
     res = s.write(tool, args)
+    if tool == 'update-media' and res.get('failed'):
+        bad = [r for r in res.get('results') or [] if isinstance(r, dict) and r.get('success') is False]
+        raise RuntimeError('update-media: ' + '; '.join(str(r.get('error')) for r in bad[:3]) if bad else
+                           f"update-media: {res.get('failed')} image(s) refused")
     if tool != 'replace-text':
         return res
     for _ in range(20):
@@ -949,24 +1502,32 @@ def _write_call(s, tool, args):
 
 
 def _send_media_chunks(s, items):
-    """Alt text for many images: one update-media call per 50 images instead of one per image. Returns
-    {item id: [result]} for the items sent; a chunk that fails is left out, so its items run one by one and the batch
-    stops at the image that fails."""
+    """Alt text for many images: one update-media call per 50 images instead of one per image. update-media answers
+    per image (results[] in the order sent; an image it can't find is "success": false there while the call succeeds).
+    Returns {item id: [result]} for the images written and {item id: error} for those refused; a chunk whose call
+    fails outright is left out, so its items run one by one."""
     single = [it for it in items if len(it.get('calls') or []) == 1 and it['calls'][0][0] == 'update-media'
               and len(it['calls'][0][1].get('items') or []) == 1]
-    out = {}
+    out, errors = {}, {}
     for i in range(0, len(single), MEDIA_CHUNK):
         chunk = single[i:i + MEDIA_CHUNK]
-        if len(chunk) < 2:
-            break
         try:
             res = s.write('update-media', {'items': [it['calls'][0][1]['items'][0] for it in chunk]})
         except Exception:  # noqa: BLE001 - fall back to one call per image
             continue
-        if res.get('success') is False or res.get('errors') or res.get('failed'):
+        if res.get('success') is False:
             continue
-        out.update({it['id']: [res] for it in chunk})
-    return out
+        results = res.get('results')
+        if not isinstance(results, list) or len(results) != len(chunk):
+            if not res.get('failed'):
+                out.update({it['id']: [res] for it in chunk})
+            continue
+        for it, r in zip(chunk, results):
+            if isinstance(r, dict) and r.get('success') is False:
+                errors[it['id']] = f"update-media: {r.get('error') or 'refused'}"
+            else:
+                out[it['id']] = [r]
+    return out, errors
 
 
 def hotel_preferences(hotel_dir):
@@ -1023,7 +1584,8 @@ def _rendered_settings(el, settings):
     if len(settings) != 1:
         return settings
     (k, v), = settings.items()
-    if k in have or not isinstance(v, str):
+    # only a text value is moved to the key the widget renders; "header_size": "h2" and other options never are
+    if k in have or not isinstance(v, str) or (k not in TEXT_KEYS and k not in WIDGET_TEXT_KEY.values()):
         return settings
     fixed = elementor_settings(el, v, k)
     return fixed.get('settings') or settings
@@ -1118,7 +1680,11 @@ def undo(plan_file):
                 for tool, args in u:
                     _write_call(s, tool, args)
             elif u == 'delete-created' and ch.get('created_ids'):
-                s.write('redirects-delete', {'ids': ch['created_ids'], 'confirm': True})
+                s.write('redirects-delete', {'ids': ch['created_ids'], 'confirm': True,
+                                             **({'provider': ch['redirect_provider']} if ch.get('redirect_provider') else {})})
+            elif u == 'delete-inserted' and ch.get('inserted'):
+                for pid, el_id in ch['inserted']:
+                    s.write('elementor-update-element', {'post_id': pid, 'element_id': el_id, 'operation': 'delete'})
             elif u == 'draft-created' and ch.get('created_post_id'):
                 s.write('set-post-status', {'post_id': ch['created_post_id'], 'status': 'draft'})
             else:

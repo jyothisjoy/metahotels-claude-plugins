@@ -472,6 +472,9 @@ def apply(change_file, confirm):
                 results.append({'op': op['kind'], 'what': label, 'result': 'skipped',
                                 'why': 'the live profile changed since the proposal; propose again'})
                 continue
+            if op['kind'] == 'lodging' and isinstance(op.get('body'), dict):
+                from . import gbp_lodging
+                op['body']['metadata'] = gbp_lodging.metadata()      # the time it is sent, not proposed
             resp = _call(op['method'], op['url'], op.get('params'), op.get('body'))
             r = {'op': op['kind'], 'what': label, 'result': 'sent'}
             if op['kind'] == 'listing':

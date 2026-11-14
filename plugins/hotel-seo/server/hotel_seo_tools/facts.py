@@ -147,12 +147,13 @@ def is_engine_source(source):
 
 
 def source_rank(source):
-    """Which fact wins a conflict. The booking engine's /search page is always right, unless the hotel says otherwise
-    in the Questions for the Hotel sheet: sheet 3 > booking engine 2 > other hotel messages (email, WhatsApp) 1 >
-    everything else (site, Booking.com, AI answers) 0."""
-    if is_sheet_source(source):
-        return 3
+    """Which fact wins a conflict. What the hotel's own booking engine (/search) shows is always right (the user's
+    rule, Nov 2026): booking engine 3 > the hotel's Questions sheet answer 2 > other hotel messages (email,
+    WhatsApp) 1 > everything else (site, Booking.com, AI answers) 0. A hotel answer that contradicts the engine is kept
+    as a note for whoever manages Mirai; the site follows the engine."""
     if is_engine_source(source):
+        return 3
+    if is_sheet_source(source):
         return 2
     return 1 if is_hotel_source(source) else 0
 
@@ -189,9 +190,9 @@ def room_fact(text):
 
 def add_facts(facts_file, facts, source):
     """Add facts with their source. One value per fact (same room, same kind): the higher source_rank wins and the
-    other is marked "superseded" (the booking engine beats everything except the hotel's Questions sheet answer).
-    Returns what was added, what was superseded, the booking engine corrections (the sheet overrides the engine) and
-    engine_overrides (a hotel message that the engine overrules: ask in the sheet if the hotel insists)."""
+    other is marked "superseded" (the booking engine beats everything, the hotel's answers included). Returns what
+    was added, what was superseded, and engine_corrections: hotel answers the engine overrules (the site follows the
+    engine; if the hotel is right, the engine setting must change first)."""
     f = paths.resolve(facts_file)
     doc = json.loads(f.read_text(encoding='utf-8')) if f.exists() else {'facts': []}
     rows = doc.setdefault('facts', [])
@@ -228,17 +229,17 @@ def add_facts(facts_file, facts, source):
     out = {'added': added, 'superseded': superseded, 'engine_corrections': engine_corrections(facts_file),
            'facts_file': str(f)}
     if overruled:
-        out['engine_overrides'] = {'rows': overruled, 'note': 'The booking engine is right unless the hotel says '
-                                   'otherwise in the Questions for the Hotel sheet: the site follows the engine. If '
-                                   'the hotel insists, ask it in the Rooms sheet.'}
+        out['engine_overrides'] = {'rows': overruled, 'note': 'The booking engine is always right: the site follows '
+                                   'it. If the hotel is right, whoever manages Mirai changes the engine first; the '
+                                   'site follows on the next run.'}
     return out
 
 
 def engine_corrections(facts_file):
-    """Rooms where the hotel answered in the Questions sheet and the booking engine sells something else: a booking-
-    engine setting for whoever manages Mirai, never a [CONFIRM] question and never a page edit (Abar, Nov 2026: the
-    engine sold the Two-Bedroom for 5; the hotel said 4 adults + 4 children). A hotel answer given any other way
-    (email, WhatsApp) does not override the engine."""
+    """Rooms where the hotel says something other than what the booking engine sells (Questions sheet, email,
+    WhatsApp). The engine is always right for the site, so the page follows the engine; if the hotel is right, this
+    is the engine setting to change in Mirai (Abar, Nov 2026: the engine sold the Two-Bedroom for 5; the hotel said 4
+    adults + 4 children). Never a [CONFIRM] question and never a page edit."""
     f = paths.resolve(facts_file)
     if not f.exists():
         return []
@@ -246,7 +247,7 @@ def engine_corrections(facts_file):
     hotel = {}
     for x in rows:
         rf = room_fact(x.get('fact'))
-        if rf and is_sheet_source(x.get('source')) and not x.get('superseded'):
+        if rf and is_hotel_source(x.get('source')):
             hotel[rf[:2]] = (x['fact'], x['source'], rf[2])
     out = []
     for x in rows:
@@ -256,8 +257,9 @@ def engine_corrections(facts_file):
             h = hotel[rf[:2]]
             out.append({'room': x['fact'].split(':')[0].strip(), 'kind': rf[1], 'engine_sells': x['fact'],
                         'hotel_says': f'{h[0]} ({h[1]})',
-                        'fix': f"Booking engine setting: change {rf[1]} for {x['fact'].split(':')[0].strip()} to the "
-                               "hotel's answer (Mirai extranet; not a page edit)."})
+                        'fix': f"The site follows the engine ({x['fact']}). If the hotel is right, change "
+                               f"{rf[1]} for {x['fact'].split(':')[0].strip()} in the Mirai extranet first; the site "
+                               'follows on the next run.'})
     seen, uniq = set(), []
     for c in out:
         k = (c['room'], c['kind'], c['engine_sells'])

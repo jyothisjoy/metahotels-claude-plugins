@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "MetaHotels Claude Code plugins (private)",
-    "version": "2.2.0"
+    "version": "2.3.0"
   },
   "plugins": [
     {
       "name": "hotel-seo",
       "source": "./plugins/hotel-seo",
       "description": "Hotel SEO for MetaHotels: full audit and ground-up build plan per hotel (hotel groups tracked hotel by hotel), 11 specialist agents ported from claude-seo with hotel rules, crawl, Search Console, GA4, Keyword Planner, Mirai, booking engine, Booking.com and Best Rate calendar facts; Audit Report, Build Plan and Web Team List as PDF; re-checks; fixes applied to the site through its WordPress MCP in approved batches; hotel copy written to our standard (write), fact checks of third-party SEO reports (check), site monitors and Google Business Profile reports and approved changes",
-      "version": "2.2.0"
+      "version": "2.3.0"
     },
     {
       "name": "metahotels-optimize",

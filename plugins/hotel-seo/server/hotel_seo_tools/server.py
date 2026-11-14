@@ -806,6 +806,48 @@ def download_images(urls: list[str], out_dir: str) -> dict:
     return {'saved': saved, 'failed': failed}
 
 
+@mcp.tool()
+def alt_text_worklist(domain: str, slug: str, crawl_dir: str = '') -> dict:
+    """Every image without alt text on one hotel's pages (the crawl's images_missing_alt.csv), one row per underlying
+    image (its sizes and .webp copies are one row), each downloaded to look at, with the pages it is on (title, H1).
+    Writes <hotel dir>/alt-text/alt-text-<date>.json; a second call the same day keeps the alt already written.
+    Every image gets its own alt: none is left to the agency. Then alt_text_batch -> look -> alt_text_fill, until
+    remaining is 0, then alt_text_check."""
+    from . import alt_text
+    try:
+        return _off_loop(alt_text.worklist, domain, slug, crawl_dir)
+    except (FileNotFoundError, LookupError) as e:
+        return {'error': str(e)}
+
+
+@mcp.tool()
+def alt_text_batch(file: str, size: int = 20) -> dict:
+    """The next images in an alt-text worklist that have no alt yet: id, local image file (Read it to see the image),
+    the image URL, the pages it is on and a file-name hint, plus the writing rules. Write one alt per image after
+    looking at it, then alt_text_fill."""
+    from . import alt_text
+    return alt_text.batch(file, size)
+
+
+@mcp.tool()
+def alt_text_fill(file: str, alts: dict) -> dict:
+    """Save alt text into the worklist: {"I1": "Twin room with two beds and a desk at Example Hotel", ...}; a pure
+    spacer / divider / icon next to its own label: {"I9": {"decorative": true}}. Returns how many remain."""
+    from . import alt_text
+    return alt_text.fill(file, alts)
+
+
+@mcp.tool()
+def alt_text_check(file: str) -> dict:
+    """Lint every alt in the worklist (at most 125 characters, no "image of", no file names, prices or keyword lists,
+    the hotel name, no two images with the same alt). When nothing blocks, writes one alt_text action per image (all
+    its copies, the pages it is on, and an alt_present re-check per page) into the "Images without alt text" finding
+    of the hotel's latest audit-report.json, so /hotel-seo execute applies them in its alt-text batch: Media Library
+    images through update-media, an <img> written into a text / HTML widget or post content in the tag itself."""
+    from . import alt_text
+    return alt_text.check(file)
+
+
 # ---------------------------------------------------------------- hotel groups
 
 @mcp.tool()
@@ -1015,16 +1057,20 @@ def site_mcp_read(site: str, tool: str, args: dict | None = None) -> dict:
 # ---------------------------------------------------------------- execute
 
 @mcp.tool()
-def execute_plan(group_dir: str, slug: str, only: list[str] | None = None) -> dict:
+def execute_plan(group_dir: str, slug: str, only: list[str] | None = None, ignore_unanswered: bool = False) -> dict:
     """/hotel-seo execute, step 1 (dry run, nothing written): resolve every action of the hotel's latest audit report
     (and Build Plan pages) to the site's MCP tools, read each current value, and group them into batches:
     booking-path, seo-fields, redirects, elementor-text, schema, alt-text, post-status, menus, new-pages, chrome, group,
     and business-profile (the hotel's Google profile: "gbp" actions and a website link the latest gbp_report flags,
     each proposed with gbp_propose so its row carries a change id; skipped when the hotel has no linked profile).
     slug="group" plans the group batch (site-wide settings, shared templates). Skips Web Team items, holds,
-    [CONFIRM], prices / discounts. Show each batch's table to the user before running it."""
+    [CONFIRM], prices / discounts. Show each batch's table to the user before running it.
+    First it checks the Questions for the Hotel sheet: answers in the newest sheet in Reports that were never imported
+    are imported; when nothing is answered it returns needs_decision (how many findings / pages wait on the hotel) and
+    plans nothing: ask the user whether to continue without the answers, and only on a yes call again with
+    ignore_unanswered=true (what waits on the hotel stays skipped and listed)."""
     try:
-        return _off_loop(execute.plan, group_dir, slug, only)
+        return _off_loop(execute.plan, group_dir, slug, only, ignore_unanswered)
     except (ConnectionError, FileNotFoundError, LookupError) as e:
         return {'error': str(e)}
 

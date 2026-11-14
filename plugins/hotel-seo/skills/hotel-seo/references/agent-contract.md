@@ -72,7 +72,7 @@ complete one (`"status": "complete"`). If you run out of turns the partial file 
    Floor: anything on the homepage, room pages, offers, contact or the booking path is at least **High**; a canonical
    that blocks indexing, a sitewide broken link or a dead / wrong-hotel booking link is **Critical**.
 6. **Categories:** `Booking path & facts`, `Technical`, `Content`, `On-Page`, `Schema`, `Performance`, `AI Search`,
-   `Images`, `Local`, `Maps`, `Backlinks`. `owner` is `seo` (agency / execute can fix in WordPress) or `web` (theme,
+   `Images`, `Local`, `Maps`, `Backlinks`. `owner` is `seo` (execute fixes it in WordPress), `metahotels` (outside the website) or `web` (theme,
    server, analytics, speed engineering, security: the Web Team List).
 7. **Copy-paste fixes.** `fix` is the exact text to paste (title, meta, H1, alt, schema, redirect rule). Prose blocks
    go in `blocks` (`paste`, `code`, `table`). Facts follow the [CONFIRM] rule (hotel-addendum.md); the validator runs
@@ -83,11 +83,24 @@ complete one (`"status": "complete"`). If you run out of turns the partial file 
    `meta_max`, `jsonld_valid`, `alt_present`, and for the site-structure checks `inlinked`, `click_depth`,
    `hreflang_ok`, `og_present`, `heading_levels`, `generic_anchors_max`, `variant_resolved` (see report.schema.json). `actions` (owner `seo`) are what `/hotel-seo execute` will do:
    `seo_fields`, `redirect`, `alt_text`, `elementor_text`, `text_replace`, `schema_snippet`, `rankmath_setting`,
-   `post_status`, `post_content`, `menu`, `page_create`, `chrome`, and `gbp` (a Google Business Profile field: `field`
+   `post_status`, `post_content`, `insert_text`, `heading_level`, `link_text`, `elementor_widget`, `phone_link`, `menu`, `page_create`, `chrome`, and `gbp` (a Google Business Profile field: `field`
    + `value`; never `description` on a hotel profile). Site text: `text_replace` (`find` = the exact text on the page
    now, `replace` = the new text; `match_mode: "phone"` for a phone number, `sitewide: true` for every page) reaches
    Elementor widgets and header / footer templates too; `elementor_text` changes one widget's settings (heading
-   level, button text); `post_content` only on a page not built with Elementor. Schema only as `schema_snippet`
+   level, button text); `post_content` only on a page not built with Elementor. `elementor_widget` sets a widget's own
+   settings when the change is not page text: a Google Maps widget's location is
+   `{"widget_type": "google_maps", "settings": {"address": "<lat>, <lng>"}}`, not a find / replace of a maps URL.
+   `phone_link` (`phone`, optional `url`) makes the written-out number a `tel:` link; never wrap it with
+   `text_replace` (it would reach the schema's "telephone"). Prices are never written; an action that only removes
+   a price from the text (an FAQ answer) is allowed.
+   **Every `seo` finding that changes the site carries its execute action**: paste copy that replaces text →
+   `text_replace` (`find` = the exact current text); copy the page doesn't have (an intro under the H1, a lead
+   paragraph, a new section) → `insert_text` (`text`, optional `anchor` + `position`); a heading tag →
+   `heading_level`; a generic link → `link_text`; titles / metas / social image → `seo_fields`. A finding with paste
+   copy and no action is not finished. Only when no action can make the change (a slider plugin's settings, a page
+   builder no tool reaches) set `"manual": "<why>"`: those are the Agency Fix List. `owner: "metahotels"` for work
+   outside the website (OTA and directory listings and citations, Search Console, Bing / Apple listings): never
+   the agency. One change, one finding: don't repeat the same fix in a second finding (execute runs it once). Schema only as `schema_snippet`
    (JSON-LD object or the full `<script type="application/ld+json">` block), never in any page text.
    Never an action that changes a price, an offer, a discount or a
    member benefit, or anything marked [CONFIRM].

@@ -137,8 +137,9 @@ pages should carry; facts follow the [CONFIRM] rule.
    page 1), answer those questions in the page's FAQ and copy, from the hotel's own facts ([CONFIRM] rule applies).
    All copy you write (titles, metas, H1s, alt text, paste blocks) follows content-writing.md and goes
    through `copy_check` (with the hotel name and the page's main phrase): fix every problem, read every warning.
-6. **Images:** for `images_missing_alt` on this hotel, `download_images` and look at each image (Read), then write the
-   alt text; `alt_text` actions. Never generic alt text.
+6. **Images:** don't write per-image alt actions here: the orchestrator writes alt for **every** image without alt
+   (`alt_text_worklist` after the report is assembled). Report the finding's pattern (which templates / widgets
+   leave alt empty, logos, sliders) and the duplicate-alt cases you see. Never generic alt text.
 7. **Blog → booking:** the busiest posts with no room / booking link get the booking paragraph (`paste`) with the
    standard booking link.
 8. `scores.content_quality` 0-100 and the E-E-A-T breakdown in the `.md`; checks per page in `checks`.

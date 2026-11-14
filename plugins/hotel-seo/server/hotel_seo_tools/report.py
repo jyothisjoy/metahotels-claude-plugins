@@ -228,6 +228,62 @@ def _recheck(kind, url, detail=''):
     return None
 
 
+# Checks whose fix is new wording: Claude writes a seo_fields action per page (content-writing.md) before the
+# report is sent; execute applies it. Value: what to write.
+NEEDS_COPY = {'title_missing': 'title', 'title_too_long': 'title', 'meta_missing': 'description',
+              'meta_too_long': 'description'}
+SKIP_RX = re.compile(r'H(\d) → H(\d)(?: \("([^"]+)"\))?')
+
+
+def _short_title(p):
+    """A link label for a page: its H1, else its title before " | " / " - "; at most 45 characters."""
+    h1 = ((p or {}).get('h1') or [''])
+    t = (h1[0] if isinstance(h1, list) and h1 else h1) or re.split(r'\s[|\-–]\s', (p or {}).get('title') or '')[0]
+    t = re.sub(r'\s+', ' ', str(t or '')).strip()
+    return t if len(t) <= 45 else ''
+
+
+def core_actions(check, items, fj, reg=None, slug=''):
+    """Execute actions for an audit_site check whose fix can be computed (Nov 2026: these all reached the agency
+    with no action): heading levels, generic link text, link preview image / title."""
+    pages = fj.get('pages') or {}
+    acts = []
+    if check == 'heading_level_skipped':
+        for i in items:
+            for m in SKIP_RX.finditer(i.get('detail') or ''):
+                prev, _lvl, text = int(m.group(1)), int(m.group(2)), m.group(3)
+                if text:
+                    acts.append({'type': 'heading_level', 'url': i['url'], 'find': text, 'level': prev + 1})
+    elif check == 'generic_anchor_text':
+        for i in items:
+            for text, href in (pages.get(i['url']) or {}).get('generic_links') or []:
+                target = pages.get(href) or pages.get(href.rstrip('/') + '/') or {}
+                label = _short_title(target)
+                if label and label.lower() != text.lower():
+                    acts.append({'type': 'link_text', 'url': i['url'], 'href': href, 'find': text, 'new_text': label})
+    elif check == 'link_preview_missing':
+        # the hotel's own main page image (or the home page's), when it has one: Rank Math's per-page Facebook image
+        mains = [u for u, p in pages.items() if p.get('og_image') and (p.get('type') == 'home' or
+                                                                      urlparse(u).path in ('', '/'))]
+        if reg and slug and not grp.is_single(reg):
+            hotel = next((h for h in reg.get('hotels', []) if h['slug'] == slug), {})
+            own = [u for u, p in pages.items() if p.get('og_image') and any(
+                urlparse(u).path.rstrip('/') == '/' + h.strip('/') for h in hotel.get('paths') or [] if h.strip('/'))]
+            mains = own or mains
+        for i in items:
+            fields = {}
+            p = pages.get(i['url']) or {}
+            if 'no og:image' in (i.get('detail') or '') or 'og:image ' in (i.get('detail') or ''):
+                img = (pages.get(mains[0]) or {}).get('og_image') if mains else ''
+                if img:
+                    fields['facebook_image'] = img
+            if 'no og:title' in (i.get('detail') or '') and p.get('title'):
+                fields['facebook_title'] = p['title']
+            if fields:
+                acts.append({'type': 'seo_fields', 'url': i['url'], 'fields': fields})
+    return acts
+
+
 def core_findings(crawl_dir, reg, slug):
     """audit_site issues for one hotel (or 'group'), one finding per check listing every URL."""
     f = paths.resolve(crawl_dir) / 'findings.json'
@@ -257,17 +313,39 @@ def core_findings(crawl_dir, reg, slug):
         rchecks = [c for c in (i.get('recheck') or (_recheck(rk, i['url'], i['detail']) if rk else None)
                                for i in items) if c]
         rchecks = list({json.dumps(c, sort_keys=True): c for c in rchecks}.values())
-        findings.append({
+        f_ = {
             'id': f'core-{check}', 'check': check, 'category': cat, 'title': title, 'severity': sev,
             'hotel': slug, 'owner': 'web' if check in WEB_OWNED else 'seo', 'count': len(items), 'pages': urls,
             'evidence': {'summary': f'{len(items)} occurrence(s) on {len(urls)} page(s)', 'tool': 'audit_site'},
             'fix': fix, 'blocks': [{'table': {'columns': ['Page', 'What audit_site found'], 'rows': rows}}],
-            'checks': rchecks, 'actions': []})
+            'checks': rchecks, 'actions': core_actions(check, items, fj, reg, slug)}
+        if check in NEEDS_COPY and f_['owner'] == 'seo':
+            # the wording is ours to write (copy standard), then execute applies it: never handed to the agency
+            f_['needs_copy'] = NEEDS_COPY[check]
+        findings.append(f_)
     # images missing alt (crawl file), per hotel
     alt = paths.resolve(crawl_dir) / 'images_missing_alt.csv'
     if alt.exists():
         with open(alt, encoding='utf-8-sig', newline='') as fh:
             rows = [r for r in csv.DictReader(fh) if (grp.hotel_for(r['page_url'], reg) if reg else slug) == slug]
+        # Inline data: images (language-switcher flags, icons the theme or a plugin prints) have no Media Library item
+        # or widget to write alt into: one Web Team item for the template that prints them, not 100 agency rows
+        # (Nov 2026, Shams Alam: 100 of 118 rows were the same nine flag icons on every page).
+        inline = [r for r in rows if r['image_src'].startswith('data:')]
+        rows = [r for r in rows if not r['image_src'].startswith('data:')]
+        if inline:
+            pages_inline = sorted({r['page_url'] for r in inline})
+            findings.append({
+                'id': 'core-images-inline-no-alt', 'check': 'images_missing_alt', 'category': 'Images',
+                'title': 'Icons printed inline by the theme or a plugin have no alt text', 'severity': 'Low',
+                'hotel': slug, 'owner': 'web', 'count': len(inline), 'pages': pages_inline,
+                'evidence': {'summary': f"{len({r['image_src'][:120] for r in inline})} inline icon(s) "
+                                        f"(data: images) without alt on {len(pages_inline)} page(s)",
+                             'tool': 'LibreCrawl crawl'},
+                'fix': 'Give these icons alt text (or alt="" with aria-hidden when the language name is written next '
+                       'to them) in the template or plugin that prints them, usually the language switcher in the '
+                       'header: one change covers every page.',
+                'blocks': [], 'checks': [], 'actions': []})
         checks.append({'id': 'core:images_missing_alt', 'category': 'Images', 'title': 'Images without alt text',
                        'result': 'fail' if rows else 'pass', 'severity': 'Medium', 'source': 'crawl'})
         if rows:
@@ -277,7 +355,8 @@ def core_findings(crawl_dir, reg, slug):
                 'count': len(rows), 'pages': sorted({r['page_url'] for r in rows}),
                 'evidence': {'summary': f"{len(rows)} image(s) on {len({r['page_url'] for r in rows})} page(s) "
                                         'have no or empty alt text', 'tool': 'LibreCrawl crawl'},
-                'fix': 'Write alt text for each image after looking at it (seo-content gives the exact text).',
+                'fix': 'MetaHotels writes the alt text for every image after looking at it (alt_text_worklist) and '
+                       'execute applies it; nothing to do by hand.', 'needs_copy': 'alt',
                 'blocks': [{'table': {'columns': ['Page', 'Image', 'Alt'],
                                       'rows': [[r['page_url'], r['image_src'], r['alt_state']] for r in rows]}}],
                 'checks': [{'type': 'alt_present', 'url': r['page_url'], 'image': r['image_src'].rsplit('/', 1)[-1]}
@@ -320,8 +399,8 @@ def booking_findings(hotel_dir, slug):
              'Unpublish each expired offer page and 301 it to /offers/ (dining and spa offers excepted).',
              cmp.get('offer_pages_without_rate') or [], lambda x: [x], ['Offer page'], lambda x: x),
             ('room_size_mismatch', 'Room sizes on the site differ from the booking engine', 'High',
-             'Use the booking-engine sizes on the room pages: the engine /search page is right unless the hotel '
-             'says otherwise in the Rooms sheet (execute makes the change in the booking-path batch).',
+             'Use the booking-engine sizes on the room pages: the engine /search page is always right (execute '
+             'makes the change in the booking-path batch). If the engine is wrong, correct it in Mirai first.',
              size_bad, lambda x: [x['room'], x.get('engine_size', ''), ', '.join(x.get('sizes_on_page') or []),
                                   x.get('site_page', '')], ['Room', 'Engine', 'On the page', 'Page'],
              lambda x: x.get('site_page')),
@@ -619,6 +698,9 @@ def _section(f, n):
            'owner': f['owner'], 'finding_id': f['id'], 'pages_all': pages}
     if f.get('hold'):
         sec['hold'] = f['hold']
+    for k in ('needs_copy', 'manual'):
+        if f.get(k):
+            sec[k] = f[k]
     return sec
 
 
@@ -765,7 +847,9 @@ def build(group_dir, slug, run_date=None):
     checks = core_checks + bchecks + a_checks
     sa = score_all(checks, status)
     health, cats = sa['health'], sa['categories']
-    seo = [f for f in findings if f['owner'] == 'seo']
+    # metahotels (outside the website: listings, directories) stays in the Audit Report; execute_report keeps it off
+    # the Agency Fix List
+    seo = [f for f in findings if f['owner'] in ('seo', 'metahotels')]
     web = [f for f in findings if f['owner'] == 'web']
     counts = {s: sum(1 for f in seo if f['severity'] == s) for s in SEV_RANK}
     extra = {'short_name': hotel['name'], 'hotel_slug': slug, 'separate_scores': separate,

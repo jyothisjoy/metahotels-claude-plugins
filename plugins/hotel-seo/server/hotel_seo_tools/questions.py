@@ -280,7 +280,10 @@ def _rooms(hdir, facts):
         return ''
     out = []
     for n, r in enumerate(rooms, 1):
-        out.append({'id': f'R{n}', 'sheet': 'Rooms', 'room': r.get('room', ''), 'page': r.get('site_page') or '',
+        out.append({'id': f'R{n}', 'sheet': 'Rooms',
+                    # the engine is always right: a room whose size and guests it shows is kept (markers, corrections
+                    # and execute read its engine values) but not put on the sheet the hotel fills in
+                    'engine_covered': bool(r.get('engine_size') and r.get('engine_max_occupancy')), 'room': r.get('room', ''), 'page': r.get('site_page') or '',
                     'site_size': ', '.join(f'{s} m²' for s in r.get('sizes_on_page') or []),
                     'engine_size': r.get('engine_size') or '', 'bookingcom_size': bc(r.get('room', ''), 'room_size'),
                     'site_guests': ', '.join(str(x) for x in r.get('occupancy_on_page') or []),
@@ -560,8 +563,8 @@ def _gbp_rows(hdir, facts, texts, basics, dropped):
         add(u['field'], u['label'], u['gbp'], 'Google shows this on your listing; we have nothing from you to check it.')
     for kind in ('mismatches', 'gaps'):
         for m in cmp_.get(kind) or []:
-            if fx.is_hotel_source(m.get('source')):
-                continue                               # the hotel's own answer: a change to propose, not a question
+            if fx.is_hotel_source(m.get('source')) or fx.is_engine_source(m.get('source')):
+                continue        # the booking engine (always right) or the hotel's own answer: a change to propose
             google = 'Google has nothing' if kind == 'gaps' else f"Google shows {m['gbp']}"
             add(m['field'], m['label'], m['gbp'], f"{google}; {m.get('source') or 'our records'} says "
                                                   f"{m['confirmed']} (“{m.get('fact', '')}”). Which is right?")
@@ -876,7 +879,9 @@ def build(group_dir, slug, run_date=None):
         data['imported'] = old['imported']
     qf.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding='utf-8')
     xlsx = _write_xlsx(data, paths.reports_dir(hdir), hotel)
-    return {'file': str(qf), 'xlsx': str(xlsx), 'questions': len(qs), 'rooms': len(rooms), 'distances': len(dists),
+    return {'file': str(qf), 'xlsx': str(xlsx), 'questions': len(qs),
+            'rooms': sum(1 for r in rooms if not r.get('engine_covered')),
+            'rooms_from_engine': sum(1 for r in rooms if r.get('engine_covered')), 'distances': len(dists),
             'facts': len(basics), 'business_profile': len(gbp_rows),
             'ai_answer_errors': sum(1 for i in qs if i.get('type') == 'ai_error'),
             'area_claims': sum(1 for i in qs if i.get('type') == 'area_claim') +
@@ -988,7 +993,7 @@ def _write_xlsx(data, out_dir, hotel):
     wb = Workbook()
     ws = wb.active
     ws.title = 'How to fill'
-    counts = {s: sum(1 for i in data['items'] if i['sheet'] == s) for s in SHEETS}
+    counts = {s: sum(1 for i in data['items'] if i['sheet'] == s and not i.get('engine_covered')) for s in SHEETS}
     lines = [(f"{hotel['name']}: questions for the hotel", Font(bold=True, size=14, color='12355B')),
              (f"From the website audit of {data['built']} ({data['site']}).", None),
              ('', None),
@@ -999,9 +1004,8 @@ def _write_xlsx(data, out_dir, hotel):
               None),
              ('Distances and facts about the area: if you don\'t know, write "Don\'t know". We then take it out of the '
               'text; you don\'t need to look it up.', None),
-             ('Rooms: the website follows your booking engine. Leave a room blank if the booking engine is right; '
-              'fill it in only where the booking engine is wrong (then we also tell whoever manages the engine).',
-              None),
+             ('Rooms: the website always follows your booking engine, so rooms the engine shows are not asked here. '
+              'If the engine itself is wrong, correct it in Mirai: the website follows on our next update.', None),
              ('', None),
              *[(f'{s}: {n} item(s)', Font(bold=True)) for s, n in counts.items() if n],
              ('', None),
@@ -1018,7 +1022,7 @@ def _write_xlsx(data, out_dir, hotel):
     ws.column_dimensions['A'].width = 34
     ws.column_dimensions['B'].width = 40
     for name, (headers, info, answers, widths) in SHEETS.items():
-        rows = [i for i in data['items'] if i['sheet'] == name]
+        rows = [i for i in data['items'] if i['sheet'] == name and not i.get('engine_covered')]
         if not rows:
             continue
         s = wb.create_sheet(name)
@@ -1067,6 +1071,57 @@ def classify(answer_text):
     if NO.match(t):
         return 'no'
     return 'value'
+
+
+def latest_sheet(hdir):
+    """The newest Questions for the Hotel spreadsheet in the hotel's report folders (dated or not), or None."""
+    found = sorted(paths.resolve(hdir).joinpath('Reports').rglob('* Questions for the Hotel (*).xlsx'),
+                   key=lambda p: p.stat().st_mtime)
+    return found[-1] if found else None
+
+
+def _filled_rows(xlsx_path):
+    """{question id: answers written in the sheet}: rows with at least one answer cell filled in."""
+    from openpyxl import load_workbook
+    wb = load_workbook(paths.resolve(xlsx_path), data_only=True, read_only=True)
+    out = {}
+    for name, (headers, info, answers, _) in SHEETS.items():
+        if name not in wb.sheetnames:
+            continue
+        rows = wb[name].iter_rows(values_only=True)
+        head = [str(c or '').strip() for c in next(rows, [])]
+        cols = {h: n for n, h in enumerate(head)}
+        for row in rows:
+            qid = str(row[0] or '').strip() if row else ''
+            if not qid:
+                continue
+            vals = {k: row[cols[h]] for k, h in zip(answers, headers[len(info):])
+                    if h in cols and cols[h] < len(row) and row[cols[h]] not in (None, '')}
+            if vals:
+                out[qid] = vals
+    return out
+
+
+def status(group_dir, slug):
+    """Where the Questions for the Hotel stand, for execute: how many questions the hotel was sent (rows the booking
+    engine covers are not asked), how many are answered, and whether the newest sheet in Reports has answers that
+    were never imported. {"exists": False} when the hotel has no questions."""
+    data = load(group_dir, slug)
+    if not data:
+        return {'exists': False}
+    asked = [i for i in data['items'] if not i.get('engine_covered')]
+    answered = [i for i in asked if i.get('answer')]
+    hdir = grp.hotel_dir(group_dir, slug)
+    sheet = latest_sheet(hdir)
+    filled_new = 0
+    if sheet:
+        try:
+            have = {i['id'] for i in answered}
+            filled_new = sum(1 for qid in _filled_rows(sheet) if qid not in have)
+        except Exception:  # noqa: BLE001 - an unreadable sheet: report the counts we have
+            filled_new = 0
+    return {'exists': True, 'questions': len(asked), 'answered': len(answered), 'open': len(asked) - len(answered),
+            'imported': data.get('imported'), 'sheet': str(sheet) if sheet else '', 'filled_not_imported': filled_new}
 
 
 def import_answers(group_dir, slug, xlsx_path):
@@ -1310,14 +1365,16 @@ def corrections(group_dir, slug):
     rooms_rx = [(i['id'], room_pattern(i['room'])) for i in data['items'] if i['sheet'] == 'Rooms']
     out = []
     for i in data['items']:
-        a = i.get('answer') or {}
+        a = dict(i.get('answer') or {})
         engine = {}
-        if i['sheet'] == 'Rooms' and not a:
-            # The booking engine's /search page is right unless the hotel says otherwise in the Rooms sheet: with no
-            # answer for the room, the site follows the engine's size and maximum guests.
+        if i['sheet'] == 'Rooms':
+            # The booking engine's /search page is always right: its size and maximum guests replace the hotel's
+            # answer where the engine has them (the answer stays only for what the engine doesn't show).
             engine = {k: v for k, v in (('size_m2', _first_num(i.get('engine_size'))),
                                         ('max_adults', _first_num(i.get('engine_guests')))) if v is not None}
-            a = {k: (int(v) if float(v).is_integer() else v) for k, v in engine.items()}
+            if 'max_adults' in engine:
+                a.pop('max_children', None)
+            a.update({k: (int(v) if float(v).is_integer() else v) for k, v in engine.items()})
         src = (lambda what: f"Booking engine ({i['room']}): {what}; the site follows the engine") if engine else             (lambda what: f"Hotel answer {i['id']}: {what}")
         tag = {'finding': 'booking-room_size_mismatch', 'source': 'booking engine'} if engine else {}
         if i['sheet'] == 'Rooms' and i.get('page') and _num(a.get('size_m2')) is not None:

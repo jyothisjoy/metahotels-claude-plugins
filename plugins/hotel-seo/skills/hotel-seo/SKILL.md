@@ -44,18 +44,18 @@ No argument: ask for the website. A bare domain or URL in the message counts as 
 4. **Facts need evidence** ([CONFIRM] guard in `render_report`). Confirmed sources: the hotel information sheet, the hotel
    contact, the live booking engine, and Booking.com **only where the booking engine agrees**. Prices, discounts,
    offers and member benefits are never changed.
-5. **One value per fact, everywhere. The booking engine's `/search` page is always right**, unless the hotel says
-   otherwise in the Questions for the Hotel sheet. Order: the hotel's sheet answer > the live booking engine > the
-   hotel's other messages (email, WhatsApp, the hotel contact) > anything else (site, Booking.com, AI answers). Where
-   the site or Booking.com disagrees with the engine (room sizes, guests, beds, room names, cancellation wording),
-   nobody is asked: execute brings the site in line with the engine (booking-path batch) and Booking.com gets a Chrome
-   step to match it. **Hotel answers go into `hotel-facts.json` the day they arrive, whatever the channel,** with
-   `add_facts(facts_file, facts, source="hotel (<who>, <channel> <date>)")`; one that contradicts the engine comes back
-   in `engine_overrides` and does not change the site: tell the user, and ask it in the Rooms sheet if the hotel
-   insists. Only a sheet answer overrides the engine: the site then follows the hotel and
-   `engine_corrections(facts_file)` lists the Mirai settings to change (never a page edit). Phone, address and
-   distances are not engine facts: they still come from the hotel. A fact the hotel has answered is never a [CONFIRM]
-   again. Sizes are written in the hotel's unit (`hotel.json` `preferences.units`).
+5. **One value per fact, everywhere. What the hotel's booking engine (`/search`) shows is always right.** Order: the
+   live booking engine > the hotel's Questions sheet answer > the hotel's other messages (email, WhatsApp, the hotel
+   contact) > anything else (site, Booking.com, AI answers). Anything the engine shows is never asked: the Rooms sheet
+   leaves out rooms whose size and guests the engine gives, the Business Profile sheet leaves out fields it covers
+   (`gbp_amenities` proposes the engine's value). Where the site or Booking.com disagrees with the engine (room sizes,
+   guests, room names, cancellation wording), execute brings the site in line (booking-path batch) and Booking.com
+   gets a Chrome step to match it. **Hotel answers go into `hotel-facts.json` the day they arrive, whatever the
+   channel,** with `add_facts(facts_file, facts, source="hotel (<who>, <channel> <date>)")`. One that contradicts the
+   engine never changes the site: it comes back in `engine_overrides` / `engine_corrections` ("if the hotel is right,
+   change it in Mirai first; the site follows on the next run"): tell the user. Phone, address and distances are
+   not engine facts: they still come from the hotel. A fact the hotel has answered is never a [CONFIRM] again. Sizes
+   are written in the hotel's unit (`hotel.json` `preferences.units`).
 6. **Every word we write follows one standard:** [references/content-writing.md](references/content-writing.md), for
    titles, metas, H1s, intros, FAQs, alt text, buttons, booking paragraphs, schema descriptions, Business Profile text
    and full pages. `presend_check`, `render_report` and `copy_check` report what code can check, as problems (fix) and
@@ -264,6 +264,18 @@ Fully automatic apart from **one intake round** (step 3). Anything you can't get
     With `<hotel dir>/parity/parity-calendar.json` present, the Audit Report gets the **Rate parity (Best Rate
     calendar)** table, and when the site was not the best rate on 20%+ of recorded days, that line at the top. Parity is
     a revenue-team matter: never an agency fix and never a price change on the site.
+11b. **Alt text for every image** (per hotel, never left to the agency): `alt_text_worklist("<domain>", slug)` lists
+    each image without alt once (its sizes and .webp copies are one row) and downloads it. Then, until `remaining` is 0:
+    `alt_text_batch(file)` → **Read each image file and look at it** → write one alt per image (what the photo shows +
+    the room, outlet or place when the page says which + the hotel name; ≤ 125 characters; never "image of", a file
+    name, a price or a claim the photo doesn't show; two photos never share an alt) → `alt_text_fill(file, {id: alt})`.
+    A download that failed: look at the image URL with Claude in Chrome. Only a spacer, divider, texture or an icon
+    beside its own label is `{"decorative": true}`. Many images: give batches to subagents in parallel, each with the
+    file, its ids and these rules. Finish with `alt_text_check(file)`: fix every problem; when clean it writes the
+    `alt_text` actions into the Audit Report's "Images without alt text" finding (the table shows every alt), and
+    execute's alt-text batch applies them: Media Library images through `update-media` (50 per call), an `<img>`
+    written into a text / HTML widget or post content in the tag itself. Only an image the site can't find anywhere
+    (a slider or theme setting) reaches the Agency Fix List, with its alt text.
 12. **Build Plan per hotel** — write `<hotel dir>/audit-<date>/build-plan.json` (see below), from the
     keyword map, the agents' findings (content, schema, local, geo, flow), facts and Mirai. Order new pages by the
     map's `build_order` (rival hotels rank and we have no page: first); a cluster's `serp.paa` feeds the page's FAQ, and
@@ -277,8 +289,8 @@ Fully automatic apart from **one intake round** (step 3). Anything you can't get
       facts AI assistants gave in the latest monthly AI answer check (`monthly-<YYYY-MM>/manual.json` `ai_panel`; one
       question per fact across engines; a fact already confirmed is a fix, not a question); area facts in new copy
       with no source (`copy/claims-<date>.json`, from `save_claims`), other than distances.
-    - **Rooms** (R): size, guests, beds per room type (site vs booking engine vs Booking.com). Left blank, the
-      engine's values stand; the hotel fills a room only where the engine is wrong.
+    - **Rooms** (R): only rooms the booking engine doesn't give a size and guests for (the engine is always right;
+      its rooms are not asked).
     - **Distances** (D): distances on the site, Booking.com's nearby list, the keyword map's landmarks, and distance /
       travel-time claims from new copy (in the same place's row).
     - **Facts** (F): basic facts not yet confirmed; name, address, phone and website with every source's value when
@@ -381,8 +393,13 @@ writes the status record; an agent never validated is left out of the report).
 
 1. Preconditions: the site is in `sites.csv` and `site_mcp_status(site)` connects (else say which login problem it
    reported, in plain words). A hotel needs a built audit report.
-   **Hotel answers:** ask once whether the hotel returned the Questions for the Hotel spreadsheet. If yes:
-   `import_hotel_answers("<domain>", slug, <xlsx path>)` (answers become confirmed facts; site text that contradicts
+   **Hotel answers:** `execute_plan` checks the Questions for the Hotel sheet itself. Answers filled into the newest
+   sheet in `Reports/` are imported on the spot. When nothing is answered it returns **`needs_decision`** (how many
+   questions, and how many findings / new pages wait on them) and plans nothing: tell the user and ask whether the
+   hotel sent the sheet back (a separate file: import it, then plan again) or to continue without it. Only on
+   "continue": `execute_plan("<domain>", slug, ignore_unanswered=true)`; what waits on the hotel stays skipped and is
+   listed in the Execute Report. A file the hotel sent: `import_hotel_answers("<domain>", slug, <xlsx path>)`
+   (answers become confirmed facts; site text that contradicts
    them becomes corrections: room sizes / guests, distances, and the phone, address or name where the old text is on
    the page). Unanswered questions keep their items out of execute. `remove_from_copy`: area claims the hotel doesn't
    know or says are wrong; take them out of the copy they came from (`where`) before it is published. `business_profile`
@@ -410,6 +427,18 @@ writes the status record; an agent never validated is left out of the report).
    phone number is one item per wrong number, in every format and `tel:` link. On a group site a match in a shared
    template becomes its own item in the **group** batch (it shows on other hotels' pages: list them before asking).
    Body copy on an Elementor page goes into its text widget, never into post content (the page would not show it).
+   A **map** moves with an `elementor_widget` action (the Google Maps widget's `address` = "<lat>, <lng>"), not a find /
+   replace of a maps URL. A **phone number to make clickable** is a `phone_link` action: rich text gets
+   `<a href="tel:">`, a heading / button / icon-list row gets its link set, and the schema's `telephone` is never touched.
+   A price is never written; an action that only takes a price out of the text (an FAQ answer) runs, marked
+   "removes a price". **Other languages:** when a page's text changes, its Polylang translations (AR, RU...) are listed
+   in the Execute Report under "Still to run": write each one natively (**/hotel-seo write**, never a translation of
+   the English) as a `text_replace` on that language's page, and run execute again. They are not agency work.
+   **New text** (an intro under the H1, a lead paragraph, a section) goes in with `insert_text`
+   (`elementor-insert-element`, Meta MCP 1.7); heading tags with `heading_level`; "view more" links with
+   `link_text` (renamed after the page they open; in a loop card template, each card shows its post title); a
+   missing link-preview image with `seo_fields` `facebook_image`. These come out of `build_audit_report`
+   for the code checks; agents add them to their own findings.
    **Schema:** every snippet is checked and rewritten as `<script type="application/ld+json">` in `<head>`; invalid
    JSON, bare text or HTML is refused, and JSON-LD in page copy is refused. The schema batch's re-check fails if any
    `"@context"` shows as page text.
@@ -433,7 +462,12 @@ writes the status record; an agent never validated is left out of the report).
    - **Execute Report**: every change made (page, before → after, live re-check), what waits for the hotel, undo, and
      **Still to run with execute**: batches not approved yet, Chrome steps not done, group-wide items (the group run)
      and writes the live page doesn't show yet. These are MetaHotels' to finish, never the agency's.
-   - **Agency Fix List**: only what execute cannot do (no MCP tool reaches it, the site refused it), step by step with
+   - **Agency Fix List**: only what execute cannot do: a finding an agent marked `manual` (with why) or a change the
+     site refused. A finding with no action, titles / metas / alt to write, a batch not run, a duplicate of another
+     finding's change: all in the Execute Report's "Still to run", for MetaHotels. Before calling the run done, give
+     each "Still to run" finding its action (write the copy, add `insert_text` / `text_replace` / `heading_level` /
+     `link_text` / `seo_fields` to audit-report.json) and run execute again, until only agency items are left.
+     The agency items, step by step with
      the exact text to paste and where in WordPress, for the SEO agency; new pages still to create; "checked, no
      action needed"; and the items that wait for the hotel (do not change yet). Developer items (hreflang, theme,
      templates the tools can't write) stay in the Web Team List; Business Profile and Booking.com are never agency
@@ -442,7 +476,7 @@ writes the status record; an agent never validated is left out of the report).
 8. `--undo <plan file>`: `undo_execute(plan_file)`. Business Profile changes come back as proposals of their before
    values (`business_profile`): show each preview; `gbp_apply` only after the user approves that id.
 
-Execute never touches prices, offers, discounts, member benefits, Web Team items, deletions, users, plugins / themes,
+Execute never writes or changes prices (it may remove one from page text), offers, discounts, member benefits, Web Team items, deletions, users, plugins / themes,
 another hotel's pages on a group site, or the Google Business Profile beyond its business-profile batch (anything
 else on the profile has its own path: **Business Profile changes**).
 
@@ -690,7 +724,8 @@ Facts: `import_facts_sheet`, `bookingcom_extractor`, `import_bookingcom`, `cross
 `keyword_volumes`, `keyword_ideas`, `import_keyword_csv`, `build_keyword_map`, `assign_keyword_owners`, `geo_lookup`,
 `nearby_places`. Business Profile: `gbp_locations`, `gbp_link`, `gbp_api_check`, `gbp_report`, `gbp_amenities`, `gbp_photos`,
 `gbp_reviews_pending`, `gbp_review_drafts_check`, `gbp_review_sheet_import`, `gbp_propose`, `gbp_apply`, `gbp_history`. Agents:
-`seo_check`, `seo_check_list`, `content_scan`, `download_images`, `agent_preflight`, `validate_agent_output`. Reports:
+`seo_check`, `seo_check_list`, `content_scan`, `download_images`, `agent_preflight`, `validate_agent_output`. Alt text:
+`alt_text_worklist`, `alt_text_batch`, `alt_text_fill`, `alt_text_check`. Reports:
 `build_audit_report`, `build_group_summary`, `presend_check`, `render_report`, `recheck_list`, `copy_check`. Sites:
 `sites_csv_status`, `site_mcp_status`, `site_mcp_read`, `execute_plan`, `record_client_approval`, `run_execute_batch`,
 `record_chrome_step`, `execute_gbp_refresh`, `execute_reports`, `undo_execute`. Hotel questions: `hotel_questions`, `edit_hotel_questions`,

@@ -54,10 +54,24 @@ def steps_for(a):
         return [f"Rank Math → Redirections (or Tools → Redirection) → Add new: source `{a.get('source')}` → target "
                 f"`{a.get('target')}`, type {a.get('code', 301)}" + (' (regex)' if a.get('regex') else '') + '.']
     if t == 'alt_text':
-        return [f"Media → Library → open the image `{a.get('image')}` → Alternative Text: `{a.get('alt')}` → Update."]
+        pages = a.get('pages') or []
+        return [f"Image `{a.get('image')}`" + (f" (on {len(pages)} page(s), e.g. `{pages[0]}`)" if pages else '')
+                + f": set its alt text to `{a.get('alt')}`. It is not in the Media Library (or the site refused it): "
+                'set it where the image is chosen (the slider, the widget, the theme option); if it is in Media → '
+                'Library after all, set Alternative Text there → Update.']
     if t == 'elementor_text':
         return [f"Open `{a.get('url')}` → Edit with Elementor → the element containing “{a.get('find')}” → set:"] + \
             [f"{k}: `{v}`" for k, v in (a.get('settings') or {}).items()] + ['Update (publish).']
+    if t == 'elementor_widget':
+        return [f"Open `{a.get('url')}` → Edit with Elementor → the {a.get('widget_type')} widget"
+                + (f" containing “{a.get('find')}”" if a.get('find') else '') + ' → set:'] + \
+            [f"{k}: `{v}`" for k, v in (a.get('settings') or {}).items()] + ['Update (publish).']
+    if t == 'phone_link':
+        from .execute import tel_href
+        return [f"Make the phone number `{a.get('phone')}` a link to `tel:` wherever it is written out"
+                + (f" on `{a.get('url')}`" if a.get('url') else ' (every page, header and footer)')
+                + f": in a text widget select the number → Link → `{tel_href(a.get('phone'))}`; on a button or "
+                'icon-list row set its Link to the same. Never in the schema (Custom Code).']
     if t == 'post_content':
         return [f"Open `{a.get('url')}` in the editor and replace the content with the text below, then Update.",
                 f"`{a.get('content')}`"]
@@ -134,6 +148,8 @@ def build(group_dir, slug, plan_file=''):
     site = reg['group']['site']
     items = {it['id']: dict(it, batch=b) for b, its in pl.get('batches', {}).items() for it in its}
     done = set(pl.get('done', []))
+    refused = {f['id']: f.get('error', '') for f in pl.get('failed', [])
+               if f.get('id') and f['id'] not in done and f.get('batch') == 'alt-text'}
     recheck = pl.get('recheck', {})
     approved = {a['batch'] for a in pl.get('approved', [])}
     by_finding = {}
@@ -190,7 +206,7 @@ def build(group_dir, slug, plan_file=''):
     skipped = {}
     for s_ in pl.get('skipped', []):
         skipped.setdefault(s_.get('finding'), []).append(s_)
-    agency, hotel_wait, no_action, still_to_run = [], [], [], []
+    agency, hotel_wait, no_action, still_to_run, outside = [], [], [], [], []
     for sec in report.get('sections', []):
         if not sec.get('severity') or sec.get('owner') == 'web':
             continue
@@ -199,6 +215,11 @@ def build(group_dir, slug, plan_file=''):
             continue        # Business Profile fixes: MetaHotels makes them (Execute Report), never the agency
         its = [i for i in by_finding.get(fid, []) if i.get('batch') != GBP_BATCH]
         sk_all = [x for x in skipped.get(fid, []) if x.get('action') != 'gbp']
+        # written by execute but refused by the site (e.g. an image in neither the Media Library nor editable text):
+        # execute can't do it on a rerun either, so it is agency work, with its exact text
+        sk_all += [{'finding': fid, 'action': i['action'].get('type'), 'act': i['action'],
+                    'reason': 'the site refused it: ' + refused[i['id']]} for i in its if i['id'] in refused]
+        its = [i for i in its if i['id'] not in refused]
         later = [x for x in sk_all if any(k in x.get('reason', '') for k in EXECUTE_LATER)]
         sk = [x for x in sk_all if x not in later]
         # planned but not run yet (batch not approved, Chrome step not done) or group-wide: execute does it on its
@@ -239,6 +260,28 @@ def build(group_dir, slug, plan_file=''):
         where_text = ' '.join(str(b.get('note', '')) for b in sec.get('blocks', []))
         if NO_ACTION.search(fix_text) or 'Where:** Info only' in where_text:
             no_action.append([sec.get('title'), re.sub(r'^\*\*Fix:\*\*\s*', '', fix_text)[:160]])
+            continue
+        # the same change another finding asked for: it follows that item (done, or still to run), never the agency
+        dups = [x for x in sk if x.get('same_as')]
+        if dups:
+            sk = [x for x in sk if not x.get('same_as')]
+            if not sk and not its:
+                if not all(d['same_as']['id'] in done for d in dups):
+                    still_to_run.append([sec.get('title'), 'same change as ' + ', '.join(sorted({
+                        d['same_as']['finding'] for d in dups})), str(len(dups))])
+                continue
+        if sec.get('owner') == 'metahotels':
+            # outside the website (OTA listings, directories, Search Console clicks): MetaHotels', not the agency's
+            outside.append([sec.get('title'), re.sub(r'^\*\*Fix:\*\*\s*', '', fix_text)[:200] or sec.get('why', '')[:200]])
+            continue
+        if not its and not sk and not sec.get('actions') and not sec.get('manual'):
+            # no execute action yet: Claude writes it (copy, a text_replace / insert_text / seo_fields action) and
+            # execute applies it. Only a finding an agent marked "manual" (with the reason) reaches the agency.
+            what = {'title': 'write the SEO titles', 'description': 'write the meta descriptions',
+                    'alt': 'write the alt text (alt_text_worklist)'}.get(sec.get('needs_copy'), '')
+            still_to_run.append([sec.get('title'), (what + ' (copy standard), then execute') if what else
+                                 'add its execute action (text_replace / insert_text / heading_level / seo_fields '
+                                 'with the paste text above), then execute', str(len(sec.get('pages_all') or []) or 1)])
             continue
         todo = [i for i in its if i['id'] not in done]
         status = ('partly done by execute' if any(i['id'] in done for i in its) else
@@ -281,6 +324,24 @@ def build(group_dir, slug, plan_file=''):
         agency.append({'title': sec.get('title'), 'severity': sec.get('severity'), 'category': sec.get('category'),
                        'why': why.strip(), 'blocks': blocks, 'checks': sec.get('checks', []),
                        'finding_id': fid, 'pages_all': pages})
+    langs = {}
+    for it in items.values():
+        if it['id'] in done and it.get('translations'):
+            for lang, link in it['translations'].items():
+                langs.setdefault((lang, link), []).append(it.get('title') or it['finding'])
+    for (lang, link), titles in sorted(langs.items(), key=lambda kv: (kv[0][0], str(kv[0][1]))):
+        still_to_run.append([f"{lang.upper()} version: {link}", 'write the same change natively in this language '
+                             '(/hotel-seo write), then execute it: ' + '; '.join(dict.fromkeys(titles))[:200],
+                             str(len(titles))])
+    if outside:
+        if exec_doc['sections'] and exec_doc['sections'][0].get('title') == 'No changes made yet':
+            exec_doc['sections'] = []
+        exec_doc['sections'].append({
+            'number': len(exec_doc['sections']) + 1,
+            'title': f'Outside the website (MetaHotels): {len(outside)} finding(s)',
+            'blocks': [{'p': 'Listings, directories and other platforms: not website changes, so neither execute nor '
+                             'the agency makes them.'},
+                       {'table': {'columns': ['Finding', 'What to do'], 'rows': outside}}]})
     if still_to_run:
         if exec_doc['sections'] and exec_doc['sections'][0].get('title') == 'No changes made yet':
             exec_doc['sections'] = []
@@ -336,6 +397,6 @@ def build(group_dir, slug, plan_file=''):
     (out / 'agency-fix-list.json').write_text(json.dumps(agency_doc, indent=1, ensure_ascii=False), encoding='utf-8')
     return {'execute_report': str(out / 'execute-report.json'), 'agency_fix_list': str(out / 'agency-fix-list.json'),
             'changes': len(changes), 'agency_items': n, 'waiting_for_hotel': len(hotel_wait),
-            'still_to_run': len(still_to_run),
+            'still_to_run': len(still_to_run), 'outside_website': len(outside),
             'out_dir': str(paths.reports_dir(hdir)),
             'next': 'render_report each file to out_dir (PDF).'}

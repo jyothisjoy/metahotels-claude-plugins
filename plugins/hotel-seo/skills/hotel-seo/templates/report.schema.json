@@ -384,8 +384,10 @@
      "owner": {
       "enum": [
        "seo",
-       "web"
-      ]
+       "web",
+       "metahotels"
+      ],
+      "description": "seo: changed in WordPress (execute does it); web: theme / developer; metahotels: outside the website (OTA and directory listings, Search Console, the hotel)"
      },
      "hold": {
       "type": "string",
@@ -1214,9 +1216,141 @@
           "field",
           "value"
          ]
+        },
+        {
+         "properties": {
+          "type": {
+           "const": "elementor_widget"
+          },
+          "url": {
+           "type": "string"
+          },
+          "widget_type": {
+           "type": "string",
+           "description": "the Elementor widget type, e.g. google_maps, image, video, button"
+          },
+          "settings": {
+           "type": "object",
+           "description": "settings to set, e.g. {\"address\": \"25.5719418, 56.3435306\"} for google_maps"
+          },
+          "find": {
+           "type": "string",
+           "description": "text from the widget's current settings, when the page has more than one of that type"
+          }
+         },
+         "required": [
+          "url",
+          "widget_type",
+          "settings"
+         ],
+         "description": "Set a widget's own settings when the thing to change is not page text (a map's location, a video URL)."
+        },
+        {
+         "properties": {
+          "type": {
+           "const": "phone_link"
+          },
+          "phone": {
+           "type": "string",
+           "description": "the hotel phone as shown"
+          },
+          "url": {
+           "type": "string",
+           "description": "one page; omit for every page of the hotel and its header / footer"
+          }
+         },
+         "required": [
+          "phone"
+         ],
+         "description": "Make the written-out phone number a tel: link (rich text gets <a href=\"tel:\">, headings / buttons / icon-list rows get their link set). Never touches schema."
+        },
+        {
+         "properties": {
+          "type": {
+           "const": "insert_text"
+          },
+          "url": {
+           "type": "string"
+          },
+          "text": {
+           "type": "string",
+           "description": "the new copy (## headings, - bullets, **bold**), or give html"
+          },
+          "html": {
+           "type": "string"
+          },
+          "anchor": {
+           "type": "string",
+           "description": "text of the element to insert next to; omit for under the H1"
+          },
+          "position": {
+           "enum": [
+            "after",
+            "before"
+           ]
+          }
+         },
+         "required": [
+          "url"
+         ],
+         "description": "Copy the page doesn't have yet (an intro under the H1, a lead paragraph, a new section): a new text widget, nothing replaced."
+        },
+        {
+         "properties": {
+          "type": {
+           "const": "heading_level"
+          },
+          "url": {
+           "type": "string"
+          },
+          "find": {
+           "type": "string",
+           "description": "the heading's text"
+          },
+          "level": {
+           "type": "integer"
+          }
+         },
+         "required": [
+          "url",
+          "find",
+          "level"
+         ],
+         "description": "Set a heading's tag (H2, H3...) on its widget; the look comes from the widget style."
+        },
+        {
+         "properties": {
+          "type": {
+           "const": "link_text"
+          },
+          "url": {
+           "type": "string"
+          },
+          "href": {
+           "type": "string"
+          },
+          "find": {
+           "type": "string",
+           "description": "the current link text, e.g. view more"
+          },
+          "new_text": {
+           "type": "string"
+          }
+         },
+         "required": [
+          "url",
+          "href",
+          "find",
+          "new_text"
+         ],
+         "description": "Rename a generic link after the page it opens; in a loop card template, each card shows its own post title."
         }
        ]
       }
+     },
+     "manual": {
+      "type": "string",
+      "description": "Only when no execute action can make this change (a slider plugin's settings, a page builder the MCP cannot reach): why. Without it, a finding with no action is MetaHotels' to finish, never the agency's."
      }
     }
    }
@@ -1477,8 +1611,10 @@
     "owner": {
      "enum": [
       "seo",
-      "web"
-     ]
+      "web",
+      "metahotels"
+     ],
+     "description": "seo: changed in WordPress (execute does it); web: theme / developer; metahotels: outside the website (OTA and directory listings, Search Console, the hotel)"
     },
     "hold": {
      "type": "string",
@@ -2307,9 +2443,141 @@
          "field",
          "value"
         ]
+       },
+       {
+        "properties": {
+         "type": {
+          "const": "elementor_widget"
+         },
+         "url": {
+          "type": "string"
+         },
+         "widget_type": {
+          "type": "string",
+          "description": "the Elementor widget type, e.g. google_maps, image, video, button"
+         },
+         "settings": {
+          "type": "object",
+          "description": "settings to set, e.g. {\"address\": \"25.5719418, 56.3435306\"} for google_maps"
+         },
+         "find": {
+          "type": "string",
+          "description": "text from the widget's current settings, when the page has more than one of that type"
+         }
+        },
+        "required": [
+         "url",
+         "widget_type",
+         "settings"
+        ],
+        "description": "Set a widget's own settings when the thing to change is not page text (a map's location, a video URL)."
+       },
+       {
+        "properties": {
+         "type": {
+          "const": "phone_link"
+         },
+         "phone": {
+          "type": "string",
+          "description": "the hotel phone as shown"
+         },
+         "url": {
+          "type": "string",
+          "description": "one page; omit for every page of the hotel and its header / footer"
+         }
+        },
+        "required": [
+         "phone"
+        ],
+        "description": "Make the written-out phone number a tel: link (rich text gets <a href=\"tel:\">, headings / buttons / icon-list rows get their link set). Never touches schema."
+       },
+       {
+        "properties": {
+         "type": {
+          "const": "insert_text"
+         },
+         "url": {
+          "type": "string"
+         },
+         "text": {
+          "type": "string",
+          "description": "the new copy (## headings, - bullets, **bold**), or give html"
+         },
+         "html": {
+          "type": "string"
+         },
+         "anchor": {
+          "type": "string",
+          "description": "text of the element to insert next to; omit for under the H1"
+         },
+         "position": {
+          "enum": [
+           "after",
+           "before"
+          ]
+         }
+        },
+        "required": [
+         "url"
+        ],
+        "description": "Copy the page doesn't have yet (an intro under the H1, a lead paragraph, a new section): a new text widget, nothing replaced."
+       },
+       {
+        "properties": {
+         "type": {
+          "const": "heading_level"
+         },
+         "url": {
+          "type": "string"
+         },
+         "find": {
+          "type": "string",
+          "description": "the heading's text"
+         },
+         "level": {
+          "type": "integer"
+         }
+        },
+        "required": [
+         "url",
+         "find",
+         "level"
+        ],
+        "description": "Set a heading's tag (H2, H3...) on its widget; the look comes from the widget style."
+       },
+       {
+        "properties": {
+         "type": {
+          "const": "link_text"
+         },
+         "url": {
+          "type": "string"
+         },
+         "href": {
+          "type": "string"
+         },
+         "find": {
+          "type": "string",
+          "description": "the current link text, e.g. view more"
+         },
+         "new_text": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "url",
+         "href",
+         "find",
+         "new_text"
+        ],
+        "description": "Rename a generic link after the page it opens; in a loop card template, each card shows its own post title."
        }
       ]
      }
+    },
+    "manual": {
+     "type": "string",
+     "description": "Only when no execute action can make this change (a slider plugin's settings, a page builder the MCP cannot reach): why. Without it, a finding with no action is MetaHotels' to finish, never the agency's."
     }
    }
   },
@@ -3276,6 +3544,134 @@
       "field",
       "value"
      ]
+    },
+    {
+     "properties": {
+      "type": {
+       "const": "elementor_widget"
+      },
+      "url": {
+       "type": "string"
+      },
+      "widget_type": {
+       "type": "string",
+       "description": "the Elementor widget type, e.g. google_maps, image, video, button"
+      },
+      "settings": {
+       "type": "object",
+       "description": "settings to set, e.g. {\"address\": \"25.5719418, 56.3435306\"} for google_maps"
+      },
+      "find": {
+       "type": "string",
+       "description": "text from the widget's current settings, when the page has more than one of that type"
+      }
+     },
+     "required": [
+      "url",
+      "widget_type",
+      "settings"
+     ],
+     "description": "Set a widget's own settings when the thing to change is not page text (a map's location, a video URL)."
+    },
+    {
+     "properties": {
+      "type": {
+       "const": "phone_link"
+      },
+      "phone": {
+       "type": "string",
+       "description": "the hotel phone as shown"
+      },
+      "url": {
+       "type": "string",
+       "description": "one page; omit for every page of the hotel and its header / footer"
+      }
+     },
+     "required": [
+      "phone"
+     ],
+     "description": "Make the written-out phone number a tel: link (rich text gets <a href=\"tel:\">, headings / buttons / icon-list rows get their link set). Never touches schema."
+    },
+    {
+     "properties": {
+      "type": {
+       "const": "insert_text"
+      },
+      "url": {
+       "type": "string"
+      },
+      "text": {
+       "type": "string",
+       "description": "the new copy (## headings, - bullets, **bold**), or give html"
+      },
+      "html": {
+       "type": "string"
+      },
+      "anchor": {
+       "type": "string",
+       "description": "text of the element to insert next to; omit for under the H1"
+      },
+      "position": {
+       "enum": [
+        "after",
+        "before"
+       ]
+      }
+     },
+     "required": [
+      "url"
+     ],
+     "description": "Copy the page doesn't have yet (an intro under the H1, a lead paragraph, a new section): a new text widget, nothing replaced."
+    },
+    {
+     "properties": {
+      "type": {
+       "const": "heading_level"
+      },
+      "url": {
+       "type": "string"
+      },
+      "find": {
+       "type": "string",
+       "description": "the heading's text"
+      },
+      "level": {
+       "type": "integer"
+      }
+     },
+     "required": [
+      "url",
+      "find",
+      "level"
+     ],
+     "description": "Set a heading's tag (H2, H3...) on its widget; the look comes from the widget style."
+    },
+    {
+     "properties": {
+      "type": {
+       "const": "link_text"
+      },
+      "url": {
+       "type": "string"
+      },
+      "href": {
+       "type": "string"
+      },
+      "find": {
+       "type": "string",
+       "description": "the current link text, e.g. view more"
+      },
+      "new_text": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "url",
+      "href",
+      "find",
+      "new_text"
+     ],
+     "description": "Rename a generic link after the page it opens; in a loop card template, each card shows its own post title."
     }
    ]
   }

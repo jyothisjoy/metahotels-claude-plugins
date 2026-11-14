@@ -26,7 +26,9 @@ ENDPOINT_RE = re.compile(r'^https://[^/\s]+/wp-json/mcp/[A-Za-z0-9_-]+/?$')
 # Tools that only read. Anything else on a site's MCP server is treated as a write.
 READ_PREFIXES = ('get-', 'list-', 'seo-get-', 'elementor-get-', 'elementor-list-', 'polylang-get-',
                  'polylang-list-', 'redirects-list', 'discover-abilities', 'get-ability-info')
-READ_NAMES = {'content-integrations-status', 'get-site-settings'}
+# Read-only tools whose names don't start with a read prefix. Nov 2026: find-text and resolve-url were treated as
+# writes, so execute's read-only planning pass could not call them and parked every text fix it needed them for.
+READ_NAMES = {'content-integrations-status', 'get-site-settings', 'find-text', 'resolve-url'}
 
 
 def csv_path():

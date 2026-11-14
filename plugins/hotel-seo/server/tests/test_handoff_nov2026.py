@@ -33,27 +33,27 @@ def test_hotel_name_is_not_a_landmark():
 
 # ---------------------------------------------------------------- facts: the engine wins, unless the sheet says otherwise
 
-def test_sheet_answer_supersedes_engine_and_guard(tmp_path):
+def test_engine_beats_even_the_sheet_answer_and_guard(tmp_path):
     ff = str(tmp_path / 'hotel-facts.json')
     facts.add_facts(ff, ['Two Bedroom Apartment: up to 5 guests'], 'booking engine, 1 Nov 2026')
     r = facts.add_facts(ff, ['Two Bedroom Apartment: up to 8 guests (4 adults + 4 children)'],
                         'hotel questionnaire, 6 Nov 2026, Mr Yunus')
-    assert r['superseded'] == ['Two Bedroom Apartment: up to 5 guests']
-    assert r['engine_corrections'] and r['engine_corrections'][0]['kind'] == 'guests'
-    later = facts.add_facts(ff, ['2 Bedroom Apartment: up to 6 guests'], 'booking engine, 10 Nov 2026')
+    assert r['superseded'] == [] and r['engine_overrides']['rows'][0]['engine_sells'].endswith('5 guests')
+    c = r['engine_corrections'][0]
+    assert c['kind'] == 'guests' and 'site follows the engine' in c['fix'] and 'Mirai' in c['fix']
     stored = json.loads(open(ff, encoding='utf-8').read())['facts']
-    assert stored[-1]['superseded'] and later['added']
+    assert stored[-1]['superseded'] and not stored[0].get('superseded')
     doc = {'hotel': 'H', 'sections': [{'number': 'A', 'title': 'x',
                                         'blocks': [{'paste': 'It sleeps 5 guests. It sleeps 8 guests.'}]}]}
     unverified = [u['phrase'] if isinstance(u, dict) else u for u in facts.check(doc, '', ff)['unverified']]
-    assert '5 guests' in unverified and '8 guests' not in unverified
+    assert '8 guests' in unverified and '5 guests' not in unverified
 
 
 def test_engine_beats_hotel_email_and_everything_else(tmp_path):
     ff = str(tmp_path / 'hotel-facts.json')
     facts.add_facts(ff, ['Two Bedroom Apartment: up to 5 guests'], 'booking engine, 1 Nov 2026')
     r = facts.add_facts(ff, ['Two Bedroom Apartment: up to 8 guests'], 'hotel (Mr Yunus, email 6 Nov 2026)')
-    assert r['superseded'] == [] and r['engine_corrections'] == []
+    assert r['superseded'] == [] and 'Mirai' in r['engine_corrections'][0]['fix']      # a note, the site keeps the engine
     assert r['engine_overrides']['rows'][0]['engine_sells'] == 'Two Bedroom Apartment: up to 5 guests'
     stored = json.loads(open(ff, encoding='utf-8').read())['facts']
     assert stored[-1]['superseded'] and not stored[0].get('superseded')
@@ -62,7 +62,7 @@ def test_engine_beats_hotel_email_and_everything_else(tmp_path):
     facts.add_facts(ff, ['Studio: 28 m²'], 'booking engine, 2 Nov 2026')
     stored = {x['fact']: x for x in json.loads(open(ff, encoding='utf-8').read())['facts']}
     assert stored['Studio: 30 m²']['superseded'] and not stored['Studio: 28 m²'].get('superseded')
-    assert [facts.source_rank(x) for x in ('hotel questionnaire, 6 Nov', 'booking engine, 1 Nov', 'hotel (email)',
+    assert [facts.source_rank(x) for x in ('booking engine, 1 Nov', 'hotel questionnaire, 6 Nov', 'hotel (email)',
                                            'Booking.com, 1 Nov')] == [3, 2, 1, 0]
 
 

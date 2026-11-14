@@ -349,7 +349,7 @@ def confirmed_values(facts_file):
     for x in rows:
         if x.get('superseded') or not fx.is_confirmed_source(x.get('source')):
             continue
-        weight = 1 if fx.is_hotel_source(x.get('source')) else 0
+        weight = fx.source_rank(x.get('source'))       # the booking engine first, then the hotel's answers
         if x.get('kind') == 'lodging' and x.get('subject'):
             # the questionnaire's Business Profile sheet: one field, answered directly
             v = answer_value(x['subject'], x.get('value'))
@@ -527,6 +527,15 @@ def live_values(lodging, fields):
     return {p: state(f.get(p)) for p in fields}
 
 
+def metadata(now=None):
+    """Lodging.metadata, which updateLodging requires in every body (Nov 2026: "lodging.metadata is required" on
+    every amenities / check-in change): updateTime = when the data is asserted true, i.e. when it is sent. Not in
+    the updateMask."""
+    from datetime import datetime, timezone
+    t = now or datetime.now(timezone.utc)
+    return {'updateTime': t.strftime('%Y-%m-%dT%H:%M:%SZ')}
+
+
 def lodging_op(name, changes):
     """The updateLodging op for gbp_write.propose: validated, with updateMask = each field and its Exception sibling
     (a field in the mask but not in the body is cleared, so setting a value clears an old exception and vice versa)."""
@@ -553,6 +562,7 @@ def lodging_op(name, changes):
         rows.append((f'Hotel details: {WRITABLE[p][1]}', before[p], after))
     if not rows:
         raise GbpError('the profile already shows these lodging values; nothing to change')
+    body['metadata'] = metadata()
     return {'kind': 'lodging', 'rows': rows, 'method': 'PATCH', 'url': f'{LODGING}/{name}/lodging',
             'params': {'updateMask': ','.join(mask)}, 'body': body,
             'before': {p: before[p] for p in afters}, 'after': afters, 'google_validated': False}

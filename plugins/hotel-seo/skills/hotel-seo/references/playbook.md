@@ -92,7 +92,7 @@ The crawl files are for detail:
 - **`structured_data.csv`:** Hotel schema present only on the homepage, no Article schema on normal pages, no self-serving review markup. LibreCrawl lists the JSON-LD but doesn't validate it, so run the homepage and one inner page through Google's Rich Results Test.
 - **Custom Search (`custom_search` tool):** leftover text from a previous operator or another hotel (old group names, other hotels' names, false claims). Only search when there's a known risk. Use `case_sensitive` for names that are also ordinary words.
 - **`inlinks_4xx.csv` and `inlinks_3xx.csv`:** broken menu and footer links (the `placement` column says navigation, footer or body), redirect chains, dead links to other sites.
-- **`images_missing_alt.csv`:** feeds the exact alt text table, written after viewing each image.
+- **`images_missing_alt.csv`:** feeds the alt-text worklist (`alt_text_worklist`): every image gets its own alt, written after viewing it, and execute applies them all.
 - **`hreflang.csv`:** for multi-language sites only.
 - **`issues.csv` / `overview.md`:** LibreCrawl's own checks (title and meta length, slow pages). Duplicate Content and Thin Content are noisy on Elementor sites, so treat them as hints, not list items.
 - **Speed:** seo-performance measures it (PageSpeed Insights + CrUX field data); engineering fixes go to the Web Team List. `response_time_ms` shows slow server responses.

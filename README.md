@@ -277,6 +277,35 @@ each timeline date, two-column lists only when long, check lists in two panels, 
 - **One dated folder per run** (`Reports/<YYYY-MM-DD>/`), **PDF only** (no Word file, no Google Docs; the sign-in no
   longer asks for Drive).
 
+**2.3.0:**
+- **Execute checks the Questions sheet first:** answers filled into the newest sheet are imported; when nothing is
+  answered it asks whether to continue without them (`ignore_unanswered=true`) before planning anything.
+- **The booking engine is always right:** what its `/search` page shows beats the site, Booking.com and the hotel's
+  own answers (the Questions sheet included), and is never asked. A hotel answer that contradicts it is shown as
+  "correct it in Mirai first"; the site follows the engine.
+- **Alt text for every image:** `alt_text_worklist` lists each image without alt once and downloads it; Claude looks at
+  each one and writes its own alt (`alt_text_batch` / `alt_text_fill`), `alt_text_check` lints them and puts them in
+  the Audit Report for execute. Execute writes the alt into the `<img>` tag itself for images placed in widget HTML or
+  post content, reads update-media's per-image result (a refused image is no longer logged as done) and keeps going
+  past one refused image.
+- **Agency Fix List kept to what no tool can do:** heading levels, generic "view more" links, missing link-preview
+  images, titles / metas / alt to write and duplicate fixes no longer reach the agency; new copy goes in with
+  `insert_text` (Meta MCP 1.7 `elementor-insert-element`); a finding with no action is "Still to run" for MetaHotels
+  unless an agent marks it `manual` with why; listings outside the website are owner `metahotels`; inline flag icons
+  are one Web Team item.
+- **Fewer parked text edits:** `find-text` and `resolve-url` count as read tools (the planner could not call them);
+  maps move through the Google Maps widget's own setting (`elementor_widget`); a phone becomes a `tel:` link without
+  touching the schema (`phone_link`); a schema snippet for a page the lookup can't place uses the page URL as its
+  condition; an FAQ price can be taken out (never written); translations of a changed page are listed to rewrite
+  natively.
+- **Redirects with Rank Math:** with Meta MCP 1.7 the redirect tools work with Rank Math → Redirections as well as the
+  Redirection plugin. Execute's undo now finds the redirects it created and deletes them in the same manager; a site
+  with neither goes to the Chrome batch at planning time.
+- **Business Profile:** Lodging updates (amenities, check-in / out) send the `metadata.updateTime` Google requires.
+
+**Needs Meta MCP 1.7.0 on each site** (Rank Math redirects, `elementor-insert-element`, and results Python clients
+can read: `create-post` / `update-post` no longer fail on an empty `applied`).
+
 Run `/hotel-seo init` (or `hotel-seo-auth`) once: the Google sign-in now includes Business Profile by default and tests
 each Business Profile API; enable the **My Business Lodging API** on the Cloud project if it says so.
 
